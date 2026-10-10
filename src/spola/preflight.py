@@ -1,0 +1,181 @@
+"""Checks run before a pair is added and before every sync run.
+
+These are the barriers in front of rclone that protect the user's files when
+something around the sync is wrong rather than the sync itself: a folder that
+should never be synced, an unmounted disk, two pairs on the same tree, Koofr
+Desktop still syncing the same folder, names that Koofr would refuse.
+Every check returns a list of Problem; an empty list means "go ahead".
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import unicodedata
+from dataclasses import dataclass
+from pathlib import Path
+
+from .config import Config, Pair, normalize_remote
+from .i18n import _
+
+# Koofr limits (koofr.eu help pages): 255 characters per name, 1023 per path,
+# nothing outside the Unicode Basic Multilingual Plane (most emoji).
+KOOFR_MAX_NAME = 255
+KOOFR_MAX_PATH = 1023
+
+# Inside the home folder, trees that hold the system's and other apps' state.
+# A pair rooted in, or containing, one of these could wreck the session.
+PROTECTED_IN_HOME = (".var", ".local", ".config", ".cache", ".ssh", ".gnupg",
+                     ".pki", ".mozilla", ".steam", ".koofr", ".koofr-dist")
+
+# Outside home, only these trees are acceptable roots (removable media, mounts).
+ALLOWED_OUTSIDE_HOME = ("/run/media", "/media", "/mnt")
+
+
+@dataclass(frozen=True)
+class Problem:
+    code: str
+    message: str
+    path: str = ""
+
+
+def _real(path: str) -> str:
+    return os.path.realpath(os.path.abspath(path))
+
+
+def _is_within(child: str, parent: str) -> bool:
+    child, parent = child.rstrip("/") or "/", parent.rstrip("/") or "/"
+    return child == parent or child.startswith(parent + "/") or parent == "/"
+
+
+def home_dir(environ=None) -> str:
+    environ = os.environ if environ is None else environ
+    return _real(environ.get("HOME") or os.path.expanduser("~"))
+
+
+def check_local_root(path: str, home: str | None = None) -> list[Problem]:
+    """May this folder be the local side of a pair?"""
+    home = _real(home or home_dir())
+    if not os.path.isabs(path):
+        return [Problem("not-absolute", _("The folder path must be absolute."), path)]
+    if os.path.islink(path.rstrip("/") or "/"):
+        return [Problem("symlink-root", _("The folder is a symbolic link: choose the folder it points to."), path)]
+    real = _real(path)
+    if not os.path.isdir(real):
+        return [Problem("missing", _("The folder does not exist."), path)]
+
+    if _is_within(home, real):
+        # "/" , "/var", "/var/home", the home folder itself...
+        return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]
+    if _is_within(real, home):
+        rel = os.path.relpath(real, home).split("/")[0]
+        if rel in PROTECTED_IN_HOME:
+            return [Problem("protected", _("This folder holds settings and data of the system or of other apps and cannot be synced."), path)]
+        return []
+    if any(_is_within(real, allowed) and real.rstrip("/") != allowed for allowed in ALLOWED_OUTSIDE_HOME):
+        return []
+    return [Problem("outside-home", _("Only folders inside your home folder or on removable drives can be synced."), path)]
+
+
+def check_overlap(local: str, remote: str, cfg: Config, ignore_id: str | None = None) -> list[Problem]:
+    """A new pair must not be inside, or contain, another pair, on either side."""
+    problems = []
+    real = _real(local)
+    remote = normalize_remote(remote)
+    for other in cfg.pairs:
+        if other.id == ignore_id:
+            continue
+        other_real = _real(other.local)
+        if _is_within(real, other_real) or _is_within(other_real, real):
+            problems.append(Problem("local-overlap", _("This folder overlaps with the folder of another pair."), other.local))
+        if _is_within(remote, other.remote) or _is_within(other.remote, remote):
+            problems.append(Problem("remote-overlap", _("This Koofr folder overlaps with the Koofr folder of another pair."), other.remote))
+    return problems
+
+
+def koofr_desktop_syncs(config_path: Path) -> list[dict]:
+    """The folder pairs configured in Koofr Desktop (~/.koofr/config.json)."""
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    syncs = []
+    for user in (data.get("users") or {}).values():
+        for s in user.get("syncs") or []:
+            if isinstance(s, dict) and s.get("localPath"):
+                syncs.append(s)
+    return syncs
+
+
+def check_koofr_desktop(local: str, config_path: Path) -> list[Problem]:
+    """Two sync engines on the same tree is the quickest way to lose files:
+    refuse a folder that Koofr Desktop is still syncing (not paused)."""
+    problems = []
+    real = _real(local)
+    for s in koofr_desktop_syncs(config_path):
+        if s.get("paused"):
+            continue
+        theirs = _real(s["localPath"])
+        if _is_within(real, theirs) or _is_within(theirs, real):
+            problems.append(Problem(
+                "koofr-desktop",
+                _("Koofr Desktop is syncing this folder. Pause or remove that sync in Koofr Desktop first."),
+                s["localPath"]))
+    return problems
+
+
+def check_root_identity(pair: Pair) -> list[Problem]:
+    """Before every run: is the local root still the very folder we paired?"""
+    try:
+        st = os.stat(pair.local, follow_symlinks=False)
+    except FileNotFoundError:
+        return [Problem("root-missing", _("The local folder is missing. If it is on a drive, connect it."), pair.local)]
+    except OSError as e:
+        return [Problem("root-unreadable", _("The local folder cannot be read: {error}").format(error=e.strerror), pair.local)]
+    if not os.path.isdir(pair.local) or os.path.islink(pair.local):
+        return [Problem("root-not-dir", _("The local path is no longer a folder."), pair.local)]
+    if pair.root_dev is not None and (st.st_dev, st.st_ino) != (pair.root_dev, pair.root_ino):
+        return [Problem("root-replaced", _("The local folder was replaced by a different one (another drive, or deleted and recreated). Sync is stopped to protect your files."), pair.local)]
+    return []
+
+
+def root_identity(path: str) -> tuple[int, int]:
+    st = os.stat(path, follow_symlinks=False)
+    return st.st_dev, st.st_ino
+
+
+def _non_bmp(name: str) -> bool:
+    return any(ord(ch) > 0xFFFF for ch in name)
+
+
+def scan_names(root: str, remote_root: str = "/", limit: int = 200,
+               skip=lambda rel: False) -> list[Problem]:
+    """Names that Koofr would refuse, and names that collide on Koofr because
+    it does not tell upper and lower case apart. One failed upload is a
+    critical error for bisync, so these are found before the first run."""
+    problems: list[Problem] = []
+    remote_prefix = len(normalize_remote(remote_root).rstrip("/"))
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        dirnames[:] = [d for d in dirnames if not skip(os.path.join(rel_dir, d) + "/")]
+        seen: dict[str, str] = {}
+        for name in dirnames + filenames:
+            rel = os.path.join(rel_dir, name)
+            if skip(rel):
+                continue
+            if _non_bmp(name):
+                problems.append(Problem("emoji", _("Koofr does not accept emoji and similar characters in names."), rel))
+            if len(name) > KOOFR_MAX_NAME:
+                problems.append(Problem("long-name", _("The name is longer than the 255 characters Koofr accepts."), rel))
+            if remote_prefix + 1 + len(rel) > KOOFR_MAX_PATH:
+                problems.append(Problem("long-path", _("The path is longer than the 1023 characters Koofr accepts."), rel))
+            key = unicodedata.normalize("NFC", name).casefold()
+            if key in seen:
+                problems.append(Problem("case-collision", _("Koofr does not tell upper and lower case apart: this name collides with “{other}”.").format(other=seen[key]), rel))
+            else:
+                seen[key] = name
+            if len(problems) >= limit:
+                return problems
+    return problems
