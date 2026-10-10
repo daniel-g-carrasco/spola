@@ -81,13 +81,14 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
             path2_override: str | None = None) -> Job:
     """`path2_override` replaces the Koofr side with another path (tests run
     bisync between two local folders); it is never set by the app."""
-    problems = check_root_identity(pair)
+    workdir = paths.workdir(pair.id)
+    known = (listings.load(workdir, 1) or []) if listings.find(workdir, 1) else []
+    problems = check_root_identity(pair, [e.path for e in known[:50]])
     if problems:
         raise NotReady(problems)
     if mode is Mode.SYNC and not pair.initialized:
         raise NotReady([Problem("not-initialized", "the first alignment has not been confirmed yet", pair.local)])
 
-    workdir = paths.workdir(pair.id)
     workdir.mkdir(parents=True, exist_ok=True)
     ensure_filters(paths, pair)
     # One backup folder per run: a file replaced twice keeps both old copies.

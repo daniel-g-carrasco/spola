@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -166,10 +167,12 @@ def write_marker(pair: Pair) -> None:
         f.write(f"{pair.id}\n")
 
 
-def check_root_identity(pair: Pair) -> list[Problem]:
+def check_root_identity(pair: Pair, known_entries: Iterable[str] = ()) -> list[Problem]:
     """Before every run: is the local root still the very folder we paired?
-    The marker decides; a root paired before markers existed gets one now,
-    as long as its device and inode are still the ones recorded."""
+    The marker decides. A root paired before markers existed gets one now,
+    if its device and inode are still the ones recorded and, when the last
+    listing is known, at least one of its entries is there: a folder
+    recreated empty in the same place can get the same inode number back."""
     try:
         st = os.stat(pair.local, follow_symlinks=False)
     except FileNotFoundError:
@@ -189,6 +192,9 @@ def check_root_identity(pair: Pair) -> list[Problem]:
     if marker is not None:
         return [] if marker == pair.id else [replaced]
     if pair.root_dev is not None and (st.st_dev, st.st_ino) != (pair.root_dev, pair.root_ino):
+        return [replaced]
+    known = list(known_entries)
+    if known and not any(os.path.lexists(os.path.join(pair.local, rel)) for rel in known):
         return [replaced]
     try:
         write_marker(pair)

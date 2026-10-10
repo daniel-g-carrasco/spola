@@ -116,6 +116,14 @@ class RootIdentityTest(unittest.TestCase):
             self.assertEqual(codes(check_root_identity(pair)), ["root-missing"])
             root.mkdir()
             self.assertEqual(codes(check_root_identity(pair)), ["root-replaced"])
+            # a pair from before markers, recreated empty with the inode reused (ext4):
+            # the last listing says what should be there
+            (root / ".spola-root").unlink(missing_ok=True)
+            fresh = Pair("p", str(root), "/x", *(), root_dev=None, root_ino=None)
+            self.assertEqual(codes(check_root_identity(fresh, known_entries=["file", "sub/x"])), ["root-replaced"])
+            (root / "file").write_text("back")
+            self.assertEqual(check_root_identity(fresh, known_entries=["file", "sub/x"]), [])
+            self.assertTrue((root / ".spola-root").exists())
             # another pair's folder is not this pair's folder either
             (root / ".spola-root").write_text("other\n")
             self.assertEqual(codes(check_root_identity(pair)), ["root-replaced"])
