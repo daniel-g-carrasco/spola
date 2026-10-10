@@ -463,4 +463,6 @@ Prove automatiche con rclone 1.74.3 tra due cartelle locali (`tests/test_bisync_
 - un giro interrotto con SIGINT si riprende al giro successivo senza riparazione;
 - l'icona del tray non emette `NewIcon` a riposo e riduce 40 cambi rapidi a pochi segnali (`tests/test_tray.py`, bus D-Bus privato).
 
+Misura su Koofr vero, in sola lettura (2026-10-10, `data/technology`, cartella sincronizzata da Koofr Desktop): 287 file su entrambi i lati, nessuna differenza di dimensione né di MD5, date di modifica uguali entro 1 ms su tutti i file. Koofr Desktop conserva quindi le date, e il primo allineamento di una cartella già sincronizzata non dovrebbe ricaricare nulla. L'elenco completo su Koofr ha richiesto 2,0 secondi per 112 cartelle: senza elenco ricorsivo rapido il tempo cresce con il numero di cartelle, quindi va misurato su `data/work` (8.308 cartelle) prima di fissare l'intervallo del controllo remoto.
+
 Da verificare con Koofr vero, sulla cartella di test: accesso con password per applicazioni, date di modifica e hash MD5 sul lato Koofr, cestino di Koofr per le cancellazioni fatte da rclone, formato del link "Apri su Koofr" (oggi `https://app.koofr.net/app/storage/?path=...`, da controllare), tempi di elenco; icona del tray in Noctalia e nell'estensione AppIndicator con l'app avviata dai sorgenti.
