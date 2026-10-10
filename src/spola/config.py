@@ -60,6 +60,17 @@ class Config:
     nautilus_integration: bool = False
     autostart: bool = True               # start at login, in the background
     conflict_language: str = ""          # "" = desktop language; "en", "it"
+    upload_limit_kb: int = 0             # KiB/s to Koofr, 0 = no limit
+    download_limit_kb: int = 0           # KiB/s from Koofr, 0 = no limit
+
+    @property
+    def bwlimit(self) -> str | None:
+        """rclone's --bwlimit value, "upload:download", or None."""
+        if not self.upload_limit_kb and not self.download_limit_kb:
+            return None
+        up = f"{int(self.upload_limit_kb)}k" if self.upload_limit_kb else "off"
+        down = f"{int(self.download_limit_kb)}k" if self.download_limit_kb else "off"
+        return f"{up}:{down}"
 
     def pair(self, pair_id: str) -> Pair | None:
         return next((p for p in self.pairs if p.id == pair_id), None)

@@ -118,7 +118,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         force=force,
         exclude_from=exclude_file,
         conflict_suffix=conflict_suffix(*conflict_words(cfg.conflict_language)),
-        bwlimit=os.environ.get("SPOLA_DEV_BWLIMIT") or None,   # developer aid: slow runs down
+        bwlimit=os.environ.get("SPOLA_DEV_BWLIMIT") or cfg.bwlimit,   # the env is a developer aid
         user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)

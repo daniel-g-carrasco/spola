@@ -168,6 +168,8 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(args[args.index("--conflict-suffix") + 1], "a-{DateOnly}-,b-{DateOnly}-")
         self.assertEqual(args[args.index("--conflict-loser") + 1], "num")     # never "pathname"
         self.assertEqual(args[args.index("--checkers") + 1], "16")
+        args = bisync_args("rclone", request(bwlimit="500k:off"))
+        self.assertEqual(args[args.index("--bwlimit") + 1], "500k:off")
         args = bisync_args("rclone", request(user_agent="Spola/0.1.0 (abcd1234)"))
         self.assertEqual(args[args.index("--user-agent") + 1], "Spola/0.1.0 (abcd1234)")
 
