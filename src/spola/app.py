@@ -52,6 +52,7 @@ class SpolaApp(Adw.Application):
         self.engine.uninhibit = self.uninhibit
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", lambda *_: self._refresh_tray())
+        self.engine.connect("status-changed", lambda *_: self._refresh_tray())
         self.engine.connect("attention", self._on_attention)
         self._load_credentials()
 
