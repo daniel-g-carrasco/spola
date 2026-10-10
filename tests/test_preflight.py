@@ -115,7 +115,9 @@ class RootIdentityTest(unittest.TestCase):
             shutil.rmtree(root)
             self.assertEqual(codes(check_root_identity(pair)), ["root-missing"])
             root.mkdir()
-            self.assertEqual(codes(check_root_identity(pair)), ["root-replaced"])
+            # the runs always pass the last listing: an empty folder is not the paired one,
+            # whatever inode number the filesystem gives it (ext4 reuses them at once)
+            self.assertEqual(codes(check_root_identity(pair, known_entries=["file"])), ["root-replaced"])
             # a pair from before markers, recreated empty with the inode reused (ext4):
             # the last listing says what should be there
             (root / ".spola-root").unlink(missing_ok=True)
