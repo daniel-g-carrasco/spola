@@ -108,11 +108,37 @@ def koofr_desktop_syncs(config_path: Path) -> list[dict]:
     return syncs
 
 
-def check_koofr_desktop(local: str, config_path: Path) -> list[Problem]:
+KOOFR_DESKTOP_PROCESSES = ("storagegui", "storagesync")
+
+
+def koofr_desktop_active(autostart_dir: Path | None = None) -> bool:
+    """Is Koofr Desktop running, or set to start at the next login? Either
+    way it would sync its folders again."""
+    try:
+        for entry in os.scandir("/proc"):
+            if entry.name.isdigit():
+                try:
+                    with open(f"/proc/{entry.name}/comm", encoding="utf-8", errors="replace") as f:
+                        if f.read().strip() in KOOFR_DESKTOP_PROCESSES:
+                            return True
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    autostart_dir = autostart_dir or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart"
+    return (autostart_dir / "koofr.desktop").exists()
+
+
+def check_koofr_desktop(local: str, config_path: Path, active: bool | None = None) -> list[Problem]:
     """Two sync engines on the same tree is the quickest way to lose files:
-    refuse a folder that Koofr Desktop is still syncing (not paused)."""
+    refuse a folder that Koofr Desktop still syncs (not paused), as long as
+    Koofr Desktop runs or is set to start at login."""
     problems = []
     real = _real(local)
+    if active is None:
+        active = koofr_desktop_active()
+    if not active:
+        return problems
     for s in koofr_desktop_syncs(config_path):
         if s.get("paused"):
             continue

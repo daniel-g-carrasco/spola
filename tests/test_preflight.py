@@ -82,11 +82,21 @@ class KoofrDesktopTest(unittest.TestCase):
                 {"localPath": f"{tmp}/data/work", "remotePath": "/data/work", "paused": False},
                 {"localPath": f"{tmp}/data/imports", "remotePath": "/data/imports", "paused": True},
             ]}}}))
-            self.assertEqual(codes(check_koofr_desktop(f"{tmp}/data/work", conf)), ["koofr-desktop"])
-            self.assertEqual(codes(check_koofr_desktop(f"{tmp}/data", conf)), ["koofr-desktop"])
-            self.assertEqual(check_koofr_desktop(f"{tmp}/data/imports", conf), [])
-            self.assertEqual(check_koofr_desktop(f"{tmp}/data/other", conf), [])
-            self.assertEqual(check_koofr_desktop(f"{tmp}/data/work", Path(tmp) / "missing.json"), [])
+            self.assertEqual(codes(check_koofr_desktop(f"{tmp}/data/work", conf, active=True)), ["koofr-desktop"])
+            self.assertEqual(codes(check_koofr_desktop(f"{tmp}/data", conf, active=True)), ["koofr-desktop"])
+            self.assertEqual(check_koofr_desktop(f"{tmp}/data/imports", conf, active=True), [])
+            self.assertEqual(check_koofr_desktop(f"{tmp}/data/other", conf, active=True), [])
+            self.assertEqual(check_koofr_desktop(f"{tmp}/data/work", Path(tmp) / "missing.json", active=True), [])
+            # Koofr Desktop stopped and not starting at login: its folders are free
+            self.assertEqual(check_koofr_desktop(f"{tmp}/data/work", conf, active=False), [])
+
+    def test_koofr_desktop_autostart_counts_as_active(self):
+        from spola.preflight import koofr_desktop_active
+        with tempfile.TemporaryDirectory() as tmp:
+            running = koofr_desktop_active(Path(tmp))        # depends on this machine
+            (Path(tmp) / "koofr.desktop").write_text("[Desktop Entry]\n")
+            self.assertTrue(koofr_desktop_active(Path(tmp)))
+            self.assertIsInstance(running, bool)
 
 
 class RootIdentityTest(unittest.TestCase):
