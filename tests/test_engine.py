@@ -17,7 +17,7 @@ from gi.repository import GLib
 from spola import engine as engine_mod
 from spola.account import Credentials
 from spola.config import Config, Pair
-from spola.engine import Engine, Status
+from spola.engine import Engine, Status, conflict_name_pattern, slept
 from spola.paths import Paths
 from spola.preflight import root_identity
 from spola.rclone import Mode, Result
@@ -135,6 +135,21 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("later.txt", self.remote_files())
         self.engine.set_paused("p1", False)
         self.assertTrue(spin_until(lambda: "later.txt" in self.remote_files(), 30))
+
+
+class HelpersTest(unittest.TestCase):
+    def test_resume_detection(self):
+        self.assertFalse(slept(60.2, 60.0))
+        self.assertFalse(slept(3600, 3600))          # a long uptime is not a sleep
+        self.assertTrue(slept(60 + 1800, 60))        # half an hour suspended
+
+    def test_conflict_names(self):
+        pattern = conflict_name_pattern()
+        for name in ("doc.conflict1.odt", "a/doc.conflict-local-2026-10-10-1.odt",
+                     "doc.conflict-koofr-2026-10-10-12", "x.conflict2"):
+            self.assertTrue(pattern.search(name), name)
+        for name in ("doc.odt", "report-2026-10-10.pdf", "conflict.txt", "a.conflict-other-2026-10-10-1.odt"):
+            self.assertFalse(pattern.search(name), name)
 
 
 if __name__ == "__main__":

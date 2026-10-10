@@ -117,8 +117,16 @@ class BisyncScenarios(unittest.TestCase):
         out = self.bisync()
         self.assertIs(out.result, Result.OK, out.message)
         self.assertEqual(out.plan.conflicts, ["doc.odt"])
+        today = time.strftime("%Y-%m-%d")
         self.assertEqual([f for f in self.files(self.local) if not f.startswith("keep")],
-                         ["doc.conflict1.odt", "doc.conflict2.odt", "notes.txt"])
+                         [f"doc.conflict-koofr-{today}-1.odt", f"doc.conflict-local-{today}-1.odt", "notes.txt"])
+        self.assertEqual((self.local / f"doc.conflict-local-{today}-1.odt").read_text(), "edited here")
+        # a second conflict on the same file, the same day, keeps the first copies
+        self.write(self.local, "doc.odt", "second edit here")
+        self.write(self.remote, "doc.odt", "second edit on Koofr!")
+        self.assertIs(self.bisync().result, Result.OK)
+        conflicts = [f for f in self.files(self.local) if f.startswith("doc.conflict")]
+        self.assertEqual(len(conflicts), 4, conflicts)
         self.assertEqual(self.files(self.local), self.files(self.remote))
         self.assertEqual((self.remote / "notes.txt").read_text(), "only here changed")
 
@@ -167,6 +175,16 @@ class BisyncScenarios(unittest.TestCase):
         out = self.bisync()
         self.assertIn(out.result, (Result.NEEDS_REPAIR, Result.NEEDS_CONFIRMATION))
         self.assertEqual(self.files(self.local), ["f0.txt", "f1.txt", "f2.txt"])
+
+    def test_default_exclusions(self):
+        self.write(self.local, "kept.txt", "x")
+        self.write(self.local, "app/node_modules/pkg/index.js", "x")
+        self.write(self.local, ".cache/koofr-staging", "x")
+        self.write(self.local, "sub/.cache/kept-too", "x")
+        self.write(self.local, "~$offerta.docx", "x")
+        self.write(self.local, "Thumbs.db", "x")
+        self.align()
+        self.assertEqual(self.files(self.remote), ["kept.txt", "sub/.cache/kept-too"])
 
     def test_names_koofr_refuses_are_left_out_not_blocking(self):
         for i in range(5):

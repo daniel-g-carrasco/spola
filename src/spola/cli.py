@@ -21,7 +21,7 @@ from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, listin
 from .account import AccountError, Credentials, check
 from .i18n import _, ngettext
 from .paths import Paths
-from .rclone import Mode, Outcome, Result, bisync_args, find_rclone, koofr_env
+from .rclone import Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env
 from .runner import BisyncRun, PairBusy
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync")
@@ -200,7 +200,7 @@ def main(argv: list[str]) -> int:
                     + preflight.check_koofr_desktop(local, Path.home() / ".koofr" / "config.json"))
         if remote == "/":
             problems.append(preflight.Problem("remote-root", _("Choose a folder on Koofr, not the whole Koofr storage."), "/"))
-        problems = problems or preflight.scan_names(local, remote, skip=lambda rel: rel.startswith(("SyncTrash", ".Trash-")))
+        problems = problems or preflight.scan_names(local, remote, skip=default_excluded)
         if problems:
             for p in problems:
                 print(f"- {p.message} {p.path}", file=sys.stderr)

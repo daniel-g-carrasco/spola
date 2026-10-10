@@ -16,7 +16,6 @@ Rules, from docs/progetto.md (5.3, 5.4):
 from __future__ import annotations
 
 import enum
-import fnmatch
 import os
 import re
 import time
@@ -31,17 +30,29 @@ from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, ngettext
 from .paths import Paths
-from .rclone import Event, Kind, Mode, Outcome, Result, bisync_args, find_rclone, koofr_env
+from .rclone import Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
 
 DEBOUNCE_S = 10
 MAX_WAIT_S = 120
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
-CONFLICT_NAME = re.compile(r"\.conflict\d+(\.[^/.]*)?$")
-QUICK_IGNORE = (".~lock.*#", "~$*", "*.part", "*.partial", "*.crdownload", ".goutputstream-*",
-                "*.swp", ".spola-*")
-QUICK_IGNORE_DIRS = ("SyncTrash", ".Trash-*")
+RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
+
+
+def conflict_name_pattern() -> re.Pattern:
+    """Conflict copies, as named now (in this language or in English) and as
+    named by the first versions (name.conflict1.ext)."""
+    words = {w for w in jobs.conflict_words() + ("conflict-local", "conflict-koofr")}
+    alternatives = "|".join(re.escape(w) for w in sorted(words))
+    return re.compile(rf"\.(?:conflict\d+|(?:{alternatives})-\d{{4}}-\d{{2}}-\d{{2}}-\d+)(?:\.[^/.]*)?$")
+
+
+def slept(wall_elapsed: float, monotonic_elapsed: float) -> bool:
+    """The monotonic clock stops while the machine is suspended, the wall
+    clock does not: a gap between the two means we just woke up. Works in the
+    sandbox and under any desktop, unlike logind's PrepareForSleep."""
+    return wall_elapsed - monotonic_elapsed > RESUME_GAP_S
 
 
 class Status(enum.IntEnum):
@@ -59,12 +70,9 @@ class Status(enum.IntEnum):
 
 
 def quick_ignore(rel: str) -> bool:
-    """Changes that never deserve a run (temporary files, trash folders).
-    The real exclusions are rclone's filters; this only avoids pointless runs."""
-    parts = rel.strip("/").split("/")
-    if any(fnmatch.fnmatch(parts[0], pat) for pat in QUICK_IGNORE_DIRS):
-        return True
-    return any(fnmatch.fnmatch(parts[-1], pat) for pat in QUICK_IGNORE)
+    """Changes that never deserve a run: what the default filters leave out
+    (temporary files, trash folders, node_modules...)."""
+    return default_excluded(rel)
 
 
 @dataclass
@@ -118,6 +126,7 @@ class Engine(GObject.Object):
         # Developer aid: the "Koofr" side becomes a local folder, so every flow
         # of the app can be tried without an account. Never set in the Flatpak.
         self.dev_remote = os.environ.get("SPOLA_DEV_REMOTE") or None
+        self._conflict_name = conflict_name_pattern()
         self.runtime: dict[str, PairRuntime] = {p.id: PairRuntime() for p in cfg.pairs}
         self.queue: list[Task] = []
         self.active: Task | None = None
@@ -140,8 +149,18 @@ class Engine(GObject.Object):
             self._setup_pair(pair)
         self._reschedule_poll()
         GLib.timeout_add_seconds(3, self._initial_runs)
+        self._clock = (time.time(), time.monotonic())
+        GLib.timeout_add_seconds(60, self._check_clock)
         GLib.timeout_add_seconds(60, self._prune_backups)
         GLib.timeout_add_seconds(24 * 3600, self._prune_backups)
+
+    def _check_clock(self) -> bool:
+        wall, mono = time.time(), time.monotonic()
+        if slept(wall - self._clock[0], mono - self._clock[1]):
+            self.sync_all("resume")
+            self._on_conditions()
+        self._clock = (wall, mono)
+        return True
 
     def _initial_runs(self) -> bool:
         self.sync_all("startup")
@@ -521,6 +540,8 @@ class Engine(GObject.Object):
                 GLib.source_remove(rt.retry_source)
             rt.retry_source = GLib.timeout_add_seconds(delay * 60, self._retry, pair.id)
             message = outcome.message or _("The sync stopped with an error.")
+            if outcome.network:
+                message = _("Koofr cannot be reached right now: trying again in {n} min.").format(n=delay)
             self._set_status(pair, rt, Status.ERROR, message)
             if rt.retries == 3:
                 self.emit("attention", pair.id, "error", message)
@@ -534,7 +555,7 @@ class Engine(GObject.Object):
 
     def _update_conflicts(self, pair: Pair, rt: PairRuntime) -> None:
         entries = listings.load(self.paths.workdir(pair.id), 1) if pair.initialized else None
-        rt.conflicts = [e.path for e in entries or [] if not e.is_dir and CONFLICT_NAME.search(e.path)]
+        rt.conflicts = [e.path for e in entries or [] if not e.is_dir and self._conflict_name.search(e.path)]
 
     def _follow_up(self, pair: Pair, rt: PairRuntime, outcome: Outcome) -> None:
         """Changes seen while rclone ran: ignore the ones rclone made itself."""
@@ -543,7 +564,7 @@ class Engine(GObject.Object):
             touched.add(name)
         parents = {os.path.dirname(p) for p in touched}
         foreign = {rel for rel in rt.changed_during_run
-                   if rel not in touched and rel not in parents and not CONFLICT_NAME.search(rel)}
+                   if rel not in touched and rel not in parents and not self._conflict_name.search(rel)}
         rt.changed_during_run.clear()
         if foreign:
             self._schedule_debounced(pair, rt)

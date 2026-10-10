@@ -17,7 +17,7 @@ from . import account, preflight, secrets  # noqa: E402
 from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
-from .rclone import DEFAULT_FILTERS, Mode, Outcome, Result  # noqa: E402
+from .rclone import Mode, Outcome, Result, default_excluded  # noqa: E402
 
 PREVIEW_LIMIT = 300
 
@@ -494,12 +494,6 @@ class AddPairDialog(Adw.Dialog):
             return
         self.add_button.set_sensitive(False)
         self.add_button.set_label(_("Checking names…"))
-        skip_dirs = [line[2:].rstrip("*").rstrip("/") for line in DEFAULT_FILTERS.splitlines()
-                     if line.startswith("- ") and line.endswith("/**")]
-
-        def skip(rel):
-            return any(rel.startswith(d.rstrip("*")) for d in skip_dirs)
-
         def done(found, error):
             self.add_button.set_label(_("Add"))
             self._validate()
@@ -513,7 +507,7 @@ class AddPairDialog(Adw.Dialog):
             self.close()
             self.window.open_preview(pair.id)
 
-        run_in_thread(lambda: preflight.scan_names(local, remote, skip=skip), done)
+        run_in_thread(lambda: preflight.scan_names(local, remote, skip=default_excluded), done)
 
 
 class PreviewDialog(Adw.Dialog):
