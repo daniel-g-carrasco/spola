@@ -84,6 +84,18 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK))
         self.assertEqual(len(self.remote_files()), 30)
 
+    def test_sign_in_and_out_change_the_overall_status_without_pairs(self):
+        # with no pair, nothing else would tell the tray that the account changed
+        self.engine.remove_pair("p1")
+        seen = []
+        self.engine.connect("status-changed", lambda _e: seen.append(self.engine.creds))
+        self.engine.set_credentials(None)
+        self.engine.set_credentials(Credentials("dev", ""))
+        self.engine.set_paused_all(True)
+        self.assertEqual(len(seen), 3)
+        self.assertIsNone(seen[0])
+        self.engine.set_paused_all(False)
+
     def test_never_runs_on_its_own_before_alignment(self):
         self.engine.sync_all("poll")
         spin_until(lambda: False, 2)

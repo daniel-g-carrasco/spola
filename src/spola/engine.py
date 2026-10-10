@@ -99,6 +99,9 @@ class Engine(GObject.Object):
     __gsignals__ = {
         "pair-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         "pairs-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # account, global pause or network conditions changed: the overall
+        # status may change even when there is no pair to report it
+        "status-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
         # (pair id, kind, message): something the user should know about
         "attention": (GObject.SignalFlags.RUN_FIRST, None, (str, str, str)),
     }
@@ -251,6 +254,7 @@ class Engine(GObject.Object):
             rt = self.runtime[pair.id]
             if not rt.run:
                 self._set_status(pair, rt, self._idle_status(pair, rt))
+        self.emit("status-changed")
 
     def set_credentials(self, creds: Credentials | None) -> None:
         self.creds = creds
@@ -260,6 +264,7 @@ class Engine(GObject.Object):
             rt = self.runtime[pair.id]
             if not rt.run:
                 self._set_status(pair, rt, self._idle_status(pair, rt))
+        self.emit("status-changed")
 
     # -- status ----------------------------------------------------------------
 
@@ -577,3 +582,4 @@ class Engine(GObject.Object):
             rt = self.runtime[pair.id]
             if rt.run is None:
                 self._set_status(pair, rt, self._idle_status(pair, rt))
+        self.emit("status-changed")
