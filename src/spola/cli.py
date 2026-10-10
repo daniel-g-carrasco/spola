@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import os
 import sys
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from .rclone import Mode, Outcome, Result, bisync_args, default_excluded, find_r
 from .runner import BisyncRun, PairBusy
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync")
+# Developer aid, as in the app: the Koofr side becomes a local folder
+DEV_REMOTE = os.environ.get("SPOLA_DEV_REMOTE") or None
 
 
 def _app_running() -> bool:
@@ -46,6 +49,8 @@ def _fail(message: str) -> int:
 
 def _credentials(cfg: config.Config, rclone: str) -> Credentials | None:
     from . import secrets
+    if DEV_REMOTE:
+        return Credentials("dev@localhost", "")
     password = secrets.lookup(cfg.user) if cfg.user else None
     return Credentials.from_password(cfg.user, password, rclone) if password else None
 
@@ -82,8 +87,12 @@ def _print_plan(outcome: Outcome) -> None:
 
 
 def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quiet=False) -> Outcome | None:
+    override = None
+    if DEV_REMOTE:
+        override = os.path.join(DEV_REMOTE, pair.remote.lstrip("/"))
+        os.makedirs(override, exist_ok=True)
     try:
-        job = jobs.prepare(cfg, pair, paths, mode, dry_run, force)
+        job = jobs.prepare(cfg, pair, paths, mode, dry_run, force, path2_override=override)
     except jobs.NotReady as e:
         _fail(e.problems[0].message)
         return None

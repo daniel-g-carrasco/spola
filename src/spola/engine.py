@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from gi.repository import Gio, GLib, GObject
 
 from . import config as config_mod
+from . import conflicts as conflicts_mod
 from . import jobs, koofr_api, listings
 from .account import Credentials
 from .config import Config, Pair
@@ -395,6 +396,27 @@ class Engine(GObject.Object):
         rt = self.runtime.get(pair_id)
         if rt and rt.run and rt.run.running:
             rt.run.cancel()
+
+    def conflicts(self, pair_id: str) -> list[conflicts_mod.Conflict]:
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return []
+        return conflicts_mod.group(rt.conflicts, pair.local)
+
+    def resolve_conflict(self, pair_id: str, conflict: conflicts_mod.Conflict, choice: str) -> None:
+        """Local file operations only; the next run carries them to Koofr.
+        Refused while a run of the pair is in progress."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return
+        if rt.run is not None and not (rt.task and rt.task.dry_run):
+            raise conflicts_mod.ResolveError(_("Wait for the current sync to finish."))
+        conflicts_mod.resolve(pair.local, conflict, choice)
+        gone = {c.path for c in conflict.copies}
+        rt.conflicts = [p for p in rt.conflicts if p not in gone]
+        if rt.run is None:
+            self._set_status(pair, rt, self._idle_status(pair, rt))
+        self.request_sync(pair_id, "conflict-resolved")
 
     def _enqueue(self, task: Task, front: bool = False) -> None:
         duplicate = any(t.pair_id == task.pair_id and t.mode == task.mode and not t.dry_run and not task.dry_run

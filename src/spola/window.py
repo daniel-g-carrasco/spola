@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -12,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
-from . import account, koofr_api, preflight, secrets  # noqa: E402
+from . import account, conflicts, koofr_api, preflight, secrets  # noqa: E402
 from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
@@ -72,6 +73,17 @@ def progress_text(stats: dict | None) -> str:
 def display_path(path: str) -> str:
     home = str(Path.home())
     return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+
+
+def reveal(window, path: str) -> None:
+    """Show the file in the file manager, selected (the OpenURI portal's
+    OpenDirectory inside the sandbox)."""
+    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(window, None, None, None)
+
+
+def file_details(copy: conflicts.Copy) -> str:
+    when = GLib.DateTime.new_from_unix_local(int(copy.mtime)).format("%d %b %H:%M")
+    return f"{GLib.format_size(copy.size)} \u00b7 {when}"
 
 
 def run_in_thread(work, done) -> None:
@@ -274,6 +286,19 @@ class MainWindow(Adw.ApplicationWindow):
 
     # -- previews and confirmations ----------------------------------------------------
 
+    def review(self, pair_id: str) -> None:
+        """Whatever the pair needs a look at: a preview to confirm, the
+        conflicts, the files left out."""
+        rt = self.engine.runtime.get(pair_id)
+        if rt is None:
+            return
+        if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+            self.open_preview(pair_id)
+        elif rt.conflicts:
+            ConflictsDialog(self, pair_id).present(self)
+        elif rt.refused:
+            LeftOutDialog(self, pair_id).present(self)
+
     def open_preview(self, pair_id: str) -> None:
         """The right preview for the pair's state: first alignment, repair,
         or confirming a run that stopped on a safety check."""
@@ -314,12 +339,15 @@ class PairRow(Adw.ActionRow):
         for name, handler in (("sync", self._sync_now), ("pause", self._toggle_pause),
                               ("preview", self._preview), ("open", self._open_local),
                               ("open-web", self._open_web), ("remove", self._remove),
+                              ("conflicts", lambda: ConflictsDialog(self.window, self.pair_id).present(self.window)),
+                              ("left-out", lambda: LeftOutDialog(self.window, self.pair_id).present(self.window)),
                               ("stop", lambda: self.engine.stop(self.pair_id))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())
             group.add_action(action)
         self.insert_action_group("pair", group)
         self.actions = group
+        self.connect("activated", lambda *_: self.window.review(self.pair_id))
 
     def update(self) -> None:
         pair = self.engine.cfg.pair(self.pair_id)
@@ -346,9 +374,11 @@ class PairRow(Adw.ActionRow):
         self.set_subtitle("\n".join(lines))
         self.icon.set_from_icon_name(status_icon(rt.status))
 
+        attention = rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED)
+        self.set_activatable(attention or rt.status is Status.NEEDS_SETUP)
         if rt.status is Status.NEEDS_SETUP:
             label, css = _("Align…"), ["suggested-action"]
-        elif rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+        elif attention:
             label, css = _("Review…"), ["suggested-action"]
         elif rt.status is Status.SYNCING:
             label, css = _("Stop"), []
@@ -359,6 +389,10 @@ class PairRow(Adw.ActionRow):
         self.action_button.set_sensitive(self.engine.creds is not None)
 
         menu = Gio.Menu()
+        if rt.conflicts:
+            menu.append(_("Conflicts…"), "pair.conflicts")
+        if rt.refused:
+            menu.append(_("Files Not Synced…"), "pair.left-out")
         menu.append(_("Resume") if pair.paused else _("Pause"), "pair.pause")
         if pair.initialized:
             menu.append(_("Preview Next Sync…"), "pair.preview")
@@ -371,8 +405,9 @@ class PairRow(Adw.ActionRow):
 
     def _primary(self) -> None:
         rt = self.engine.runtime[self.pair_id]
-        if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
-            self.window.open_preview(self.pair_id)
+        if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION,
+                         Status.CONFLICTS, Status.SKIPPED):
+            self.window.review(self.pair_id)
         elif rt.status is Status.SYNCING:
             self.engine.stop(self.pair_id)
         else:
@@ -408,6 +443,95 @@ class PairRow(Adw.ActionRow):
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.connect("response", lambda _d, r: self.engine.remove_pair(self.pair_id) if r == "remove" else None)
         dialog.present(self.window)
+
+
+class ConflictsDialog(Adw.Dialog):
+    """One row per conflict: the original name, the two copies with size and
+    date; the row shows the files in the file manager, the menu decides."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Conflicts"), content_width=560, content_height=520)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        self.page = Adw.PreferencesPage()
+        view.set_content(self.page)
+        self.toasts = Adw.ToastOverlay(child=view)
+        self.set_child(self.toasts)
+        self.group: Adw.PreferencesGroup | None = None
+        self._handler = self.engine.connect("pair-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self._fill()
+
+    def _fill(self) -> None:
+        if self.group is not None:
+            self.page.remove(self.group)
+        items = self.engine.conflicts(self.pair_id)
+        pair = self.engine.cfg.pair(self.pair_id)
+        self.group = Adw.PreferencesGroup(description=_(
+            "These files were changed both here and on Koofr before the two versions met: both are kept. "
+            "Choose which one goes on under the original name; the other one goes to the wastebasket "
+            "here and to Koofr's trash."))
+        if not items:
+            self.group.add(Adw.ActionRow(title=_("No conflicts left.")))
+        for conflict in items:
+            row = Adw.ActionRow(title=GLib.markup_escape_text(conflict.original), title_lines=2,
+                                activatable=True, tooltip_text=_("Show in the file manager"))
+            parts = []
+            if conflict.local:
+                parts.append(_("this computer: {details}").format(details=file_details(conflict.local)))
+            if conflict.koofr:
+                parts.append(_("Koofr: {details}").format(details=file_details(conflict.koofr)))
+            row.set_subtitle(GLib.markup_escape_text(" \u00b7 ".join(parts)))
+            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+            first = conflict.copies[0]
+            row.connect("activated", lambda _r, c=first: reveal(self.window, os.path.join(pair.local, c.path)))
+            group = Gio.SimpleActionGroup()
+            menu = Gio.Menu()
+            for choice, text in (("local", _("Keep This Computer's")), ("koofr", _("Keep Koofr's")),
+                                 ("both", _("Keep Both, Renamed"))):
+                action = Gio.SimpleAction.new(choice, None)
+                action.connect("activate", lambda _a, _p, c=conflict, ch=choice: self._resolve(c, ch))
+                action.set_enabled((choice != "local" or conflict.local is not None)
+                                   and (choice != "koofr" or conflict.koofr is not None))
+                group.add_action(action)
+                menu.append(text, f"conflict.{choice}")
+            row.insert_action_group("conflict", group)
+            button = Gtk.MenuButton(label=_("Resolve"), menu_model=menu, valign=Gtk.Align.CENTER)
+            row.add_suffix(button)
+            self.group.add(row)
+        self.page.add(self.group)
+
+    def _resolve(self, conflict: conflicts.Conflict, choice: str) -> None:
+        try:
+            self.engine.resolve_conflict(self.pair_id, conflict, choice)
+        except (conflicts.ResolveError, OSError) as e:
+            self.toasts.add_toast(Adw.Toast(title=str(e), timeout=6))
+
+
+class LeftOutDialog(Adw.Dialog):
+    """The files a run leaves out because Koofr refuses their names."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Files Not Synced"), content_width=560, content_height=480)
+        engine = window.engine
+        pair, rt = engine.cfg.pair(pair_id), engine.runtime.get(pair_id)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(description=_(
+            "Koofr does not accept these names, so Spola leaves them out and syncs the rest. "
+            "Rename them and they are synced at the next run. Nothing is deleted."))
+        for refused in (rt.refused if rt else []):
+            row = Adw.ActionRow(title=GLib.markup_escape_text(refused.path), title_lines=2, activatable=True,
+                                subtitle=GLib.markup_escape_text(preflight.refused_reason(refused.code)),
+                                subtitle_lines=3, tooltip_text=_("Show in the file manager"))
+            row.add_prefix(Gtk.Image(icon_name="folder-symbolic" if refused.is_dir else "action-unavailable-symbolic"))
+            row.connect("activated", lambda _r, p=refused.path: reveal(window, os.path.join(pair.local, p)))
+            group.add(row)
+        page.add(group)
+        view.set_content(page)
+        self.set_child(view)
 
 
 class AddPairDialog(Adw.Dialog):
