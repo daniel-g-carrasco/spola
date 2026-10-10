@@ -35,6 +35,24 @@ def setup() -> None:
             return
 
 
+def every_translation(message: str) -> set[str]:
+    """The message in English and in every language Spola has a catalogue for:
+    names written to disk in one language must be recognised in all of them."""
+    out = {message}
+    for directory in _locale_dirs():
+        if not directory.is_dir():
+            continue
+        for lang_dir in directory.iterdir():
+            mo = lang_dir / "LC_MESSAGES" / f"{TEXTDOMAIN}.mo"
+            if mo.exists():
+                try:
+                    with open(mo, "rb") as f:
+                        out.add(gettext.GNUTranslations(f).gettext(message))
+                except OSError:
+                    pass
+    return out
+
+
 def _(message: str) -> str:
     return _translation.gettext(message)
 

@@ -183,7 +183,9 @@ class HelpersTest(unittest.TestCase):
 
     def test_conflict_names(self):
         pattern = conflict_name_pattern()
+        # the Italian names too, whatever the language of this process
         for name in ("doc.conflict1.odt", "a/doc.conflict-local-2026-10-10-1.odt",
+                     "a/doc.conflitto-locale-2026-10-10-1.odt", "doc.conflitto-koofr-2026-10-10-2.txt",
                      "doc.conflict-koofr-2026-10-10-12", "x.conflict2"):
             self.assertTrue(pattern.search(name), name)
         for name in ("doc.odt", "report-2026-10-10.pdf", "conflict.txt", "a.conflict-other-2026-10-10-1.odt"):
