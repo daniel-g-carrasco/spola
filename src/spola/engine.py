@@ -29,7 +29,7 @@ from . import config as config_mod
 from . import jobs, listings
 from .account import Credentials
 from .config import Config, Pair
-from .i18n import _
+from .i18n import _, ngettext
 from .paths import Paths
 from .rclone import Event, Kind, Mode, Outcome, Result, bisync_args, find_rclone, koofr_env
 from .runner import BisyncRun, PairBusy
@@ -477,8 +477,9 @@ class Engine(GObject.Object):
             self._update_conflicts(pair, rt)
             if outcome.plan.conflicts:
                 self.emit("attention", pair.id, "conflicts",
-                          _("{n} files were changed both here and on Koofr: both versions are kept.")
-                          .format(n=len(outcome.plan.conflicts)))
+                          ngettext("{n} file was changed both here and on Koofr: both versions are kept.",
+                                   "{n} files were changed both here and on Koofr: both versions are kept.",
+                                   len(outcome.plan.conflicts)).format(n=len(outcome.plan.conflicts)))
             self._set_status(pair, rt, self._idle_status(pair, rt))
             self._follow_up(pair, rt, outcome)
         elif result is Result.NEEDS_CONFIRMATION:
