@@ -15,6 +15,7 @@ Safety rules enforced here, and checked by tests/test_rclone.py:
 from __future__ import annotations
 
 import enum
+import fnmatch
 import json
 import math
 import os
@@ -36,20 +37,64 @@ FORBIDDEN_FLAGS = frozenset({
 # small folders may lose up to this many files without a confirmation.
 MIN_FREE_DELETES = 5
 
-DEFAULT_FILTERS = """\
-# Spola default exclusions (rclone filter syntax). Changing this file makes
-# bisync ask for a new first alignment, which Spola shows as a preview first.
-- .~lock.*#
-- ~$*
-- *.part
-- *.partial
-- *.crdownload
-- .goutputstream-*
-- *.swp
-- .Trash-*/**
-- SyncTrash/**
-- .spola-*
-"""
+# Default exclusions, in rclone filter syntax. A pattern without a leading
+# "/" matches at any depth; "dir/**" leaves out a whole folder. The same list
+# drives the filters file and default_excluded(), so they cannot disagree.
+# Koofr Desktop's own list is included, so a migrated folder keeps out what
+# Koofr Desktop kept out.
+DEFAULT_EXCLUDES = (
+    # temporary, lock and partial files
+    ".~lock.*#", ".~*", "~$*", "~*.tmp", "*.part", ".part-*", "*.partial", "*.crdownload",
+    ".goutputstream-*", "*.swp", "*.ffs_tmp",
+    # files the systems write next to the user's ones
+    "desktop.ini", "Desktop.ini", "Thumbs.db", "Thumbs.db:*", ".DS_Store", "*.lnk",
+    # trash and system folders
+    ".Trash-*/**", "$RECYCLE.BIN/**", "System Volume Information/**", ".Spotlight-V100/**",
+    ".fseventsd/**", ".Trashes/**",
+    # left behind by Koofr Desktop
+    "SyncTrash/**", "/.cache/**", "*.syncState", ".syncignore",
+    # rebuilt from package-lock.json: never worth syncing (and its .bin links are skipped anyway)
+    "node_modules/**",
+    # Spola's own
+    ".spola-*",
+)
+
+DEFAULT_FILTERS = (
+    "# Spola default exclusions (rclone filter syntax). Changing this file makes\n"
+    "# bisync ask for a new first alignment, which Spola shows as a preview first.\n"
+    + "".join(f"- {pattern}\n" for pattern in DEFAULT_EXCLUDES)
+)
+
+
+def default_excluded(rel: str) -> bool:
+    """Would the default filters leave out this path (relative to the pair's
+    root; folders may end with "/")? Used to skip scans and change events."""
+    parts = [p for p in rel.split("/") if p]
+    if not parts:
+        return False
+    is_dir = rel.endswith("/")
+    for pattern in DEFAULT_EXCLUDES:
+        if pattern.endswith("/**"):
+            name = pattern[:-3]
+            if name.startswith("/"):
+                # anchored: only the first component, and only as a folder
+                if fnmatch.fnmatchcase(parts[0], name[1:]) and (len(parts) > 1 or is_dir):
+                    return True
+            elif any(fnmatch.fnmatchcase(part, name) for part in (parts if is_dir else parts[:-1])):
+                return True
+        elif fnmatch.fnmatchcase(parts[-1], pattern):
+            return True
+    return False
+
+
+def conflict_suffix(local_word: str, remote_word: str) -> str:
+    """--conflict-suffix for readable names: report.conflict-local-2026-10-10-1.odt.
+    The trailing "-" separates the date from the number bisync appends. (The
+    "pathname" loser mode would give cleaner names but overwrites the copies
+    of an earlier conflict on the same day: never use it.)"""
+    def clean(word: str) -> str:
+        return "-".join(word.replace(",", " ").replace("/", " ").split()) or "conflict"
+    return f"{clean(local_word)}-{{DateOnly}}-,{clean(remote_word)}-{{DateOnly}}-"
 
 
 def filter_escape(path: str) -> str:
@@ -135,6 +180,7 @@ class BisyncRequest:
     backup_dir2: str | None = None
     bwlimit: str | None = None
     exclude_from: Path | None = None   # per-run exclusions (names Koofr refuses)
+    conflict_suffix: str = "conflict-local-{DateOnly}-,conflict-koofr-{DateOnly}-"
     extra_test_flags: list[str] = field(default_factory=list)   # tests only
 
 
@@ -148,13 +194,16 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         "--backup-dir1", str(req.backup_dir1),
         "--conflict-resolve", "none",
         "--conflict-loser", "num",
-        "--conflict-suffix", "conflict",
+        "--conflict-suffix", req.conflict_suffix,
         "--suffix-keep-extension",
         "--compare", "size,modtime,checksum",
         "--slow-hash-sync-only",
         "--create-empty-src-dirs",
         "--resilient", "--recover",
         "--max-lock", "2m",
+        # Koofr has no recursive listing: folders are listed one by one, and
+        # 16 in parallel halve the time of 8 (data/work: 49 s instead of 95)
+        "--checkers", "16",
         "--skip-links",
         "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE",
         "--color", "NEVER",
@@ -306,6 +355,13 @@ class Outcome:
     message: str = ""
     plan: Plan = field(default_factory=Plan)
     stats: dict | None = None
+    network: bool = False      # the run failed because Koofr could not be reached
+
+
+NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection reset",
+                 "i/o timeout", "network is unreachable", "tls handshake timeout",
+                 "context deadline exceeded", "temporary failure in name resolution",
+                 "no route to host")
 
 
 # rclone names a remote whose options it overrides with a hash suffix:
@@ -379,6 +435,12 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
         result = Result.FAILED
     else:
         result = Result.RETRY
+    # A network failure in the middle of a run can end as a critical error; the
+    # next run recovers it (--recover), so it is a retry, not a repair. If the
+    # retry fails again without network errors, that one asks for the repair.
+    network = any(hint in message.lower() for message in plan.errors for hint in NETWORK_HINTS)
+    if network and result in (Result.NEEDS_REPAIR, Result.RETRY):
+        result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
         setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
-    return Outcome(result, exit_code, first_error, plan, stats)
+    return Outcome(result, exit_code, first_error, plan, stats, network)

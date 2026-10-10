@@ -18,7 +18,15 @@ from . import listings
 from .config import Config, Pair
 from .paths import Paths
 from .preflight import Problem, Refused, check_root_identity, refused_paths
-from .rclone import DEFAULT_FILTERS, BisyncRequest, Mode, effective_max_delete, exclude_lines, remote_spec
+from .i18n import _
+from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
+                     effective_max_delete, exclude_lines, remote_spec)
+
+
+def conflict_words() -> tuple[str, str]:
+    # TRANSLATORS: goes into file names, e.g. report.conflict-local-2026-10-10-1.odt;
+    # use letters and "-" only
+    return _("conflict-local"), _("conflict-koofr")
 
 
 class NotReady(Exception):
@@ -64,8 +72,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
 
     previous = listings.load(workdir, 1) if listings.find(workdir, 1) else None
     known = frozenset(e.path for e in previous or [])
-    refused = refused_paths(pair.local, pair.remote, known,
-                            skip=lambda rel: rel.startswith(("SyncTrash/", ".Trash-")))
+    refused = refused_paths(pair.local, pair.remote, known, skip=default_excluded)
     exclude_file = None
     if refused:
         exclude_file = paths.state / "exclude" / f"{pair.id}.txt"
@@ -85,6 +92,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         dry_run=dry_run,
         force=force,
         exclude_from=exclude_file,
+        conflict_suffix=conflict_suffix(*conflict_words()),
     )
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
 

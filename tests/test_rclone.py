@@ -7,8 +7,9 @@ from pathlib import Path
 from _setup import fixture_lines
 
 from spola.rclone import (
-    FORBIDDEN_FLAGS, BisyncRequest, Kind, Mode, Result, bisync_args, clean_env,
-    effective_max_delete, koofr_env, parse_line, remote_spec, summarize,
+    DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Result,
+    bisync_args, clean_env, conflict_suffix, default_excluded, effective_max_delete, koofr_env,
+    parse_line, remote_spec, summarize,
 )
 
 
@@ -145,6 +146,36 @@ class ParseTest(unittest.TestCase):
         self.assertIs(parse_line("2026/10/10 NOTICE: something").kind, Kind.OTHER)
         self.assertIsNone(parse_line("   "))
         self.assertIsNone(parse_line("[1, 2]"))
+
+
+class DefaultsTest(unittest.TestCase):
+    def test_default_excluded_mirrors_the_filters(self):
+        for rel in ("a/b/node_modules/x/y.js", "node_modules/", "SyncTrash/a/b", ".cache/x", ".cache/",
+                    "~$doc.docx", "sub/.~lock.a.odt#", "x/Thumbs.db", "a.part", ".Trash-1000/f",
+                    "d/desktop.ini", "x.syncState"):
+            self.assertTrue(default_excluded(rel), rel)
+        for rel in ("doc.txt", "sub/.cache/x", "sub/.cache/", "node_modules.txt", "my node_modules/x",
+                    "Thumbs.db.bak", "a/SyncTrash.txt"):
+            self.assertFalse(default_excluded(rel), rel)
+        for pattern in DEFAULT_EXCLUDES:
+            self.assertIn(f"- {pattern}\n", DEFAULT_FILTERS)
+
+    def test_conflict_suffix(self):
+        self.assertEqual(conflict_suffix("conflitto-locale", "conflitto-koofr"),
+                         "conflitto-locale-{DateOnly}-,conflitto-koofr-{DateOnly}-")
+        self.assertEqual(conflict_suffix("bad, word/x", ""), "bad-word-x-{DateOnly}-,conflict-{DateOnly}-")
+        args = bisync_args("rclone", request(conflict_suffix="a-{DateOnly}-,b-{DateOnly}-"))
+        self.assertEqual(args[args.index("--conflict-suffix") + 1], "a-{DateOnly}-,b-{DateOnly}-")
+        self.assertEqual(args[args.index("--conflict-loser") + 1], "num")     # never "pathname"
+        self.assertEqual(args[args.index("--checkers") + 1], "16")
+
+    def test_network_failure_is_a_retry_not_a_repair(self):
+        net = Event(Kind.ERROR, "Failed to copy: Post https://app.koofr.net/...: dial tcp: lookup app.koofr.net: no such host", "error")
+        crit = Event(Kind.CRITICAL, "Bisync critical error: ...", "error")
+        out = summarize(7, [net, crit], "/a/", "koofr:b")
+        self.assertIs(out.result, Result.RETRY)
+        self.assertTrue(out.network)
+        self.assertIs(summarize(7, [crit], "/a/", "koofr:b").result, Result.NEEDS_REPAIR)
 
 
 if __name__ == "__main__":
