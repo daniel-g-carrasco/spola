@@ -154,7 +154,8 @@ Controlli bloccanti prima di salvare la coppia:
 1. La cartella locale esiste, è una cartella vera (non un collegamento simbolico alla radice) e non si sovrappone a un'altra coppia (né dentro né sopra). Stesso controllo sul percorso remoto: niente `koofr:/data` insieme a `koofr:/data/work`.
 2. La cartella non è già sincronizzata da Koofr Desktop: l'app legge `~/.koofr/config.json` e, se trova la stessa cartella in una coppia non in pausa, rifiuta. **Due motori sulla stessa cartella sono il modo più rapido per perdere dati.**
 3. Nomi che Koofr non accetta [V]: oltre 255 caratteri per nome o 1023 per percorso, caratteri fuori dal piano base Unicode (quasi tutte le emoji), nomi che differiscono solo per maiuscole/minuscole nella stessa cartella (Koofr non distingue maiuscole e minuscole). rclone non li codifica e un file che non si può caricare è un errore critico di bisync, che si ripeterebbe a ogni giro [V/I]. L'app li elenca e propone di escluderli o rinominarli.
-4. Si registra l'identità della radice: dispositivo e inode della cartella locale, ID della coppia.
+4. La radice non è una cartella pericolosa: mai la home stessa, `/`, una cartella di sistema o una che contiene la home; mai dentro o sopra `~/.var`, `~/.local`, `~/.config`, `~/.ssh`, `~/.gnupg`. Con l'accesso a tutta la home (punto 11) è l'unica barriera contro un errore di percorso, quindi è coperta da test.
+5. Si registra l'identità della radice: dispositivo e inode della cartella locale, ID della coppia.
 
 ### 5.2 Primo allineamento
 
@@ -178,7 +179,7 @@ Ogni giro, in quest'ordine:
 3. **rclone bisync** con le opzioni del punto 4.4.
 4. **Esito**: 0 tutto bene; 1 errore non critico, si ritenta con attesa crescente; 7 errore critico, la coppia passa in "Riparazione necessaria" e si ferma; superamento di `--max-delete`, la coppia si ferma e chiede conferma.
 
-**Limite alle cancellazioni.** Il default di bisync è 50% per lato [V], troppo largo per `data/work` (vorrebbe dire 30.000 file). Proposta: 10% per lato. Quando il limite scatta, l'app mostra l'elenco delle cancellazioni ottenuto con `--dry-run` e solo dopo una conferma esplicita ripete il giro con `--force`. Il percentuale da solo non basta per le cartelle piccole (in `templates` un solo file è il 33%): sotto le 50 voci il limite si applica in valore assoluto [I, da decidere].
+**Limite alle cancellazioni.** Il default di bisync è 50% per lato [V], troppo largo per `data/work` (vorrebbe dire 30.000 file). Deciso: 10% per lato. Quando il limite scatta, l'app mostra l'elenco delle cancellazioni ottenuto con `--dry-run` e solo dopo una conferma esplicita ripete il giro con `--force`. Il percentuale da solo non basta per le cartelle piccole (in `templates` un solo file è il 33%): sotto le 50 voci il limite si applica in valore assoluto (soglia esatta da tarare con le prove).
 
 **Dove finisce ciò che viene cancellato o sovrascritto:**
 
@@ -342,6 +343,10 @@ Non servono: `org.freedesktop.secrets` (portale Secret), `org.freedesktop.Notifi
 
 Scelta proposta: `--filesystem=home`. Serve anche a leggere `~/.koofr/config.json` per la migrazione e a installare l'estensione e le icone in `~/.local/share`. Chi vuole restringere può farlo con `flatpak override --user --nofilesystem=home --filesystem=~/data <app-id>`; l'app se ne accorge e segnala le coppie non raggiungibili invece di trattarle come vuote (è lo stesso controllo della radice del punto 5.3). Effetto collaterale da tenere presente: con la home visibile l'app vedrebbe anche `~/.config/rclone`, ed è il motivo per cui `--config` punta sempre a un file proprio.
 
+**Cosa implica, provato** (sandbox del runtime GNOME 50 con `--filesystem=home`): l'app può leggere e scrivere tutta la home, compresi `~/.ssh`, `~/.gnupg`, `~/.local/share/keyrings` (file cifrati), `~/.koofr` con i token di Koofr Desktop e `~/.var/app` con i dati delle altre app Flatpak. Restano protetti `~/.local/share/flatpak` (vuota vista da dentro), tutto ciò che sta fuori dalla home (`/run/media` e `/mnt` non ci sono senza permesso apposito), i programmi dell'host (niente `flatpak-spawn --host`) e il bus di sessione, filtrato. Per i file, quindi, la sandbox non protegge più; protegge ancora per il resto. Rispetto a oggi è comunque un passo avanti: Koofr Desktop gira fuori da ogni sandbox, vede tutto il disco e parla liberamente col bus. Contromisure: radici pericolose vietate (punto 5.1), percorsi sempre assoluti e normalizzati prima di arrivare a rclone, test sulla costruzione dei comandi, nessuna operazione di cancellazione fatta dall'app fuori da rclone tranne lo spostamento nel cestino delle versioni scartate nei conflitti.
+
+Deciso il 2026-10-10: `--filesystem=home`, con la possibilità di restringere a mano dopo.
+
 ## 12. Repository, test, distribuzione
 
 Struttura, sul modello di p7m-extractor e pdf-cropper:
@@ -390,6 +395,8 @@ docs/                     questo documento e le note tecniche
 ### Domande aperte
 
 Decisioni da prendere:
+
+Risposte del 2026-10-10: **sì a tutte** (la 1 dopo la spiegazione delle implicazioni, ora nel punto 11). Restano qui come promemoria di cosa è stato deciso.
 
 1. **Accesso alla home** (`--filesystem=home`) con la spiegazione del punto 11: va bene, o si preferisce un insieme più stretto (`~/data`, `~/scratch` più le cartelle per estensione e icone) a costo di funzionare solo per queste cartelle?
 2. **Limite alle cancellazioni**: 10% per lato, più una soglia assoluta per le cartelle piccole, va bene?
