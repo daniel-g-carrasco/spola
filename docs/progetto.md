@@ -495,3 +495,8 @@ Koofr Desktop è chiuso: lo studio è stato fatto in sola lettura, a fini di int
 **Esclusioni predefinite di Koofr** (24 regole): `desktop.ini`, `Thumbs.db`, `.DS_Store`, `Icon\r`, `~$*`, `.~*`, `~*.tmp`, `*.part`, `.part-*`, `*.crdownload`, `*.lnk`, `*.ffs_tmp`, `*.syncState`, `$RECYCLE.BIN/`, `System Volume Information/`, `.Spotlight-V100/`, `.fseventsd/`, `.Trashes/`, `SyncTrash/`, `.cache/`, `.syncignore` e varianti.
 
 **Canali remoti pubblici o semipubblici:** `GET /api/v2.1/user/activity?sinceTime=…&mountId=…` (usato dal progetto terzo koofr-watch con autenticazione Basic), non documentato; `GET /api/v2/mounts/{id}/files/tree` nel client Go pubblico di Koofr. Nessuno dei due è usato da rclone. Da provare se accettano la password per applicazioni.
+
+**Verifiche sulle API di Koofr con la password per applicazioni (2026-10-10, sola lettura):**
+
+- **Cestino:** `GET /api/v2/trash` (paginato con `cursor`, `retentionDays: 30` su questo account) contiene tutte le 13 cancellazioni fatte da rclone nella cartella di test, ciascuna con un `versionId`. Le cancellazioni di Spola su Koofr sono quindi recuperabili dal cestino per il periodo del piano: `--backup-dir2` non serve.
+- **Attività:** `GET /api/v2.1/user/activity?limit=…&sinceTime=…&mountId=…` risponde in 0,2 s e riporta ogni caricamento, cancellazione, spostamento e creazione di cartella con percorso, orario e `user_agent` (rclone si presenta come `rclone/v1.74.3`; con `--user-agent` Spola può avere un'identità propria e riconoscere i propri giri). È il candidato per sapere quali coppie sono cambiate su Koofr senza elencarle tutte, con un giro completo di sicurezza a intervalli lunghi. L'API non è documentata: va sempre affiancata dal giro completo periodico.
