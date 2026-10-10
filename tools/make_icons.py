@@ -59,9 +59,9 @@ def symbolic(*paths: str) -> str:
             f"{body}</svg>\n")
 
 
-def ring_arrow(cx, cy, r_out, r_in, start, end) -> str:
+def ring_arrow(cx, cy, r_out, r_in, start, end, tip_deg=32) -> str:
     """A ring segment from `start` to `end` degrees (clockwise, 0 = east)
-    with an arrow head at `end`."""
+    with an arrow head at `end`, its tip `tip_deg` further on."""
     def pt(r, a):
         return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
     large = 1 if (end - start) % 360 > 180 else 0
@@ -69,7 +69,7 @@ def ring_arrow(cx, cy, r_out, r_in, start, end) -> str:
     i1, i2 = pt(r_in, start), pt(r_in, end)
     mid = (r_out + r_in) / 2
     width = r_out - r_in
-    tip = pt(mid, end + 32)
+    tip = pt(mid, end + tip_deg)
     head_out, head_in = pt(r_out + width * 0.9, end), pt(r_in - width * 0.9, end)
     return (f"M{fmt(o1[0])},{fmt(o1[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large} 1 {fmt(o2[0])},{fmt(o2[1])} "
             f"L{fmt(head_out[0])},{fmt(head_out[1])} L{fmt(tip[0])},{fmt(tip[1])} "
@@ -112,7 +112,11 @@ def symbolic_icons() -> dict[str, str]:
     icons = {
         "": app_symbolic(),
         "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)])),
-        "syncing": symbolic(ring_arrow(8, 8, 7, 4.9, 200, 330), ring_arrow(8, 8, 7, 4.9, 20, 150)),
+        # the app's motif in motion: its two trails, arrow heads instead of the balls,
+        # cut out of the same disk as the other states; arcs shortened so a tip
+        # never touches the start of the other trail
+        "syncing": symbolic(disk + " " + " ".join(ring_arrow(8, 8, 5, 3.5, start, end, tip_deg=26)
+                                                  for start, end in ((40, 160), (220, 340)))),
         "paused": symbolic(disk + " " + rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7)),
         "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15)),
         "attention": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)

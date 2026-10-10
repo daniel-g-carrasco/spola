@@ -29,7 +29,7 @@ from . import config as config_mod
 from . import jobs, koofr_api, listings
 from .account import Credentials
 from .config import Config, Pair
-from .i18n import _, ngettext
+from .i18n import _, every_translation, ngettext
 from .paths import Paths
 from .rclone import Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env
 from .runner import BisyncRun, PairBusy
@@ -43,9 +43,10 @@ ACTIVITY_INTERVAL_S = 60
 
 
 def conflict_name_pattern() -> re.Pattern:
-    """Conflict copies, as named now (in this language or in English) and as
-    named by the first versions (name.conflict1.ext)."""
-    words = {w for w in jobs.conflict_words() + ("conflict-local", "conflict-koofr")}
+    """Conflict copies, as named in any of Spola's languages (the desktop
+    language may have changed since they were made) and as named by the first
+    versions (name.conflict1.ext)."""
+    words = every_translation("conflict-local") | every_translation("conflict-koofr")
     alternatives = "|".join(re.escape(w) for w in sorted(words))
     return re.compile(rf"\.(?:conflict\d+|(?:{alternatives})-\d{{4}}-\d{{2}}-\d{{2}}-\d+)(?:\.[^/.]*)?$")
 
