@@ -25,7 +25,8 @@ from .paths import Paths
 from .rclone import Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env
 from .runner import BisyncRun, PairBusy
 
-COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync")
+COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync",
+            "import-koofr-desktop")
 # Developer aid, as in the app: the Koofr side becomes a local folder
 DEV_REMOTE = os.environ.get("SPOLA_DEV_REMOTE") or None
 
@@ -146,6 +147,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("remote")
     p = sub.add_parser("remove", help=_("forget a folder pair (no file is deleted)"))
     p.add_argument("pair")
+    p = sub.add_parser("import-koofr-desktop", help=_("take over the folder pairs of Koofr Desktop (stopped first)"))
+    p.add_argument("--config", default=None, help=_("Koofr Desktop's config.json (default: ~/.koofr/config.json)"))
     for name, text in (("preview", _("show what the next sync would do")),
                        ("align", _("first alignment of a new pair (preview, then asks)")),
                        ("repair", _("new alignment after a critical error (preview, then asks)")),
@@ -164,7 +167,7 @@ def main(argv: list[str]) -> int:
     rclone = find_rclone()
     if rclone is None:
         return _fail(_("rclone was not found."))
-    changes_config = args.command in ("login", "logout", "add", "remove", "align", "repair")
+    changes_config = args.command in ("login", "logout", "add", "remove", "align", "repair", "import-koofr-desktop")
     if changes_config and _app_running():
         return _fail(_("Spola is running: use its window, or quit it first."))
 
@@ -193,6 +196,25 @@ def main(argv: list[str]) -> int:
         if cfg.user:
             secrets.clear(cfg.user)
         print(_("Signed out."))
+        return 0
+
+    if args.command == "import-koofr-desktop":
+        from . import migrate
+        try:
+            report = migrate.import_koofr_desktop(cfg, Path(args.config) if args.config else migrate.KOOFR_DESKTOP_CONFIG)
+        except migrate.KoofrDesktopActive as e:
+            return _fail(str(e))
+        config.save(cfg, paths.config_file)
+        for item in report.added:
+            state = _("paused") if item.pair.paused else _("to align")
+            print(f"+ [{item.pair.id}] {item.pair.local}  \u21c4  Koofr {item.pair.remote}  ({state})")
+            for w in item.warnings[:5]:
+                print(f"    {w.message} {w.path}")
+            if len(item.warnings) > 5:
+                print("    " + _("\u2026and {n} more").format(n=len(item.warnings) - 5))
+        for local, why in report.skipped:
+            print(f"- {local}: {why}")
+        print(_("Added {n} pairs. Next: spola align <pair> for each, preview first.").format(n=len(report.added)))
         return 0
 
     if args.command == "status":
