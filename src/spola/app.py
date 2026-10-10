@@ -14,8 +14,9 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, autostart, config, portal, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, autostart, config, nautilus_integration, portal, secrets  # noqa: E402
 from .account import Credentials  # noqa: E402
+from .dbus_service import SyncService  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
@@ -75,9 +76,17 @@ class SpolaApp(Adw.Application):
         icon_path = str(SOURCE_ICONS) if not in_flatpak() and SOURCE_ICONS.is_dir() else ""
         self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
         self.tray.start(self.get_dbus_connection())
+        self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
+                                        else self.activate())
+        self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
+        if self.engine.cfg.nautilus_integration:
+            try:
+                nautilus_integration.install()      # a newer Spola brings a newer extension
+            except (OSError, FileNotFoundError):
+                pass
 
     def _load_credentials(self) -> None:
         if self.engine.dev_remote:
@@ -198,6 +207,7 @@ class SpolaApp(Adw.Application):
         def done():
             if self.tray:
                 self.tray.stop()
+            self.sync_service.stop()
             self.release()
             self.quit()
 

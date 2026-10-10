@@ -14,7 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
-from . import account, autostart, conflicts, jobs, koofr_api, preflight, secrets  # noqa: E402
+from . import account, autostart, conflicts, jobs, koofr_api, nautilus_integration, preflight, secrets  # noqa: E402
 from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
@@ -653,6 +653,19 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(auto)
         page.add(group)
 
+        group = Adw.PreferencesGroup(title=_("Files"))
+        try:
+            available = bool(nautilus_integration.source_dir())
+        except FileNotFoundError:
+            available = False
+        files = Adw.SwitchRow(title=_("Show sync status in Files"),
+                              subtitle=_("Emblems on files and folders, and a Koofr menu; needs nautilus-python "
+                                         "and a restart of Files"),
+                              active=nautilus_integration.installed(), sensitive=available)
+        files.connect("notify::active", lambda r, _p: self._set_files(r.get_active()))
+        group.add(files)
+        page.add(group)
+
         group = Adw.PreferencesGroup(title=_("Backups"))
         days = Adw.SpinRow.new_with_range(1, 365, 1)
         days.set_title(_("Keep replaced and deleted files for"))
@@ -678,6 +691,19 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.engine.save_config()
         if conditions:
             self.engine.conditions_changed()
+
+    def _set_files(self, enabled: bool) -> None:
+        try:
+            if enabled:
+                nautilus_integration.install()
+            else:
+                nautilus_integration.uninstall()
+        except OSError as e:
+            self.add_toast(Adw.Toast(title=str(e), timeout=6))
+            return
+        self._set("nautilus_integration", enabled)
+        if nautilus_integration.files_running():
+            self.add_toast(Adw.Toast(title=_("Restart Files to apply (it keeps running until then)"), timeout=8))
 
     def _set_autostart(self, enabled: bool) -> None:
         self._set("autostart", enabled)

@@ -344,6 +344,7 @@ class Plan:
     delete_remote: list[str] = field(default_factory=list)
     replace_local: list[str] = field(default_factory=list)    # local version moved to the backup
     refused: list[str] = field(default_factory=list)          # left out: names Koofr refuses
+    error_paths: list[str] = field(default_factory=list)      # files rclone reported an error for
     conflicts: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -396,7 +397,7 @@ def _strip_remote(path: str) -> str:
     return _REMOTE_PREFIX.sub("", path, count=1)
 
 
-def _relative(path: str, roots: list[str]) -> str:
+def relative_path(path: str, roots: list[str]) -> str:
     """The path of a log line relative to the root of its side."""
     path = _strip_remote(path)
     for root in roots:
@@ -430,7 +431,7 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
         elif resync and ev.kind is Kind.BACKUP and into == "Path1":
             plan.replace_local.append(ev.path)
         elif ev.kind is Kind.QUEUE:
-            rel = _relative(ev.path, roots)
+            rel = relative_path(ev.path, roots)
             if ev.action == "Queue copy to Path2":
                 plan.upload.append(rel)
             elif ev.action == "Queue copy to Path1":
@@ -438,10 +439,12 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             elif ev.action == "Queue delete":
                 (plan.delete_local if ev.side == "Path1" else plan.delete_remote).append(rel)
         elif ev.kind is Kind.CONFLICT:
-            plan.conflicts.append(_relative(ev.path, roots))
+            plan.conflicts.append(relative_path(ev.path, roots))
         elif ev.kind in (Kind.ERROR, Kind.CRITICAL, Kind.SAFETY_ABORT):
             plan.errors.append(ev.message)
             first_error = first_error or ev.message
+            if ev.kind is Kind.ERROR and ev.path:
+                plan.error_paths.append(relative_path(ev.path, roots))
 
     kinds = {ev.kind for ev in events}
     if cancelled:

@@ -32,7 +32,9 @@ from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, every_translation, ngettext
 from .paths import Paths
-from .rclone import Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env
+from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env,
+                     relative_path)
+from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
 
@@ -108,6 +110,8 @@ class PairRuntime:
     changed_during_run: set[str] = field(default_factory=set)
     pending_refused: list = field(default_factory=list)
     before_run: tuple = (None, "")          # (status, message) a preview must restore
+    states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
+    run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     watcher: TreeWatcher | None = None
 
 
@@ -121,6 +125,10 @@ class Engine(GObject.Object):
         # (pair id, reason of the run): a real run (not a preview) ended;
         # its outcome is in the pair's runtime
         "run-finished": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
+        # (pair id, list of relative paths) whose file manager state changed
+        "paths-changed": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
+        # (pair id): a run ended, every state below the root may have changed
+        "root-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         # (pair id, kind, message): something the user should know about
         "attention": (GObject.SignalFlags.RUN_FIRST, None, (str, str, str)),
     }
@@ -438,6 +446,8 @@ class Engine(GObject.Object):
         conflicts_mod.resolve(pair.local, conflict, choice)
         gone = {c.path for c in conflict.copies}
         rt.conflicts = [p for p in rt.conflicts if p not in gone]
+        rt.states.conflicts = set(rt.conflicts)
+        self.emit("root-changed", pair_id)
         if rt.run is None:
             self._set_status(pair, rt, self._idle_status(pair, rt))
         self.request_sync(pair_id, "conflict-resolved")
@@ -512,6 +522,7 @@ class Engine(GObject.Object):
         self.active = task
         rt.run, rt.task = run, task
         rt.pending_refused = job.refused
+        rt.run_roots = (job.path1, job.path2)
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
         rt.before_run = (rt.status, rt.message)
@@ -530,6 +541,14 @@ class Engine(GObject.Object):
             rt.stats = ev.stats
             rt.transferring = list(ev.stats.get("transferring") or [])
             self.emit("pair-changed", pair_id)
+        elif ev.kind is Kind.QUEUE and ev.path and not (rt.task and rt.task.dry_run):
+            rel = relative_path(ev.path, list(rt.run_roots))
+            rt.states.syncing.add(rel)
+            self.emit("paths-changed", pair_id, ancestors_and_self(rel))
+        elif ev.kind is Kind.ERROR and ev.path and not (rt.task and rt.task.dry_run):
+            rel = relative_path(ev.path, list(rt.run_roots))
+            rt.states.errors.add(rel)
+            self.emit("paths-changed", pair_id, ancestors_and_self(rel))
         return False
 
     def _on_exit(self, task: Task, outcome: Outcome) -> bool:
@@ -556,6 +575,11 @@ class Engine(GObject.Object):
 
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
         outcome.plan.refused = [r.path for r in rt.pending_refused]
+        if rt.states.syncing or outcome.plan.error_paths:
+            rt.states.syncing = set()
+            rt.states.errors = {p for p in outcome.plan.error_paths}
+            if outcome.result is not Result.OK:
+                self.emit("root-changed", pair.id)
         if task.dry_run:
             # a preview decides nothing: a pair waiting for the user keeps waiting
             status, message = rt.before_run
@@ -586,14 +610,18 @@ class Engine(GObject.Object):
                 # right away, with nothing to do, writes it.
                 self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
             rt.status = Status.OK
-            self._update_conflicts(pair, rt)
+            listed = self._update_conflicts(pair, rt)
+            foreign = self._follow_up(pair, rt, outcome)
+            touched = set(outcome.plan.upload) | set(outcome.plan.download) | set(outcome.plan.delete_local) \
+                | set(outcome.plan.replace_local) | set(outcome.plan.conflicts)
+            rt.states.run_finished(listed, touched, outcome.plan.error_paths, rt.conflicts, foreign)
+            self.emit("root-changed", pair.id)
             if outcome.plan.conflicts:
                 self.emit("attention", pair.id, "conflicts",
                           ngettext("{n} file was changed both here and on Koofr: both versions are kept.",
                                    "{n} files were changed both here and on Koofr: both versions are kept.",
                                    len(outcome.plan.conflicts)).format(n=len(outcome.plan.conflicts)))
             self._set_status(pair, rt, self._idle_status(pair, rt))
-            self._follow_up(pair, rt, outcome)
         elif result is Result.NEEDS_CONFIRMATION:
             self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
             self.emit("attention", pair.id, "confirm", outcome.message)
@@ -622,12 +650,20 @@ class Engine(GObject.Object):
         self.request_sync(pair_id, "retry")
         return False
 
-    def _update_conflicts(self, pair: Pair, rt: PairRuntime) -> None:
+    def _update_conflicts(self, pair: Pair, rt: PairRuntime) -> list[str]:
+        """Reload the last listing: the conflicts, and the synced paths for
+        the file manager. Returns the listed paths."""
         entries = listings.load(self.paths.workdir(pair.id), 1) if pair.initialized else None
+        paths = [e.path for e in entries or []]
         rt.conflicts = [e.path for e in entries or [] if not e.is_dir and self._conflict_name.search(e.path)]
+        rt.states.load_listing(paths)
+        rt.states.conflicts = set(rt.conflicts)
+        rt.states.refused = {r.path for r in rt.refused}
+        return paths
 
-    def _follow_up(self, pair: Pair, rt: PairRuntime, outcome: Outcome) -> None:
-        """Changes seen while rclone ran: ignore the ones rclone made itself."""
+    def _follow_up(self, pair: Pair, rt: PairRuntime, outcome: Outcome) -> set[str]:
+        """Changes seen while rclone ran: ignore the ones rclone made itself.
+        Returns the paths that changed on their own (still pending)."""
         touched = set(outcome.plan.download) | set(outcome.plan.delete_local) | set(outcome.plan.replace_local)
         for name in outcome.plan.conflicts:
             touched.add(name)
@@ -637,6 +673,7 @@ class Engine(GObject.Object):
         rt.changed_during_run.clear()
         if foreign:
             self._schedule_debounced(pair, rt)
+        return foreign
 
     # -- local changes, periodic checks, conditions --------------------------------
 
@@ -651,6 +688,8 @@ class Engine(GObject.Object):
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None:
             return
+        if pair.initialized:
+            self.emit("paths-changed", pair_id, rt.states.mark_pending(rel))
         if rt.run is not None:
             rt.changed_during_run.add(rel)
             return
