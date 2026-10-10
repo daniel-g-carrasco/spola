@@ -21,7 +21,13 @@ gi.require_version("GObject", "2.0")
 from gi.repository import Gio, GLib, GObject  # noqa: E402
 
 try:
-    from gi.repository import Nautilus  # nautilus-python chooses the API version
+    for version in ("4.1", "4.0"):
+        try:
+            gi.require_version("Nautilus", version)
+            break
+        except ValueError:
+            continue
+    from gi.repository import Nautilus
 except (ImportError, ValueError):
     Nautilus = None
 
@@ -163,6 +169,25 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
         self.cache.set_roots([(path_of(uri) or "", pair_id) for uri, pair_id in roots])
         log(f"roots {len(roots)}")
         self._refresh(self.cache.clear())
+        self._fetch_root_states()
+
+    def _fetch_root_states(self):
+        """The roots themselves (the synced folders as seen from their
+        parent) are nobody's children: their states come from GetStates."""
+        if not self.cache.roots or "<roots>" in self.cache.in_flight:
+            return
+        self.cache.in_flight.add("<roots>")
+        uris = [uri_of(root) for root, _pair_id in self.cache.roots]
+        self._call("GetStates", GLib.Variant("(as)", (uris,)), self._root_states_ready)
+
+    def _root_states_ready(self, reply):
+        self.cache.in_flight.discard("<roots>")
+        if reply is None:
+            return
+        (states,) = reply.unpack()
+        changed = self.cache.apply({path_of(u) or "": s for u, s in states.items()})
+        log(f"root states {len(changed)}")
+        self._refresh(changed)
 
     def _call(self, method, params, done):
         if not self.proxy or not self.proxy.get_name_owner():
@@ -187,6 +212,7 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
             if uri:
                 root = path_of(uri)
                 gone = self.cache.drop_root(root) if root else []
+                self._fetch_root_states()
             else:
                 gone = self.cache.clear()
                 self._call("GetRoots", None, self._roots_ready)
@@ -205,9 +231,10 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
             return
         state = self.cache.state(path)
         if state is None:
+            if any(path == r for r, _ in self.cache.roots):
+                self._fetch_root_states()
+                return
             folder = os.path.dirname(path)
-            if path in (r for r, _ in self.cache.roots):
-                folder = path                     # a root: its own parent is outside
             if not self.cache.folder_known(folder) and folder not in self.cache.in_flight:
                 self._pending_folders.add(folder)
                 if not self._schedule:

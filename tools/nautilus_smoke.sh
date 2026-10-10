@@ -45,7 +45,9 @@ dbus-run-session -- bash -c '
     done
     echo "changed here" > "$HOME/Sync/Progetti/nuovo.txt"
     NAUTILUS_PYTHON_DEBUG=misc timeout 40 nautilus --new-window "$HOME/Sync" > "$OUT_NAUTILUS_LOG" 2>&1 &
-    sleep 8
+    sleep 5
+    nautilus --new-window "$HOME" 2>/dev/null || true     # the parent: the root itself gets an emblem there
+    sleep 3
     # with Files open: a change here must turn the folder "pending", then "synced" again
     echo "changed while Files is open" > "$HOME/Sync/Progetti/dopo.txt"
     sleep 20
