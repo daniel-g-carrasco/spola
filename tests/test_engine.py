@@ -10,7 +10,6 @@ import time
 import unittest
 from pathlib import Path
 
-import _setup
 from _setup import rclone_binary
 
 from gi.repository import GLib

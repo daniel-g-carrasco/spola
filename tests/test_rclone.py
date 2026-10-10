@@ -4,7 +4,6 @@
 import unittest
 from pathlib import Path
 
-import _setup
 from _setup import fixture_lines
 
 from spola.rclone import (

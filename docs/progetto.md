@@ -447,3 +447,20 @@ Nessun comando ha toccato il cloud Koofr, `~/.config/rclone` o le cartelle sincr
 - Nautilus 50.3: MR !870 (ritorno degli emblemi), !1490, !1983; nautilus-python issue #19, #20, MR !14 e !18.
 - Flatpak e portali: docs.flatpak.org (conventions, sandbox-permissions, desktop-integration); xdg-desktop-portal 1.22.1 (`background.c`, issue #567); gnome-shell 50 `backgroundApps.js`; libsecret `secret-backend.c`.
 - Esempi: Nextcloud `syncstate.py`, nautilus-dropbox, MEGA shell extension, Celeste, Rclone Shuttle (manifest Flathub).
+
+## Appendice C. Fase 3 (MVP): cosa è verificato
+
+Prove automatiche con rclone 1.74.3 tra due cartelle locali (`tests/test_bisync_integration.py`, `tests/test_engine.py`), quindi valide per la logica di bisync e di Spola ma non ancora per il backend Koofr:
+
+- il primo allineamento in modalità `newer` copia ciò che manca da ciascuna parte, fa vincere la versione più recente e mette quella locale sostituita in `--backup-dir1` (la domanda 8 è confermata per il lato locale);
+- i conflitti conservano entrambe le versioni con l'estensione al suo posto (`doc.conflict1.odt`, `doc.conflict2.odt`) grazie a `--suffix-keep-extension`;
+- un file cancellato su Koofr finisce nel backup locale, in una cartella per ogni giro (un file sostituito due volte conserva entrambe le copie);
+- cancellare il 25% dei file ferma il giro senza toccare nulla; i giri automatici restano fermi finché l'utente non conferma l'anteprima, poi il giro con `--force` applica le cancellazioni;
+- bisync ha anche una protezione sua quando cambiano **tutti** i file di un lato ("all files changed"): Spola la tratta come il limite alle cancellazioni;
+- un lato svuotato produce un errore critico (codice 7, "Riparazione necessaria"), mai una cancellazione dall'altra parte;
+- una cartella sostituita (eliminata e ricreata, come un disco non montato) viene fermata da Spola prima di avviare rclone;
+- due giri della stessa coppia non partono mai insieme (lock nostro);
+- un giro interrotto con SIGINT si riprende al giro successivo senza riparazione;
+- l'icona del tray non emette `NewIcon` a riposo e riduce 40 cambi rapidi a pochi segnali (`tests/test_tray.py`, bus D-Bus privato).
+
+Da verificare con Koofr vero, sulla cartella di test: accesso con password per applicazioni, date di modifica e hash MD5 sul lato Koofr, cestino di Koofr per le cancellazioni fatte da rclone, formato del link "Apri su Koofr" (oggi `https://app.koofr.net/app/storage/?path=...`, da controllare), tempi di elenco; icona del tray in Noctalia e nell'estensione AppIndicator con l'app avviata dai sorgenti.
