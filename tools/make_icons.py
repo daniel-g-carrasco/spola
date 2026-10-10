@@ -189,6 +189,18 @@ def emblem_icons() -> dict[str, str]:
     }
 
 
+def write_pngs(svg: Path, sizes=(64, 128, 256)) -> None:
+    """PNG copies of the app icon for the sizes the desktop and the Flatpak
+    repository page use (rendered with librsvg through GdkPixbuf)."""
+    import gi
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+    for size in sizes:
+        out = ROOT / f"{size}x{size}" / "apps" / f"{APP_ID}.png"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        GdkPixbuf.Pixbuf.new_from_file_at_size(str(svg), size, size).savev(str(out), "png", [], [])
+
+
 def main() -> None:
     sym = ROOT / "symbolic" / "apps"
     sym.mkdir(parents=True, exist_ok=True)
@@ -202,6 +214,7 @@ def main() -> None:
     apps = ROOT / "scalable" / "apps"
     apps.mkdir(parents=True, exist_ok=True)
     (apps / f"{APP_ID}.svg").write_text(clean_app_icon(SOURCE / "spola-darkbg.svg"), encoding="utf-8")
+    write_pngs(apps / f"{APP_ID}.svg")
     print(f"icons written to {ROOT}")
 
 

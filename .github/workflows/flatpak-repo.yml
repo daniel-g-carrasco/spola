@@ -1,0 +1,98 @@
+name: Flatpak repository
+
+# Publishes the app to our own Flatpak repository (an ostree repo on the
+# gh-pages branch, served by GitHub Pages): every v* tag lands there as the
+# "stable" branch, signed with the key in the FLATPAK_GPG_PRIVATE_KEY secret.
+# Users install once from spola.flatpakref and get updates from
+# GNOME Software like any other app. The GNOME runtime comes from Flathub.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: flatpak-repo
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://daniel-g-carrasco.github.io/spola
+  MANIFEST: build-aux/flatpak/io.github.daniel_g_carrasco.spola.yaml
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch the published repository
+        run: |
+          git config --global --add safe.directory '*'
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          url="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git clone --depth 1 --branch gh-pages "$url" pages 2>/dev/null; then
+            # git does not store empty directories, and ostree refuses to
+            # list refs without the ones it created: put them back
+            mkdir -p pages/repo/refs/remotes pages/repo/refs/mirrors \
+              pages/repo/extensions pages/repo/state pages/repo/tmp/cache
+            echo "existing repository fetched"
+          else
+            git init -b gh-pages pages
+            git -C pages remote add origin "$url"
+            echo "first publication: new gh-pages branch"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Import the signing key
+        run: |
+          command -v gpg >/dev/null || dnf install -y gnupg2
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -m 700 -p "$GNUPGHOME"
+          printf '%s\n' "$FLATPAK_GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          gpg --batch --list-secret-keys --with-colons | grep -q "^fpr:.*:${FLATPAK_GPG_KEY_ID}:" \
+            || { echo "secret key ${FLATPAK_GPG_KEY_ID} not found after import"; exit 1; }
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+        env:
+          FLATPAK_GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Install the Go SDK extension (rclone is built from source)
+        run: flatpak install -y --noninteractive flathub org.freedesktop.Sdk.Extension.golang//25.08
+
+      - name: Build into the repository
+        run: |
+          flatpak-builder --disable-rofiles-fuse --force-clean --ccache=false \
+            --repo=pages/repo --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" \
+            build-dir "$MANIFEST"
+          flatpak build-update-repo --generate-static-deltas --prune --prune-depth=3 \
+            --gpg-sign="$FLATPAK_GPG_KEY_ID" --gpg-homedir="$GNUPGHOME" pages/repo
+          ostree refs --repo=pages/repo
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Write the .flatpakref, .flatpakrepo and index page
+        run: |
+          key="$(gpg --batch --export "$FLATPAK_GPG_KEY_ID" | base64 -w0)"
+          version="$(python3 -c 'import sys; sys.path.insert(0, "src"); import spola as p; print(p.__version__)')"
+          python3 tools/flatpak_repo_files.py pages "$BASE_URL" "$key" "$version"
+          cp data/icons/hicolor/256x256/apps/io.github.daniel_g_carrasco.spola.png pages/icon.png
+          echo "version=$version" >> "$GITHUB_ENV"
+        env:
+          FLATPAK_GPG_KEY_ID: ${{ vars.FLATPAK_GPG_KEY_ID }}
+
+      - name: Publish
+        run: |
+          cd pages
+          git add -A
+          if git diff --cached --quiet; then echo "nothing new to publish"; exit 0; fi
+          git commit -q -m "Publish ${version} (${GITHUB_SHA::7})"
+          git push origin gh-pages
+          echo "published ${version} to ${BASE_URL}"
