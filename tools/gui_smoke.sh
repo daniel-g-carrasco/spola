@@ -14,6 +14,10 @@ OUT="$(realpath -m "${1:?usage: gui_smoke.sh OUT_DIR [setup-command...]}")"
 shift
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$OUT"/{config,state,data,remote,home/Sync}
+# A private runtime dir too: the portals the private bus starts (documents,
+# gvfs) would otherwise mount over the real session's /run/user/<uid>.
+mkdir -m 700 -p "$OUT/runtime"
+export XDG_RUNTIME_DIR="$OUT/runtime"
 DISPLAY_NUM="${BROADWAY_NUM:-7}"
 
 gtk4-broadwayd ":$DISPLAY_NUM" >/dev/null 2>&1 &
