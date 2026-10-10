@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 """Generate Spola's icons into data/icons/hicolor:
 
-  scalable/apps/<APP_ID>.svg                  the app icon (a weaving shuttle)
+  scalable/apps/<APP_ID>.svg                  the app icon, a cleaned copy of
+                                              data/icons/source/spola-darkbg.svg
   symbolic/apps/<APP_ID>-symbolic.svg         its symbolic version
   symbolic/apps/<APP_ID>-<state>-symbolic.svg tray states: synced, syncing,
                                               paused, error, attention
+
+The masters of the app icon are the Inkscape files in data/icons/source/
+(spola-darkbg.svg for dark backgrounds, spola-lightbg.svg for light ones):
+edit those, never the generated copy. The installed icon is the dark
+background version, because the hicolor theme has no light/dark variants
+and docks, the GNOME overview and Noctalia are dark.
 
 Symbolic icons use filled shapes only, holes cut with fill-rule="evenodd":
 GTK and the tray hosts recolour them by filling every path, so a stroke-only
@@ -14,10 +21,16 @@ outline would turn into a solid blob.
 """
 
 import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 APP_ID = "io.github.daniel_g_carrasco.spola"
-ROOT = Path(__file__).resolve().parent.parent / "data" / "icons" / "hicolor"
+ICONS = Path(__file__).resolve().parent.parent / "data" / "icons"
+ROOT = ICONS / "hicolor"
+SOURCE = ICONS / "source"
+SVG_NS = "http://www.w3.org/2000/svg"
+APP_ICON_VIEWBOX = "0 0 512 512"
+APP_ICON_SIZE = 128
 FG = "#2e3436"
 
 
@@ -64,26 +77,40 @@ def ring_arrow(cx, cy, r_out, r_in, start, end) -> str:
             f"A{fmt(r_in)},{fmt(r_in)} 0 {large} 0 {fmt(i1[0])},{fmt(i1[1])} Z")
 
 
-def shuttle_outline(cx=8, cy=8, half_len=7.5, half_h=3.6) -> str:
-    """The spola seen from above: a long body with pointed ends."""
-    k = half_h * 1.33
-    return (f"M{fmt(cx - half_len)},{fmt(cy)} "
-            f"C{fmt(cx - half_len / 2)},{fmt(cy - k)} {fmt(cx + half_len / 2)},{fmt(cy - k)} {fmt(cx + half_len)},{fmt(cy)} "
-            f"C{fmt(cx + half_len / 2)},{fmt(cy + k)} {fmt(cx - half_len / 2)},{fmt(cy + k)} {fmt(cx - half_len)},{fmt(cy)} Z")
+def trail_and_ball(cx, cy, orbit, width, ball, start, end) -> str:
+    """One closed outline for the symbolic motif: a ring sector of `width` on
+    the circle of radius `orbit`, from `start` to `end` degrees (clockwise,
+    0 = east, y down, as in the master), merged into the ball of radius
+    `ball` centred on the orbit at `end`. Flat cap at `start`, like the
+    master's butt-capped strokes. A single outline, so trail and ball never
+    overlap (with evenodd an overlap would open a hole)."""
+    def pt(r, a):
+        return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
+    r_out, r_in = orbit + width / 2, orbit - width / 2
+    phi_out = math.degrees(math.acos((r_out**2 + orbit**2 - ball**2) / (2 * r_out * orbit)))
+    phi_in = math.degrees(math.acos((r_in**2 + orbit**2 - ball**2) / (2 * r_in * orbit)))
+    p0, p1 = pt(r_out, start), pt(r_out, end - phi_out)
+    p2, p3 = pt(r_in, end - phi_in), pt(r_in, start)
+    large_out = 1 if end - phi_out - start > 180 else 0
+    large_in = 1 if end - phi_in - start > 180 else 0
+    return (f"M{fmt(p0[0])},{fmt(p0[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large_out} 1 {fmt(p1[0])},{fmt(p1[1])} "
+            f"A{fmt(ball)},{fmt(ball)} 0 1 1 {fmt(p2[0])},{fmt(p2[1])} "
+            f"A{fmt(r_in)},{fmt(r_in)} 0 {large_in} 0 {fmt(p3[0])},{fmt(p3[1])} Z")
 
 
-def rounded_rect(x, y, w, h, r) -> str:
-    return (f"M{fmt(x + r)},{fmt(y)} H{fmt(x + w - r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w)},{fmt(y + r)} "
-            f"V{fmt(y + h - r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w - r)},{fmt(y + h)} H{fmt(x + r)} "
-            f"A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x)},{fmt(y + h - r)} V{fmt(y + r)} "
-            f"A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + r)},{fmt(y)} Z")
+def app_symbolic() -> str:
+    """The app icon at 16 px: the ball with the two small balls and their
+    trails cut out. Proportions adapted to the pixel grid (a 1:1 scale would
+    give trails under 1 px): trails 1.5 px, small balls r 2.25 on an orbit of
+    4.25, same angles as the master (40-180 and 220-360 degrees)."""
+    motif = " ".join(trail_and_ball(8, 8, 4.25, 1.5, 2.25, start, end) for start, end in ((40, 180), (220, 360)))
+    return symbolic(circle(8, 8, 7.5) + " " + motif)
 
 
 def symbolic_icons() -> dict[str, str]:
     disk = circle(8, 8, 7.5)
     icons = {
-        "": symbolic(shuttle_outline(8, 6.6, 7.6, 2.9) + " " + rounded_rect(4.9, 5.7, 6.2, 1.8, 0.9),
-                     rounded_rect(1, 12, 14, 1.6, 0.8)),
+        "": app_symbolic(),
         "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)])),
         "syncing": symbolic(ring_arrow(8, 8, 7, 4.9, 200, 330), ring_arrow(8, 8, 7, 4.9, 20, 150)),
         "paused": symbolic(disk + " " + rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7)),
@@ -94,43 +121,41 @@ def symbolic_icons() -> dict[str, str]:
     return icons
 
 
-APP_ICON = """<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#e0a96d"/>
-      <stop offset="0.55" stop-color="#b9783f"/>
-      <stop offset="1" stop-color="#7d4a22"/>
-    </linearGradient>
-    <linearGradient id="thread" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7fd0c4"/>
-      <stop offset="1" stop-color="#1f8a7d"/>
-    </linearGradient>
-    <linearGradient id="tip" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eeeeec"/>
-      <stop offset="1" stop-color="#9a9996"/>
-    </linearGradient>
-  </defs>
-  <!-- the thread, leaving the shuttle and weaving across -->
-  <path d="M70 68 C 84 92, 96 98, 114 90" fill="none" stroke="#1f8a7d" stroke-width="4" stroke-linecap="round"/>
-  <path d="M14 104 C 34 92, 52 112, 72 102 S 104 96, 118 106" fill="none" stroke="#5e5c64" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-  <!-- shadow -->
-  <ellipse cx="64" cy="80" rx="54" ry="5" fill="#000" fill-opacity="0.12"/>
-  <!-- body -->
-  <path d="M4 62 C 30 40, 98 40, 124 62 C 98 84, 30 84, 4 62 Z" fill="url(#wood)"/>
-  <path d="M4 62 C 30 40, 98 40, 124 62 C 98 48, 30 48, 4 62 Z" fill="#fff" fill-opacity="0.2"/>
-  <!-- metal tips -->
-  <path d="M4 62 C 8 58, 12 56, 17 54.5 L 17 69.5 C 12 68, 8 66, 4 62 Z" fill="url(#tip)"/>
-  <path d="M124 62 C 120 58, 116 56, 111 54.5 L 111 69.5 C 116 68, 120 66, 124 62 Z" fill="url(#tip)"/>
-  <!-- cavity with the bobbin -->
-  <rect x="36" y="53" width="56" height="18" rx="7" fill="#4a2c14"/>
-  <rect x="41" y="55.5" width="46" height="13" rx="4.5" fill="url(#thread)"/>
-  <g stroke="#14615a" stroke-opacity="0.45" stroke-width="2">
-    <path d="M49 55.5 V68.5 M57 55.5 V68.5 M65 55.5 V68.5 M73 55.5 V68.5 M81 55.5 V68.5"/>
-  </g>
-  <rect x="38" y="60" width="52" height="4" rx="2" fill="#d9a066"/>
-</svg>
-"""
+def clean_app_icon(source: Path) -> str:
+    """The Inkscape master as a plain SVG: no editor namespaces, attributes,
+    namedview, comments or ids, empty <defs> and attribute-less <g> layers
+    unwrapped. The drawing itself (elements, styles, path data) is copied
+    untouched, so it renders exactly like the master."""
+    ET.register_namespace("", SVG_NS)
+    root = ET.parse(source).getroot()     # the parser drops XML comments
+    if root.get("viewBox") != APP_ICON_VIEWBOX:
+        raise SystemExit(f"{source}: expected viewBox {APP_ICON_VIEWBOX!r}, found {root.get('viewBox')!r}")
+
+    def clean(element: ET.Element) -> None:
+        for name in list(element.attrib):
+            if name == "id" or (name.startswith("{") and not name.startswith("{" + SVG_NS + "}")):
+                del element.attrib[name]
+        children = []
+        for child in element:
+            if not isinstance(child.tag, str) or not child.tag.startswith("{" + SVG_NS + "}"):
+                continue                       # sodipodi:namedview, inkscape metadata...
+            clean(child)
+            local = child.tag.split("}")[1]
+            if local == "defs" and len(child) == 0:
+                continue
+            if local == "g" and not child.attrib:
+                children.extend(child)         # unwrap the Inkscape layer
+                continue
+            children.append(child)
+        element[:] = children
+
+    clean(root)
+    attrs = {"width": str(APP_ICON_SIZE), "height": str(APP_ICON_SIZE), "viewBox": APP_ICON_VIEWBOX}
+    for name in list(root.attrib):
+        del root.attrib[name]
+    root.attrib.update(attrs)
+    ET.indent(root, space="  ")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
 def main() -> None:
@@ -141,7 +166,7 @@ def main() -> None:
         (sym / name).write_text(svg, encoding="utf-8")
     apps = ROOT / "scalable" / "apps"
     apps.mkdir(parents=True, exist_ok=True)
-    (apps / f"{APP_ID}.svg").write_text(APP_ICON, encoding="utf-8")
+    (apps / f"{APP_ID}.svg").write_text(clean_app_icon(SOURCE / "spola-darkbg.svg"), encoding="utf-8")
     print(f"icons written to {ROOT}")
 
 

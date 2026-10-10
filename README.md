@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="data/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.spola.svg" alt="Spola" width="128" height="128">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="data/icons/source/spola-darkbg.svg">
+    <img src="data/icons/source/spola-lightbg.svg" alt="Spola" width="128" height="128">
+  </picture>
 </p>
 
 <h1 align="center">Spola</h1>

@@ -1,36 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <defs>
-    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#e0a96d"/>
-      <stop offset="0.55" stop-color="#b9783f"/>
-      <stop offset="1" stop-color="#7d4a22"/>
-    </linearGradient>
-    <linearGradient id="thread" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#7fd0c4"/>
-      <stop offset="1" stop-color="#1f8a7d"/>
-    </linearGradient>
-    <linearGradient id="tip" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#eeeeec"/>
-      <stop offset="1" stop-color="#9a9996"/>
-    </linearGradient>
-  </defs>
-  <!-- the thread, leaving the shuttle and weaving across -->
-  <path d="M70 68 C 84 92, 96 98, 114 90" fill="none" stroke="#1f8a7d" stroke-width="4" stroke-linecap="round"/>
-  <path d="M14 104 C 34 92, 52 112, 72 102 S 104 96, 118 106" fill="none" stroke="#5e5c64" stroke-opacity="0.35" stroke-width="3" stroke-linecap="round"/>
-  <!-- shadow -->
-  <ellipse cx="64" cy="80" rx="54" ry="5" fill="#000" fill-opacity="0.12"/>
-  <!-- body -->
-  <path d="M4 62 C 30 40, 98 40, 124 62 C 98 84, 30 84, 4 62 Z" fill="url(#wood)"/>
-  <path d="M4 62 C 30 40, 98 40, 124 62 C 98 48, 30 48, 4 62 Z" fill="#fff" fill-opacity="0.2"/>
-  <!-- metal tips -->
-  <path d="M4 62 C 8 58, 12 56, 17 54.5 L 17 69.5 C 12 68, 8 66, 4 62 Z" fill="url(#tip)"/>
-  <path d="M124 62 C 120 58, 116 56, 111 54.5 L 111 69.5 C 116 68, 120 66, 124 62 Z" fill="url(#tip)"/>
-  <!-- cavity with the bobbin -->
-  <rect x="36" y="53" width="56" height="18" rx="7" fill="#4a2c14"/>
-  <rect x="41" y="55.5" width="46" height="13" rx="4.5" fill="url(#thread)"/>
-  <g stroke="#14615a" stroke-opacity="0.45" stroke-width="2">
-    <path d="M49 55.5 V68.5 M57 55.5 V68.5 M65 55.5 V68.5 M73 55.5 V68.5 M81 55.5 V68.5"/>
-  </g>
-  <rect x="38" y="60" width="52" height="4" rx="2" fill="#d9a066"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 512 512">
+  <circle style="fill:#f3f1ea;stroke-width:7.55906;stroke-opacity:0.45;fill-opacity:1" cx="256" cy="256" r="240" />
+  <circle style="fill:#1a1a1a;stroke-width:7.55906;stroke-opacity:1;fill-opacity:1;stroke:none" cx="404" cy="256" r="48" />
+  <circle style="fill:#1a1a1a;stroke-width:7.55906;stroke-opacity:0.45;fill-opacity:1" cx="108" cy="256" r="48" />
+  <path style="fill:none;fill-opacity:1;stroke:#1a1a1a;stroke-width:30;stroke-dasharray:none;stroke-opacity:1" d="M 369.37458,351.13257 A 148,148 0 0 1 205.38102,395.07451 148,148 0 0 1 108,256" />
+  <path style="fill:none;fill-opacity:1;stroke:#1a1a1a;stroke-width:30;stroke-dasharray:none;stroke-opacity:1" d="M 142.62543,160.86743 A 148,148 0 0 1 306.61898,116.92549 148,148 0 0 1 404,256" />
 </svg>

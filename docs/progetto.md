@@ -358,7 +358,7 @@ nautilus/                 estensione per Nautilus
 data/                     .desktop, metainfo, icone app, icone di stato, emblemi, servizio D-Bus
 po/                       traduzioni (sorgenti in inglese, italiano completo)
 tests/                    test della logica e d'integrazione
-tools/                    compile_po.py, flatpak_repo_files.py, make_icon.py
+tools/                    compile_po.py, flatpak_repo_files.py, make_icons.py
 build-aux/flatpak/        manifest (rclone dai sorgenti + app)
 site/                     sito del progetto (Cloudflare Pages, come pdf-cropper)
 .github/workflows/        build.yml (test, validazione, flatpak), flatpak-repo.yml (repository su Pages)
