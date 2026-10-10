@@ -223,8 +223,6 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
     def update_file_info(self, file):
         """Called by Files for every file of a folder, on its main thread:
         answer from the cache and return at once."""
-        if Nautilus is None:
-            return
         uri = file.get_uri()
         path = path_of(uri)
         if not path or self.cache.root_of(path) is None:

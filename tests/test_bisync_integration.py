@@ -76,7 +76,8 @@ class BisyncScenarios(unittest.TestCase):
             os.utime(path, (t, t))
 
     def files(self, side: Path):
-        return sorted(str(p.relative_to(side)) for p in side.rglob("*") if p.is_file())
+        # the root marker Spola writes is excluded from the sync, like any .spola-* file
+        return sorted(str(p.relative_to(side)) for p in side.rglob("*") if p.is_file() and p.name != ".spola-root")
 
     def backups(self):
         root = self.paths.backup_dir(self.pair.id)

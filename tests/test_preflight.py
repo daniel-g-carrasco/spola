@@ -4,6 +4,7 @@ names Koofr refuses, and the root identity guard (unmounted drive)."""
 
 import json
 import os
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -108,12 +109,15 @@ class RootIdentityTest(unittest.TestCase):
             dev, ino = root_identity(str(root))
             pair = Pair("p", str(root), "/x", root_dev=dev, root_ino=ino)
             self.assertEqual(check_root_identity(pair), [])
+            self.assertEqual((root / ".spola-root").read_text().strip(), "p")   # written on first check
             # an unmounted drive looks like an empty folder at the same path:
-            # here, the folder deleted and created again
-            (root / "file").unlink()
-            root.rmdir()
+            # here, the folder deleted and created again (ext4 may even reuse the inode)
+            shutil.rmtree(root)
             self.assertEqual(codes(check_root_identity(pair)), ["root-missing"])
             root.mkdir()
+            self.assertEqual(codes(check_root_identity(pair)), ["root-replaced"])
+            # another pair's folder is not this pair's folder either
+            (root / ".spola-root").write_text("other\n")
             self.assertEqual(codes(check_root_identity(pair)), ["root-replaced"])
 
 
