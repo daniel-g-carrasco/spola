@@ -151,8 +151,25 @@ def check_koofr_desktop(local: str, config_path: Path, active: bool | None = Non
     return problems
 
 
+# A hidden marker in every synced root (excluded from the sync by the
+# ".spola-*" rule): an unmounted drive's empty mount point or a folder deleted
+# and recreated has none, whatever inode numbers the filesystem reuses.
+ROOT_MARKER = ".spola-root"
+
+
+def marker_path(pair: Pair) -> str:
+    return os.path.join(pair.local, ROOT_MARKER)
+
+
+def write_marker(pair: Pair) -> None:
+    with open(marker_path(pair), "w", encoding="utf-8") as f:
+        f.write(f"{pair.id}\n")
+
+
 def check_root_identity(pair: Pair) -> list[Problem]:
-    """Before every run: is the local root still the very folder we paired?"""
+    """Before every run: is the local root still the very folder we paired?
+    The marker decides; a root paired before markers existed gets one now,
+    as long as its device and inode are still the ones recorded."""
     try:
         st = os.stat(pair.local, follow_symlinks=False)
     except FileNotFoundError:
@@ -161,8 +178,22 @@ def check_root_identity(pair: Pair) -> list[Problem]:
         return [Problem("root-unreadable", _("The local folder cannot be read: {error}").format(error=e.strerror), pair.local)]
     if not os.path.isdir(pair.local) or os.path.islink(pair.local):
         return [Problem("root-not-dir", _("The local path is no longer a folder."), pair.local)]
+    replaced = Problem("root-replaced", _("The local folder was replaced by a different one (another drive, or deleted and recreated). Sync is stopped to protect your files."), pair.local)
+    try:
+        with open(marker_path(pair), encoding="utf-8") as f:
+            marker = f.read().strip()
+    except FileNotFoundError:
+        marker = None
+    except OSError as e:
+        return [Problem("root-unreadable", _("The local folder cannot be read: {error}").format(error=e.strerror), pair.local)]
+    if marker is not None:
+        return [] if marker == pair.id else [replaced]
     if pair.root_dev is not None and (st.st_dev, st.st_ino) != (pair.root_dev, pair.root_ino):
-        return [Problem("root-replaced", _("The local folder was replaced by a different one (another drive, or deleted and recreated). Sync is stopped to protect your files."), pair.local)]
+        return [replaced]
+    try:
+        write_marker(pair)
+    except OSError as e:
+        return [Problem("root-unreadable", _("The local folder cannot be written: {error}").format(error=e.strerror), pair.local)]
     return []
 
 
