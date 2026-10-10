@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from urllib.parse import quote
 
 import gi
 
@@ -12,8 +11,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL, KOOFR_WEB  # noqa: E402
-from . import account, preflight, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
+from . import account, koofr_api, preflight, secrets  # noqa: E402
 from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
@@ -171,16 +170,21 @@ class MainWindow(Adw.ApplicationWindow):
             creds = account.Credentials.from_password(user, password, self.engine.rclone)
             quota = account.check(self.engine.rclone, self.engine.paths, creds)
             secrets.store(user, password)
-            return creds, quota
+            try:
+                mount_id = koofr_api.primary_mount_id(user, password)
+            except koofr_api.ApiError:
+                mount_id = ""      # the activity poll fetches it later
+            return creds, quota, mount_id
 
         def done(result, error):
             self.login_button.set_sensitive(True)
             if error:
                 self._login_failed(str(error))
                 return
-            creds, quota = result
+            creds, quota, mount_id = result
             self.password.set_text("")
             self.engine.cfg.user = creds.user
+            self.engine.cfg.mount_id = mount_id or self.engine.cfg.mount_id
             self.engine.save_config()
             self.engine.set_credentials(creds)
             self._show_quota(quota)
@@ -391,7 +395,7 @@ class PairRow(Adw.ActionRow):
 
     def _open_web(self) -> None:
         pair = self.engine.cfg.pair(self.pair_id)
-        url = f"{KOOFR_WEB}/app/storage/?path={quote(pair.remote)}"
+        url = koofr_api.web_url(self.engine.cfg.mount_id, pair.remote)
         Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
 
     def _remove(self) -> None:

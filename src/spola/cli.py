@@ -17,7 +17,7 @@ import getpass
 import sys
 from pathlib import Path
 
-from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, listings, preflight
+from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_api, listings, preflight
 from .account import AccountError, Credentials, check
 from .i18n import _, ngettext
 from .paths import Paths
@@ -171,6 +171,10 @@ def main(argv: list[str]) -> int:
             return _fail(str(e))
         secrets.store(user, password)
         cfg.user = user
+        try:
+            cfg.mount_id = koofr_api.primary_mount_id(user, password)
+        except koofr_api.ApiError:
+            pass
         config.save(cfg, paths.config_file)
         print(_("Signed in. Free space: {free} GB").format(free=(quota.free or 0) // 1024**3))
         return 0

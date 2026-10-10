@@ -19,6 +19,7 @@ from .config import Config, Pair
 from .paths import Paths
 from .preflight import Problem, Refused, check_root_identity, refused_paths
 from .i18n import _
+from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
                      effective_max_delete, exclude_lines, remote_spec)
 
@@ -93,6 +94,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         force=force,
         exclude_from=exclude_file,
         conflict_suffix=conflict_suffix(*conflict_words()),
+        user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
 

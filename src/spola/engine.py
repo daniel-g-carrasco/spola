@@ -18,6 +18,7 @@ from __future__ import annotations
 import enum
 import os
 import re
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -25,7 +26,7 @@ from dataclasses import dataclass, field
 from gi.repository import Gio, GLib, GObject
 
 from . import config as config_mod
-from . import jobs, listings
+from . import jobs, koofr_api, listings
 from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, ngettext
@@ -38,6 +39,7 @@ DEBOUNCE_S = 10
 MAX_WAIT_S = 120
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
 RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
+ACTIVITY_INTERVAL_S = 60
 
 
 def conflict_name_pattern() -> re.Pattern:
@@ -127,6 +129,12 @@ class Engine(GObject.Object):
         # of the app can be tried without an account. Never set in the Flatpak.
         self.dev_remote = os.environ.get("SPOLA_DEV_REMOTE") or None
         self._conflict_name = conflict_name_pattern()
+        # Koofr's activity feed as a doorbell: None = not tried yet
+        self.feed_ok: bool | None = None
+        self.feed_enabled = self.dev_remote is None
+        self._activity_since = int(time.time() * 1000)
+        self._activity_seen: set[str] = set()
+        self._activity_busy = False
         self.runtime: dict[str, PairRuntime] = {p.id: PairRuntime() for p in cfg.pairs}
         self.queue: list[Task] = []
         self.active: Task | None = None
@@ -151,6 +159,7 @@ class Engine(GObject.Object):
         GLib.timeout_add_seconds(3, self._initial_runs)
         self._clock = (time.time(), time.monotonic())
         GLib.timeout_add_seconds(60, self._check_clock)
+        GLib.timeout_add_seconds(ACTIVITY_INTERVAL_S, self._poll_activity)
         GLib.timeout_add_seconds(60, self._prune_backups)
         GLib.timeout_add_seconds(24 * 3600, self._prune_backups)
 
@@ -163,7 +172,12 @@ class Engine(GObject.Object):
         return True
 
     def _initial_runs(self) -> bool:
-        self.sync_all("startup")
+        for pair in self.cfg.pairs:
+            rt = self.runtime.get(pair.id)
+            # signing in has already started (or queued) a run for it
+            if rt and (rt.run or rt.last_sync or any(t.pair_id == pair.id for t in self.queue)):
+                continue
+            self.request_sync(pair.id, "startup")
         return False
 
     def _prune_backups(self) -> bool:
@@ -606,10 +620,59 @@ class Engine(GObject.Object):
         return False
 
     def _reschedule_poll(self) -> None:
+        """Full runs every hour while the activity feed tells us what changed
+        on Koofr, every `poll_minutes` when it does not."""
         if self._poll_source:
             GLib.source_remove(self._poll_source)
-        minutes = max(1, int(self.cfg.poll_minutes))
-        self._poll_source = GLib.timeout_add_seconds(minutes * 60, self._poll)
+        minutes = self.cfg.full_check_minutes if self.feed_ok else self.cfg.poll_minutes
+        self._poll_source = GLib.timeout_add_seconds(max(1, int(minutes)) * 60, self._poll)
+
+    # -- Koofr's activity feed ------------------------------------------------------
+
+    def _poll_activity(self) -> bool:
+        creds = self.creds
+        if (self._activity_busy or creds is None or not creds.password or not self.feed_enabled
+                or self.blocked_reason() or not any(p.initialized and not p.paused for p in self.cfg.pairs)):
+            return True
+        self._activity_busy = True
+        since, mount_id = self._activity_since, self.cfg.mount_id
+
+        def work():
+            try:
+                mount = mount_id or koofr_api.primary_mount_id(creds.user, creds.password)
+                result = (mount, koofr_api.activity(creds.user, creds.password, mount, since)), None
+            except koofr_api.ApiError as e:
+                result = None, e
+            GLib.idle_add(self._activity_done, *result)
+
+        threading.Thread(target=work, name="koofr-activity", daemon=True).start()
+        return True
+
+    def _activity_done(self, result, error) -> bool:
+        self._activity_busy = False
+        if error is not None or result is None:
+            self._set_feed(False)
+            return False
+        mount_id, activities = result
+        if mount_id != self.cfg.mount_id:
+            self.cfg.mount_id = mount_id
+            self.save_config()
+        new = [a for a in activities if a.id not in self._activity_seen]
+        if activities:
+            # the feed may include the boundary instant: remember what was seen there
+            self._activity_since = max(a.timestamp for a in activities)
+            self._activity_seen = {a.id for a in activities if a.timestamp == self._activity_since}
+        touched, _full = koofr_api.touched_pairs(new, self.cfg.pairs, mount_id, self.cfg.instance_id)
+        for pair_id in sorted(touched):
+            self.request_sync(pair_id, "remote-change")
+        self._set_feed(True)
+        return False
+
+    def _set_feed(self, ok: bool) -> None:
+        if ok != self.feed_ok:
+            self.feed_ok = ok
+            self._reschedule_poll()
+            self.emit("status-changed")
 
     def _poll(self) -> bool:
         self.sync_all("poll")

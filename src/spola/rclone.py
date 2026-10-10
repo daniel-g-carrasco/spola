@@ -181,6 +181,7 @@ class BisyncRequest:
     bwlimit: str | None = None
     exclude_from: Path | None = None   # per-run exclusions (names Koofr refuses)
     conflict_suffix: str = "conflict-local-{DateOnly}-,conflict-koofr-{DateOnly}-"
+    user_agent: str | None = None
     extra_test_flags: list[str] = field(default_factory=list)   # tests only
 
 
@@ -209,6 +210,8 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         "--color", "NEVER",
         "-v",
     ]
+    if req.user_agent:
+        args += ["--user-agent", req.user_agent]
     if req.exclude_from:
         # a separate file on purpose: bisync fingerprints only --filters-file,
         # and a change there would demand a new first alignment
