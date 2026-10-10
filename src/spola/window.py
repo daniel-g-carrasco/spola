@@ -413,7 +413,8 @@ class PairRow(Adw.ActionRow):
                 detail = rt.message
             state = f"{state}: {detail}" if detail else state
         elif rt.status is Status.CONFLICTS:
-            state += " (" + ngettext("{n} file", "{n} files", len(rt.conflicts)).format(n=len(rt.conflicts)) + ")"
+            n = len(self.engine.conflicts(self.pair_id))       # conflicts, not copies
+            state += " (" + ngettext("{n} file", "{n} files", n).format(n=n) + ")"
         elif rt.status is Status.SKIPPED:
             names = ", ".join(r.path for r in rt.refused[:2]) + (" \u2026" if len(rt.refused) > 2 else "")
             state += f": {names}"

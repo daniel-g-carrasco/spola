@@ -61,6 +61,24 @@
     <display_length compare="ge">360</display_length>
   </requires>
 
+  <screenshots>
+    <screenshot type="default">
+      <caption>Folder pairs with their status</caption>
+      <caption xml:lang="it">Le coppie di cartelle con il loro stato</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/main-window.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Conflicts: both versions, a choice for each</caption>
+      <caption xml:lang="it">I conflitti: entrambe le versioni, una scelta per ciascuno</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/conflicts.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Preferences</caption>
+      <caption xml:lang="it">Le preferenze</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/preferences.png</image>
+    </screenshot>
+  </screenshots>
+
   <releases>
     <release version="0.1.0" date="2026-10-10" type="development">
       <description>

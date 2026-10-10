@@ -90,7 +90,7 @@ class SpolaApp(Adw.Application):
 
     def _load_credentials(self) -> None:
         if self.engine.dev_remote:
-            self.engine.set_credentials(Credentials("dev@localhost", ""))
+            self.engine.set_credentials(Credentials(os.environ.get("SPOLA_DEV_USER") or "dev@localhost", ""))
             return
         user = self.engine.cfg.user
         if not user or self.engine.rclone is None:

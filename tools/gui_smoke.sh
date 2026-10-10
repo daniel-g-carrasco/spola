@@ -22,10 +22,17 @@ DISPLAY_NUM="${BROADWAY_NUM:-7}"
 
 gtk4-broadwayd ":$DISPLAY_NUM" >/dev/null 2>&1 &
 broadway=$!
-trap 'kill "$broadway" 2>/dev/null || true' EXIT
+cleanup() {
+    kill "$broadway" 2>/dev/null || true
+    # the portals of the private session mount FUSE inside the private runtime dir
+    for m in "$OUT/runtime/doc" "$OUT/runtime/gvfs"; do
+        mountpoint -q "$m" 2>/dev/null && fusermount3 -uz "$m" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT
 sleep 1
 
-export HOME="$OUT/home" XDG_CONFIG_HOME="$OUT/config" XDG_STATE_HOME="$OUT/state" XDG_DATA_HOME="$OUT/data"
+export OUT HOME="$OUT/home" XDG_CONFIG_HOME="$OUT/config" XDG_STATE_HOME="$OUT/state" XDG_DATA_HOME="$OUT/data"
 export SPOLA_DEV_REMOTE="${SPOLA_DEV_REMOTE-$OUT/remote}"
 export GDK_BACKEND=broadway BROADWAY_DISPLAY=":$DISPLAY_NUM" GSK_RENDERER=cairo
 export SPOLA_SCREENSHOT="${SPOLA_SCREENSHOT:-$OUT/window.png}"

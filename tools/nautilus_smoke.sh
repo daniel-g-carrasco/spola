@@ -19,7 +19,14 @@ DISPLAY_NUM="${BROADWAY_NUM:-11}"
 
 gtk4-broadwayd ":$DISPLAY_NUM" >/dev/null 2>&1 &
 broadway=$!
-trap 'kill "$broadway" 2>/dev/null || true' EXIT
+cleanup() {
+    kill "$broadway" 2>/dev/null || true
+    # the portals of the private session mount FUSE inside the private runtime dir
+    for m in "$OUT/runtime/doc" "$OUT/runtime/gvfs"; do
+        mountpoint -q "$m" 2>/dev/null && fusermount3 -uz "$m" 2>/dev/null || true
+    done
+}
+trap cleanup EXIT
 sleep 1
 
 echo base > "$OUT/home/Sync/a.txt"

@@ -15,6 +15,10 @@ Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) id
 
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
+<p align="center">
+  <img src="data/screenshots/main-window.png" alt="Spola's window: three folder pairs, one with conflicts to check" width="560">
+</p>
+
 The design document (in Italian) is [docs/progetto.md](docs/progetto.md). Spola is not affiliated with Koofr.
 
 ## Install
