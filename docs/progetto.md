@@ -1,6 +1,6 @@
-# Client di sincronizzazione Koofr per GNOME: documento di progetto
+# Spola: documento di progetto
 
-Stato: **bozza da approvare** (fase 1). Data: 2026-10-10. Nome provvisorio del progetto: `koofr-sync`, app ID provvisorio `io.github.daniel_g_carrasco.koofr-sync`. Entrambi cambiano quando sarà scelto il nome definitivo (fase 2); il nome finale non dovrebbe contenere "Koofr", che è un marchio altrui.
+Stato: **approvato** il 2026-10-10 (fase 1). Data: 2026-10-10. Nome: **Spola** (scelto il 2026-10-10: "fare la spola", e la spola del telaio che porta il filo da un lato all'altro). App ID `io.github.daniel_g_carrasco.spola`. Koofr compare solo nella descrizione ("Sincronizza le tue cartelle con Koofr", "Non affiliato a Koofr").
 
 Legenda delle fonti: **[V]** verificato (sorgente, documentazione primaria o prova su questa macchina), **[I]** dedotto, da confermare con una prova. Le prove e i comandi sono nell'appendice A.
 
@@ -370,7 +370,7 @@ docs/                     questo documento e le note tecniche
 - Logica pura: costruzione dei comandi (le opzioni vietate non compaiono mai, `--max-delete` c'è sempre, la password non è mai negli argomenti), lettura del log JSON da registrazioni reali, lettura degli elenchi, aggregazione degli stati, controlli di `preflight` (sovrapposizioni, nomi con emoji, collisioni di maiuscole), debounce del pianificatore.
 - Integrazione senza rete, in CI: bisync tra due cartelle locali con il rclone del progetto, scenari scritti apposta (modifica da un lato, cancellazione, conflitto, cancellazione di massa che deve fermarsi, disco "non montato", interruzione a metà con SIGINT, cambio dei filtri).
 - Tray e D-Bus: un bus di sessione privato (`dbus-run-session`) per contare i segnali e provare l'interfaccia.
-- Prova vera su Koofr, a mano: una cartella dedicata sul cloud (per esempio `/koofr-sync-test`) e una locale (`~/scratch/koofr-sync-test`), sempre prima in `--dry-run`.
+- Prova vera su Koofr, a mano: una cartella dedicata sul cloud (per esempio `/spola-test`) e una locale (`~/scratch/spola-test`), sempre prima in `--dry-run`.
 
 **Distribuzione** (fase 6, dopo il via): repository Flatpak su GitHub Pages con lo stesso workflow e le stesse correzioni delle altre app (cartelle vuote di ostree ricreate dopo il clone), chiave GPG dedicata in `~/.config/<app>-flatpak/`, sito su Cloudflare Pages.
 
