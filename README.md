@@ -8,7 +8,8 @@
 <h1 align="center">Spola</h1>
 
 <p align="center">
-  Keep your folders in sync with Koofr, on GNOME.
+  Keep your folders in sync with Koofr, on GNOME.<br>
+  <a href="https://spola.neistar.com">spola.neistar.com</a>
 </p>
 
 Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) identical, in both directions, in the background. It is a GTK 4 / libadwaita app built on [rclone](https://rclone.org)'s two-way sync (`rclone bisync`), with a tray icon and, later, Nautilus emblems.
