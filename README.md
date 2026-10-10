@@ -31,6 +31,10 @@ Spola never writes its own sync engine: rclone bisync does the work, and Spola p
 - **Names Koofr refuses** (emoji, names that differ only in upper/lower case) are found before the first run.
 - **The password stays in the keyring**, and reaches rclone only through the environment of the child process, never on a command line.
 
+## In the window
+
+Each folder pair is one row: its status, what the last sync did, a progress bar while it runs. A pair that needs you (a preview to confirm, conflicts, files Koofr refuses) says so and opens the right view with one click, as does its notification. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names; the discarded one goes to the wastebasket. Each pair has its own exclusions (rclone filter syntax, seeded with sensible defaults). Preferences: pause on metered networks and in power saver mode, start at login, backup retention, language of the conflict copies' names.
+
 ## Run from source
 
 Needs Python 3.11 or newer, PyGObject, GTK 4, libadwaita 1.6 or newer, libsecret and rclone 1.71 or newer.
@@ -64,7 +68,7 @@ python3 tools/make_icons.py                # regenerate the icons
 python3 tools/compile_po.py --update       # refresh po/spola.pot and po/*.po
 ```
 
-`SPOLA_DEV_REMOTE=/some/folder` turns the Koofr side into a local folder, so every flow of the app can be tried without an account.
+`SPOLA_DEV_REMOTE=/some/folder` turns the Koofr side into a local folder, so every flow of the app and of the command line can be tried without an account; `SPOLA_DEV_BWLIMIT=300k` slows runs down to watch them.
 
 ## License
 

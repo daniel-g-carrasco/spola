@@ -134,6 +134,28 @@ class EngineTest(unittest.TestCase):
         finally:
             koofr_api.activity, koofr_api.primary_mount_id = orig
 
+    def test_changed_exclusions_need_a_repair_shown_as_a_preview(self):
+        from spola.jobs import read_filters
+        self.align()
+        (self.local / "secret.tmp").write_text("x")
+        (self.local / "shown.txt").write_text("y")
+        text = read_filters(self.engine.paths, self.pair) + "- *.tmp\n"
+        self.assertFalse(self.engine.set_filters("p1", read_filters(self.engine.paths, self.pair)))   # unchanged
+        self.assertTrue(self.engine.set_filters("p1", text))
+        self.assertIs(self.status(), Status.NEEDS_REPAIR)
+        self.engine.sync_all("poll")                       # automatic runs stay stopped
+        spin_until(lambda: False, 1.5)
+        self.assertNotIn("shown.txt", self.remote_files())
+        results = []
+        self.engine.preview("p1", Mode.RESYNC, False, lambda out, err: results.append((out, err)))
+        self.assertTrue(spin_until(lambda: results, 30))
+        self.assertEqual(results[0][0].plan.upload, ["shown.txt"])
+        self.assertIs(self.status(), Status.NEEDS_REPAIR)      # a preview decides nothing
+        self.engine.confirm("p1", Mode.RESYNC, False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
+        self.assertIn("shown.txt", self.remote_files())
+        self.assertNotIn("secret.tmp", self.remote_files())
+
     def test_never_runs_on_its_own_before_alignment(self):
         self.engine.sync_all("poll")
         spin_until(lambda: False, 2)
@@ -176,6 +198,13 @@ class EngineTest(unittest.TestCase):
 
 
 class HelpersTest(unittest.TestCase):
+    def test_conflict_words_follow_the_chosen_language(self):
+        from spola.jobs import conflict_words
+        if not (Path(__file__).resolve().parent.parent / "locale/it/LC_MESSAGES/spola.mo").exists():
+            self.skipTest("run tools/compile_po.py first")
+        self.assertEqual(conflict_words("it"), ("conflitto-locale", "conflitto-koofr"))
+        self.assertEqual(conflict_words("en"), ("conflict-local", "conflict-koofr"))
+
     def test_resume_detection(self):
         self.assertFalse(slept(60.2, 60.0))
         self.assertFalse(slept(3600, 3600))          # a long uptime is not a sleep

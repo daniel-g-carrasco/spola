@@ -58,6 +58,8 @@ class Config:
     backup_days: int = 30
     paused_all: bool = False
     nautilus_integration: bool = False
+    autostart: bool = True               # start at login, in the background
+    conflict_language: str = ""          # "" = desktop language; "en", "it"
 
     def pair(self, pair_id: str) -> Pair | None:
         return next((p for p in self.pairs if p.id == pair_id), None)

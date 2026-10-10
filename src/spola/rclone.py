@@ -25,6 +25,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .i18n import ngettext
+
 REMOTE_NAME = "koofr"   # changing it would orphan every pair's bisync listings
 
 FORBIDDEN_FLAGS = frozenset({
@@ -349,6 +351,22 @@ class Plan:
     def empty(self) -> bool:
         return not (self.upload or self.download or self.delete_local or self.delete_remote
                     or self.replace_local or self.conflicts)
+
+
+def describe(plan: Plan) -> str:
+    """One line for the row and the toasts: "3 files to Koofr, 1 deleted"."""
+    parts = []
+    if plan.upload:
+        parts.append(ngettext("{n} file to Koofr", "{n} files to Koofr", len(plan.upload)).format(n=len(plan.upload)))
+    if plan.download or plan.replace_local:
+        n = len(set(plan.download) | set(plan.replace_local))
+        parts.append(ngettext("{n} file from Koofr", "{n} files from Koofr", n).format(n=n))
+    deleted = len(plan.delete_local) + len(plan.delete_remote)
+    if deleted:
+        parts.append(ngettext("{n} deleted", "{n} deleted", deleted).format(n=deleted))
+    if plan.conflicts:
+        parts.append(ngettext("{n} conflict", "{n} conflicts", len(plan.conflicts)).format(n=len(plan.conflicts)))
+    return ", ".join(parts)
 
 
 @dataclass

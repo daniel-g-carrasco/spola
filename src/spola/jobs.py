@@ -10,6 +10,7 @@ be asked to do, so every rule about when a run may start lives here:
 
 from __future__ import annotations
 
+import os
 import shutil
 import time
 from dataclasses import dataclass
@@ -18,13 +19,18 @@ from . import listings
 from .config import Config, Pair
 from .paths import Paths
 from .preflight import Problem, Refused, check_root_identity, refused_paths
-from .i18n import _
+from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
                      effective_max_delete, exclude_lines, remote_spec)
 
 
-def conflict_words() -> tuple[str, str]:
+def conflict_words(language: str = "") -> tuple[str, str]:
+    """The words in the names of conflict copies, in the desktop language or
+    in the one chosen in the preferences."""
+    if language:
+        tr = translation_for(language).gettext
+        return tr("conflict-local"), tr("conflict-koofr")
     # TRANSLATORS: goes into file names, e.g. report.conflict-local-2026-10-10-1.odt;
     # use letters and "-" only
     return _("conflict-local"), _("conflict-koofr")
@@ -50,6 +56,24 @@ def ensure_filters(paths: Paths, pair: Pair) -> None:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(DEFAULT_FILTERS, encoding="utf-8")
+
+
+def read_filters(paths: Paths, pair: Pair) -> str:
+    path = paths.filters_file(pair.id)
+    return path.read_text(encoding="utf-8") if path.exists() else DEFAULT_FILTERS
+
+
+def write_filters(paths: Paths, pair: Pair, text: str) -> bool:
+    """Store the pair's exclusions; True if they changed (bisync then asks
+    for a new first alignment, which the app shows as a repair preview)."""
+    if not text.endswith("\n"):
+        text += "\n"
+    if text == read_filters(paths, pair):
+        return False
+    path = paths.filters_file(pair.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return True
 
 
 def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
@@ -93,7 +117,8 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         dry_run=dry_run,
         force=force,
         exclude_from=exclude_file,
-        conflict_suffix=conflict_suffix(*conflict_words()),
+        conflict_suffix=conflict_suffix(*conflict_words(cfg.conflict_language)),
+        bwlimit=os.environ.get("SPOLA_DEV_BWLIMIT") or None,   # developer aid: slow runs down
         user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
