@@ -56,6 +56,9 @@ class SpolaApp(Adw.Application):
         self.engine.connect("attention", self._on_attention)
         self._load_credentials()
 
+        review = Gio.SimpleAction.new("review", GLib.VariantType.new("s"))
+        review.connect("activate", lambda _a, param: self._review(param.get_string()))
+        self.add_action(review)
         for name, handler in (("quit", self._quit), ("show", lambda: self.activate()),
                               ("sync-all", lambda: self.engine.sync_all("manual")),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
@@ -100,6 +103,9 @@ class SpolaApp(Adw.Application):
         self._window().present()
         if os.environ.get("SPOLA_DEV_OPEN_PREVIEW") and self.engine.cfg.pairs:
             GLib.timeout_add(500, lambda: self._window().open_preview(self.engine.cfg.pairs[0].id) and False)
+        if os.environ.get("SPOLA_DEV_OPEN_REVIEW") and self.engine.cfg.pairs:
+            GLib.timeout_add(int(float(os.environ.get("SPOLA_DEV_OPEN_REVIEW", "1")) * 1000),
+                             lambda: self._window().review(self.engine.cfg.pairs[0].id) and False)
         shot = os.environ.get("SPOLA_SCREENSHOT")
         if shot:   # developer aid: save the window as PNG after a few seconds
             GLib.timeout_add(int(float(os.environ.get("SPOLA_SCREENSHOT_DELAY", "3")) * 1000),
@@ -147,6 +153,12 @@ class SpolaApp(Adw.Application):
             MenuItem(_("Quit"), self._quit),
         ])
 
+    def _review(self, pair_id: str) -> None:
+        """From a notification: show the window on what needs attention."""
+        self.activate()
+        if self.engine.cfg.pair(pair_id):
+            self._window().review(pair_id)
+
     def _on_attention(self, _engine, pair_id: str, kind: str, message: str) -> None:
         pair = self.engine.cfg.pair(pair_id)
         name = pair.name if pair else APP_NAME
@@ -159,7 +171,7 @@ class SpolaApp(Adw.Application):
         }
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)
-        note.set_default_action("app.show")
+        note.set_default_action_and_target("app.review", GLib.Variant("s", pair_id))
         if kind in ("confirm", "repair", "error"):
             note.set_priority(Gio.NotificationPriority.HIGH)
         self.send_notification(f"{kind}-{pair_id}", note)

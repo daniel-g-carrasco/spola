@@ -130,6 +130,25 @@ class BisyncScenarios(unittest.TestCase):
         self.assertEqual(self.files(self.local), self.files(self.remote))
         self.assertEqual((self.remote / "notes.txt").read_text(), "only here changed")
 
+    def test_resolving_a_conflict_reaches_the_other_side(self):
+        from spola import conflicts
+        self.write(self.local, "doc.odt", "base", age=600)
+        for i in range(5):
+            self.write(self.local, f"keep{i}.txt", "same", age=600)
+        self.align()
+        self.write(self.local, "doc.odt", "mine")
+        self.write(self.remote, "doc.odt", "theirs")
+        self.assertIs(self.bisync().result, Result.OK)
+        items = conflicts.group([f for f in self.files(self.local) if "conflict" in f], str(self.local))
+        self.assertEqual(len(items), 1)
+        trashed = []
+        conflicts.resolve(str(self.local), items[0], "local", trash=lambda p: trashed.append(p) or os.unlink(p))
+        self.assertEqual(len(trashed), 1)
+        out = self.bisync()
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual((self.remote / "doc.odt").read_text(), "mine")
+        self.assertEqual([f for f in self.files(self.remote) if "conflict" in f], [])
+
     def test_remote_delete_goes_to_local_backup(self):
         for i in range(30):
             self.write(self.local, f"f{i:02}.txt", str(i), age=600)
