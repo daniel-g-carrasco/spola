@@ -35,6 +35,12 @@ Spola never writes its own sync engine: rclone bisync does the work, and Spola p
 
 Each folder pair is one row: its status, what the last sync did, a progress bar while it runs. A pair that needs you (a preview to confirm, conflicts, files Koofr refuses) says so and opens the right view with one click, as does its notification. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names; the discarded one goes to the wastebasket. Each pair has its own exclusions (rclone filter syntax, seeded with sensible defaults). Preferences: pause on metered networks and in power saver mode, start at login, backup retention, language of the conflict copies' names.
 
+## In Files (Nautilus)
+
+Preferences has a switch, *Show sync status in Files*: Spola installs a small nautilus-python extension and its emblems for your user (`~/.local/share/nautilus-python/extensions/spola-nautilus.py`, `~/.local/share/icons/hicolor/scalable/emblems/`), and Files shows an emblem on every synced file and folder: synced, syncing, changed here and waiting, error, conflict, left out. Right-click gives *Sync Now with Koofr*, *Open on Koofr* and *Copy Koofr Share Link*. The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so Files stays as fast as it is; with Spola not running it does nothing. Files needs nautilus-python (Fedora: `nautilus-python`) and a restart (`nautilus -q`) after the switch.
+
+The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/daniel_g_carrasco/spola/Sync`) is also there for other file managers: states per folder, states per file, sync now, web link, share link, and signals when states change.
+
 ## Run from source
 
 Needs Python 3.11 or newer, PyGObject, GTK 4, libadwaita 1.6 or newer, libsecret and rclone 1.71 or newer.

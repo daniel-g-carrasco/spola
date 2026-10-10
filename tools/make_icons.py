@@ -6,6 +6,11 @@
   symbolic/apps/<APP_ID>-symbolic.svg         its symbolic version
   symbolic/apps/<APP_ID>-<state>-symbolic.svg tray states: synced, syncing,
                                               paused, error, attention
+  scalable/emblems/emblem-spola-<state>-symbolic.svg
+                                              Files (Nautilus) emblems: synced,
+                                              syncing, pending, error, conflict,
+                                              excluded; installed on the host by
+                                              the app with the Files extension
 
 The masters of the app icon are the Inkscape files in data/icons/source/
 (spola-darkbg.svg for dark backgrounds, spola-lightbg.svg for light ones):
@@ -52,8 +57,11 @@ def rect(x, y, w, h) -> str:
     return poly([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
 
 
-def symbolic(*paths: str) -> str:
-    body = "".join(f'<path fill="{FG}" fill-rule="evenodd" d="{p}"/>' for p in paths)
+def symbolic(*paths: str, cls: str = "") -> str:
+    """`cls` is a GTK semantic colour class (success, warning, error): the
+    file manager colours the emblem accordingly."""
+    attr = f' class="{cls}"' if cls else ""
+    body = "".join(f'<path{attr} fill="{FG}" fill-rule="evenodd" d="{p}"/>' for p in paths)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
             f"{body}</svg>\n")
@@ -162,12 +170,35 @@ def clean_app_icon(source: Path) -> str:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
+def emblem_icons() -> dict[str, str]:
+    """Emblems fill the whole 16 px canvas: Files draws them small and dim."""
+    disk = circle(8, 8, 7.5)
+    ring = disk + " " + circle(8, 8, 5)
+    clock_hands = rect(7.3, 4.2, 1.4, 4.4) + " " + rect(7.3, 7.3, 3.8, 1.4)
+    slash = poly([(3.4, 11.2), (11.2, 3.4), (12.6, 4.8), (4.8, 12.6)])
+    return {
+        "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
+                           cls="success"),
+        "syncing": symbolic(disk + " " + " ".join(ring_arrow(8, 8, 5, 3.5, start, end, tip_deg=26)
+                                                   for start, end in ((40, 160), (220, 340)))),
+        "pending": symbolic(ring + " " + clock_hands),
+        "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error"),
+        "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
+                             + " " + circle(8, 12.2, 1.05), cls="warning"),
+        "excluded": symbolic(ring + " " + slash),
+    }
+
+
 def main() -> None:
     sym = ROOT / "symbolic" / "apps"
     sym.mkdir(parents=True, exist_ok=True)
     for state, svg in symbolic_icons().items():
         name = f"{APP_ID}-{state}-symbolic.svg" if state else f"{APP_ID}-symbolic.svg"
         (sym / name).write_text(svg, encoding="utf-8")
+    emblems = ROOT / "scalable" / "emblems"
+    emblems.mkdir(parents=True, exist_ok=True)
+    for state, svg in emblem_icons().items():
+        (emblems / f"emblem-spola-{state}-symbolic.svg").write_text(svg, encoding="utf-8")
     apps = ROOT / "scalable" / "apps"
     apps.mkdir(parents=True, exist_ok=True)
     (apps / f"{APP_ID}.svg").write_text(clean_app_icon(SOURCE / "spola-darkbg.svg"), encoding="utf-8")
