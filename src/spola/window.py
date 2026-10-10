@@ -646,6 +646,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(saver)
         page.add(group)
 
+        group = Adw.PreferencesGroup(title=_("Speed limits"), description=_("In KB/s; 0 means no limit. Applied from the next sync."))
+        for name, title in (("upload_limit_kb", _("Upload to Koofr")), ("download_limit_kb", _("Download from Koofr"))):
+            row = Adw.SpinRow.new_with_range(0, 1_000_000, 100)
+            row.set_title(title)
+            row.set_value(getattr(cfg, name))
+            row.connect("notify::value", lambda r, _p, n=name: self._set(n, int(r.get_value())))
+            group.add(row)
+        page.add(group)
+
         group = Adw.PreferencesGroup(title=_("Startup"))
         auto = Adw.SwitchRow(title=_("Start at login"), subtitle=_("In the background, with the tray icon only"),
                              active=cfg.autostart)

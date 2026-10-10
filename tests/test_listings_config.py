@@ -71,6 +71,13 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(cfg.autostart)
         self.assertEqual(cfg.conflict_language, "")
         self.assertEqual(cfg.full_check_minutes, 60)
+        self.assertIsNone(cfg.bwlimit)
+        cfg.upload_limit_kb = 500
+        self.assertEqual(cfg.bwlimit, "500k:off")
+        cfg.download_limit_kb = 2000
+        self.assertEqual(cfg.bwlimit, "500k:2000k")
+        cfg.upload_limit_kb = 0
+        self.assertEqual(cfg.bwlimit, "off:2000k")
 
     def test_password_is_never_saved(self):
         self.assertNotIn("password", json.dumps(Config(user="u").to_json()).lower())
