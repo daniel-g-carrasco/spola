@@ -7,8 +7,8 @@ from pathlib import Path
 from _setup import fixture_lines
 
 from spola.rclone import (
-    DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Result,
-    bisync_args, clean_env, conflict_suffix, default_excluded, effective_max_delete, koofr_env,
+    DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
+    bisync_args, clean_env, conflict_suffix, default_excluded, describe, effective_max_delete, koofr_env,
     parse_line, remote_spec, summarize,
 )
 
@@ -170,6 +170,12 @@ class DefaultsTest(unittest.TestCase):
         self.assertEqual(args[args.index("--checkers") + 1], "16")
         args = bisync_args("rclone", request(user_agent="Spola/0.1.0 (abcd1234)"))
         self.assertEqual(args[args.index("--user-agent") + 1], "Spola/0.1.0 (abcd1234)")
+
+    def test_describe(self):
+        self.assertEqual(describe(Plan()), "")
+        plan = Plan(upload=["a", "b", "c"], download=["d"], replace_local=["d"], delete_remote=["e"],
+                    delete_local=["f"], conflicts=["g"])
+        self.assertEqual(describe(plan), "3 files to Koofr, 1 file from Koofr, 2 deleted, 1 conflict")
 
     def test_network_failure_is_a_retry_not_a_repair(self):
         net = Event(Kind.ERROR, "Failed to copy: Post https://app.koofr.net/...: dial tcp: lookup app.koofr.net: no such host", "error")

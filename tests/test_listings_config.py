@@ -66,6 +66,12 @@ class ConfigTest(unittest.TestCase):
             self.assertEqual(again.pairs[0].root_ino, 2)
             self.assertEqual(os.listdir(path.parent), ["config.json"])   # no temp leftovers
 
+    def test_new_preferences_have_safe_defaults(self):
+        cfg = Config()
+        self.assertTrue(cfg.autostart)
+        self.assertEqual(cfg.conflict_language, "")
+        self.assertEqual(cfg.full_check_minutes, 60)
+
     def test_password_is_never_saved(self):
         self.assertNotIn("password", json.dumps(Config(user="u").to_json()).lower())
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from pathlib import Path
@@ -13,11 +14,11 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
-from . import account, conflicts, koofr_api, preflight, secrets  # noqa: E402
+from . import account, autostart, conflicts, jobs, koofr_api, preflight, secrets  # noqa: E402
 from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
-from .rclone import Mode, Outcome, Result, default_excluded  # noqa: E402
+from .rclone import Mode, Outcome, Result, default_excluded, describe  # noqa: E402
 
 PREVIEW_LIMIT = 300
 
@@ -54,20 +55,22 @@ def status_text(status: Status) -> str:
     }[status]
 
 
-def progress_text(stats: dict | None) -> str:
+def progress_text(stats: dict | None) -> tuple[str, float | None]:
+    """A short line for the row and the fraction for its bar (None while
+    the two sides are still being compared)."""
     if not stats:
-        return ""
+        return "", None
     total, done = stats.get("totalBytes") or 0, stats.get("bytes") or 0
     files, total_files = stats.get("transfers") or 0, stats.get("totalTransfers") or 0
     if not total_files and not total:
         checks = stats.get("checks") or 0
-        return _("Comparing files ({n} checked)").format(n=checks) if checks else ""
-    text = _("{done} of {total} files, {bytes} of {total_bytes}").format(
-        done=files, total=total_files, bytes=GLib.format_size(done), total_bytes=GLib.format_size(total))
+        return (_("Comparing files ({n} checked)").format(n=checks) if checks else ""), None
+    text = _("{done} of {total} files").format(done=files, total=total_files)
     speed = stats.get("speed") or 0
     if speed:
         text += " · " + _("{speed}/s").format(speed=GLib.format_size(int(speed)))
-    return text
+    fraction = done / total if total else (files / total_files if total_files else 0.0)
+    return text, max(0.0, min(1.0, fraction))
 
 
 def display_path(path: str) -> str:
@@ -104,6 +107,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.app = app
         self.engine = engine
         self.rows: dict[str, PairRow] = {}
+        self._state_file = engine.paths.state / "window.json"
+        self._restore_state()
+        self.connect("close-request", lambda *_: self.save_state() and False)
 
         self.toasts = Adw.ToastOverlay()
         view = Adw.ToolbarView()
@@ -114,6 +120,7 @@ class MainWindow(Adw.ApplicationWindow):
         section.append(_("Pause All"), "app.pause-all")
         menu.append_section(None, section)
         section = Gio.Menu()
+        section.append(_("Preferences"), "app.preferences")
         section.append(_("About Spola"), "app.about")
         section.append(_("Quit"), "app.quit")
         menu.append_section(None, section)
@@ -129,6 +136,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
+        engine.connect("run-finished", self._on_run_finished)
         self._rebuild_rows()
         self.show_page()
 
@@ -140,6 +148,38 @@ class MainWindow(Adw.ApplicationWindow):
 
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=text, timeout=5))
+
+    def _on_run_finished(self, _engine, pair_id: str, reason: str) -> None:
+        """A click on Sync Now deserves an answer, even when nothing changed."""
+        if reason != "manual" or not self.get_visible():
+            return
+        pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
+        if pair is None or rt is None or rt.last_outcome is None or rt.last_outcome.result is not Result.OK:
+            return
+        summary = describe(rt.last_outcome.plan)
+        self.toast(_("“{name}”: {summary}").format(name=pair.name, summary=summary) if summary
+                   else _("“{name}” was already up to date").format(name=pair.name))
+
+    # -- remembered size ------------------------------------------------------------
+
+    def _restore_state(self) -> None:
+        try:
+            with open(self._state_file, encoding="utf-8") as f:
+                state = json.load(f)
+            self.set_default_size(int(state["width"]), int(state["height"]))
+            if state.get("maximized"):
+                self.maximize()
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
+    def save_state(self) -> None:
+        width, height = self.get_default_size()
+        state = {"width": width, "height": height, "maximized": self.is_maximized()}
+        try:
+            self._state_file.parent.mkdir(parents=True, exist_ok=True)
+            self._state_file.write_text(json.dumps(state), encoding="utf-8")
+        except OSError:
+            pass
 
     # -- sign in ---------------------------------------------------------------
 
@@ -327,6 +367,8 @@ class PairRow(Adw.ActionRow):
         self.window, self.engine, self.pair_id = window, window.engine, pair_id
         self.icon = Gtk.Image(pixel_size=16)
         self.add_prefix(self.icon)
+        self.progress = Gtk.ProgressBar(valign=Gtk.Align.CENTER, width_request=110, visible=False)
+        self.add_suffix(self.progress)
         self.action_button = Gtk.Button(valign=Gtk.Align.CENTER)
         self.action_button.connect("clicked", lambda *_: self._primary())
         self.add_suffix(self.action_button)
@@ -341,6 +383,7 @@ class PairRow(Adw.ActionRow):
                               ("open-web", self._open_web), ("remove", self._remove),
                               ("conflicts", lambda: ConflictsDialog(self.window, self.pair_id).present(self.window)),
                               ("left-out", lambda: LeftOutDialog(self.window, self.pair_id).present(self.window)),
+                              ("exclusions", lambda: ExclusionsDialog(self.window, self.pair_id).present(self.window)),
                               ("stop", lambda: self.engine.stop(self.pair_id))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())
@@ -357,8 +400,17 @@ class PairRow(Adw.ActionRow):
         self.set_title(GLib.markup_escape_text(pair.name))
         lines = [GLib.markup_escape_text(f"{display_path(pair.local)}  ⇄  Koofr {pair.remote}")]
         state = status_text(rt.status)
+        syncing = rt.status is Status.SYNCING and not (rt.task and rt.task.dry_run)
+        self.progress.set_visible(syncing)
         if rt.status is Status.SYNCING:
-            detail = rt.message if rt.task and rt.task.dry_run else progress_text(rt.stats)
+            if syncing:
+                detail, fraction = progress_text(rt.stats)
+                if fraction is None:
+                    self.progress.pulse()
+                else:
+                    self.progress.set_fraction(fraction)
+            else:
+                detail = rt.message
             state = f"{state}: {detail}" if detail else state
         elif rt.status is Status.CONFLICTS:
             state += " (" + ngettext("{n} file", "{n} files", len(rt.conflicts)).format(n=len(rt.conflicts)) + ")"
@@ -370,6 +422,9 @@ class PairRow(Adw.ActionRow):
         elif rt.status is Status.OK and rt.last_sync:
             state += " · " + _("last sync at {time}").format(
                 time=GLib.DateTime.new_from_unix_local(int(rt.last_sync)).format("%H:%M"))
+            summary = describe(rt.last_outcome.plan) if rt.last_outcome and rt.last_outcome.result is Result.OK else ""
+            if summary:
+                state += f": {summary}"
         lines.append(GLib.markup_escape_text(state))
         self.set_subtitle("\n".join(lines))
         self.icon.set_from_icon_name(status_icon(rt.status))
@@ -396,6 +451,7 @@ class PairRow(Adw.ActionRow):
         menu.append(_("Resume") if pair.paused else _("Pause"), "pair.pause")
         if pair.initialized:
             menu.append(_("Preview Next Sync…"), "pair.preview")
+        menu.append(_("Exclusions…"), "pair.exclusions")
         menu.append(_("Open Folder"), "pair.open")
         menu.append(_("Open on Koofr"), "pair.open-web")
         section = Gio.Menu()
@@ -532,6 +588,101 @@ class LeftOutDialog(Adw.Dialog):
         page.add(group)
         view.set_content(page)
         self.set_child(view)
+
+
+class ExclusionsDialog(Adw.Dialog):
+    """The pair's exclusions, in rclone's filter syntax, as a text."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Exclusions"), content_width=560, content_height=560)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        pair = self.engine.cfg.pair(pair_id)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
+        cancel = Gtk.Button(label=_("Cancel"))
+        cancel.connect("clicked", lambda *_: self.close())
+        header.pack_start(cancel)
+        save = Gtk.Button(label=_("Save"), css_classes=["suggested-action"])
+        save.connect("clicked", lambda *_: self._save())
+        header.pack_end(save)
+        view.add_top_bar(header)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, margin_top=12, margin_bottom=12,
+                      margin_start=12, margin_end=12)
+        box.append(Gtk.Label(wrap=True, xalign=0, css_classes=["dim-label"], label=_(
+            "One pattern per line, with “- ” in front: a name, a *.ext, or folder/** for a whole "
+            "folder. Excluded files are never deleted on either side. Changing the exclusions needs a new "
+            "alignment of the pair, shown as a preview first.")))
+        self.text = Gtk.TextView(monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR, top_margin=8, bottom_margin=8,
+                                 left_margin=8, right_margin=8)
+        self.text.get_buffer().set_text(jobs.read_filters(self.engine.paths, pair))
+        scroller = Gtk.ScrolledWindow(child=self.text, vexpand=True, css_classes=["card"])
+        box.append(scroller)
+        view.set_content(box)
+        self.set_child(view)
+
+    def _save(self) -> None:
+        buffer = self.text.get_buffer()
+        text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+        changed = self.engine.set_filters(self.pair_id, text)
+        self.close()
+        pair = self.engine.cfg.pair(self.pair_id)
+        if changed and pair and pair.initialized:
+            self.window.open_preview(self.pair_id)
+
+
+class PreferencesDialog(Adw.PreferencesDialog):
+    def __init__(self, window: MainWindow):
+        super().__init__(title=_("Preferences"))
+        self.engine = window.engine
+        cfg = self.engine.cfg
+        page = Adw.PreferencesPage()
+
+        group = Adw.PreferencesGroup(title=_("Syncing"))
+        metered = Adw.SwitchRow(title=_("Pause on metered connections"), active=cfg.pause_on_metered)
+        metered.connect("notify::active", lambda r, _p: self._set("pause_on_metered", r.get_active(), conditions=True))
+        group.add(metered)
+        saver = Adw.SwitchRow(title=_("Pause in power saver mode"), active=cfg.pause_on_power_saver)
+        saver.connect("notify::active", lambda r, _p: self._set("pause_on_power_saver", r.get_active(), conditions=True))
+        group.add(saver)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=_("Startup"))
+        auto = Adw.SwitchRow(title=_("Start at login"), subtitle=_("In the background, with the tray icon only"),
+                             active=cfg.autostart)
+        auto.connect("notify::active", lambda r, _p: self._set_autostart(r.get_active()))
+        group.add(auto)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=_("Backups"))
+        days = Adw.SpinRow.new_with_range(1, 365, 1)
+        days.set_title(_("Keep replaced and deleted files for"))
+        days.set_subtitle(_("Days, in Spola’s local backup"))
+        days.set_value(cfg.backup_days)
+        days.connect("notify::value", lambda r, _p: self._set("backup_days", int(r.get_value())))
+        group.add(days)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=_("Conflicts"))
+        languages = [("", _("Desktop language")), ("en", "English"), ("it", "Italiano")]
+        combo = Adw.ComboRow(title=_("Language of the conflict copies’ names"),
+                             subtitle=_("For example report.conflict-local-2026-10-10-1.odt"))
+        combo.set_model(Gtk.StringList.new([label for _code, label in languages]))
+        combo.set_selected(next((i for i, (code, _l) in enumerate(languages) if code == cfg.conflict_language), 0))
+        combo.connect("notify::selected", lambda r, _p: self._set("conflict_language", languages[r.get_selected()][0]))
+        group.add(combo)
+        page.add(group)
+        self.add(page)
+
+    def _set(self, name: str, value, conditions: bool = False) -> None:
+        setattr(self.engine.cfg, name, value)
+        self.engine.save_config()
+        if conditions:
+            self.engine.conditions_changed()
+
+    def _set_autostart(self, enabled: bool) -> None:
+        self._set("autostart", enabled)
+        app = getattr(self.engine, "app", None)
+        autostart.apply(enabled, app.get_dbus_connection() if app else None)
 
 
 class AddPairDialog(Adw.Dialog):

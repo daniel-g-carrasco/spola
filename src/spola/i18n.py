@@ -35,6 +35,15 @@ def setup() -> None:
             return
 
 
+def translation_for(language: str) -> gettext.NullTranslations:
+    """The catalogue of one language, whatever the desktop language is
+    (English has no catalogue: the source strings are returned)."""
+    for directory in _locale_dirs():
+        if gettext.find(TEXTDOMAIN, str(directory), languages=[language]):
+            return gettext.translation(TEXTDOMAIN, str(directory), languages=[language])
+    return gettext.NullTranslations()
+
+
 def every_translation(message: str) -> set[str]:
     """The message in English and in every language Spola has a catalogue for:
     names written to disk in one language must be recognised in all of them."""

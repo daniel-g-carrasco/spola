@@ -14,13 +14,13 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, config, portal, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, autostart, config, portal, secrets  # noqa: E402
 from .account import Credentials  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .window import MainWindow, about_dialog, status_icon, status_text  # noqa: E402
+from .window import MainWindow, PreferencesDialog, about_dialog, status_icon, status_text  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
 
@@ -48,6 +48,7 @@ class SpolaApp(Adw.Application):
         paths = Paths.from_env()
         cfg = config.load(paths.config_file)
         self.engine = Engine(paths, cfg)
+        self.engine.app = self
         self.engine.inhibit = lambda reason: self.inhibit(None, Gtk.ApplicationInhibitFlags.SUSPEND, reason)
         self.engine.uninhibit = self.uninhibit
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
@@ -62,20 +63,21 @@ class SpolaApp(Adw.Application):
         for name, handler in (("quit", self._quit), ("show", lambda: self.activate()),
                               ("sync-all", lambda: self.engine.sync_all("manual")),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
-                              ("about", lambda: about_dialog(self._window()))):
+                              ("about", lambda: about_dialog(self._window())),
+                              ("preferences", lambda: PreferencesDialog(self._window()).present(self._window()))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())
             self.add_action(action)
         self.set_accels_for_action("app.quit", ["<Control>q"])
+        self.set_accels_for_action("app.preferences", ["<Control>comma"])
+        self.set_accels_for_action("window.close", ["<Control>w"])
 
         icon_path = str(SOURCE_ICONS) if not in_flatpak() and SOURCE_ICONS.is_dir() else ""
         self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
         self.tray.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
-        portal.request_background(self.get_dbus_connection(),
-                                  _("Spola keeps your folders in sync with Koofr in the background."),
-                                  True, ["spola", "--background"], lambda *_: None)
+        autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
 
     def _load_credentials(self) -> None:
         if self.engine.dev_remote:
@@ -103,6 +105,12 @@ class SpolaApp(Adw.Application):
         self._window().present()
         if os.environ.get("SPOLA_DEV_OPEN_PREVIEW") and self.engine.cfg.pairs:
             GLib.timeout_add(500, lambda: self._window().open_preview(self.engine.cfg.pairs[0].id) and False)
+        if os.environ.get("SPOLA_DEV_OPEN_PREFERENCES"):
+            GLib.timeout_add(500, lambda: PreferencesDialog(self._window()).present(self._window()) and False)
+        if os.environ.get("SPOLA_DEV_OPEN_EXCLUSIONS") and self.engine.cfg.pairs:
+            from .window import ExclusionsDialog
+            GLib.timeout_add(500, lambda: ExclusionsDialog(self._window(), self.engine.cfg.pairs[0].id)
+                             .present(self._window()) and False)
         if os.environ.get("SPOLA_DEV_OPEN_REVIEW") and self.engine.cfg.pairs:
             GLib.timeout_add(int(float(os.environ.get("SPOLA_DEV_OPEN_REVIEW", "1")) * 1000),
                              lambda: self._window().review(self.engine.cfg.pairs[0].id) and False)
@@ -192,6 +200,9 @@ class SpolaApp(Adw.Application):
                 self.tray.stop()
             self.release()
             self.quit()
+
+        if self.window:
+            self.window.save_state()
 
         self.engine.shutdown(done)
 

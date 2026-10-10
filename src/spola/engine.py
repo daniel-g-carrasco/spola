@@ -107,6 +107,7 @@ class PairRuntime:
     first_change: float = 0.0
     changed_during_run: set[str] = field(default_factory=set)
     pending_refused: list = field(default_factory=list)
+    before_run: tuple = (None, "")          # (status, message) a preview must restore
     watcher: TreeWatcher | None = None
 
 
@@ -117,6 +118,9 @@ class Engine(GObject.Object):
         # account, global pause or network conditions changed: the overall
         # status may change even when there is no pair to report it
         "status-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # (pair id, reason of the run): a real run (not a preview) ended;
+        # its outcome is in the pair's runtime
+        "run-finished": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
         # (pair id, kind, message): something the user should know about
         "attention": (GObject.SignalFlags.RUN_FIRST, None, (str, str, str)),
     }
@@ -397,6 +401,26 @@ class Engine(GObject.Object):
         if rt and rt.run and rt.run.running:
             rt.run.cancel()
 
+    def set_filters(self, pair_id: str, text: str) -> bool:
+        """Store the pair's exclusions. If they changed and the pair is
+        aligned, it needs a new alignment (bisync refuses to run otherwise):
+        the pair is marked for repair, to be confirmed from a preview."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None or not jobs.write_filters(self.paths, pair, text):
+            return False
+        if pair.initialized:
+            self.queue = [t for t in self.queue if t.pair_id != pair_id or t.dry_run]
+            if rt.run is None:
+                self._set_status(pair, rt, Status.NEEDS_REPAIR, _("The exclusions changed"))
+            else:
+                rt.status = Status.NEEDS_REPAIR
+                rt.message = _("The exclusions changed")
+        return True
+
+    def conditions_changed(self) -> None:
+        """Preferences about metered networks or power saving changed."""
+        self._on_conditions()
+
     def conflicts(self, pair_id: str) -> list[conflicts_mod.Conflict]:
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None:
@@ -490,6 +514,7 @@ class Engine(GObject.Object):
         rt.pending_refused = job.refused
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
+        rt.before_run = (rt.status, rt.message)
         if not task.dry_run:
             self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
         message = _("Preparing the preview…") if task.dry_run else _("Syncing…")
@@ -518,6 +543,8 @@ class Engine(GObject.Object):
             rt.run, rt.task = None, None
             rt.transferring = []
             self._handle_outcome(pair, rt, task, outcome)
+            if not task.dry_run:
+                self.emit("run-finished", pair.id, task.reason)
         if task.callback:
             task.callback(outcome, "")
         if self._shutdown_cb:
@@ -530,7 +557,12 @@ class Engine(GObject.Object):
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
         outcome.plan.refused = [r.path for r in rt.pending_refused]
         if task.dry_run:
-            self._set_status(pair, rt, self._idle_status(pair, rt))
+            # a preview decides nothing: a pair waiting for the user keeps waiting
+            status, message = rt.before_run
+            if status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+                self._set_status(pair, rt, status, message)
+            else:
+                self._set_status(pair, rt, self._idle_status(pair, rt))
             return
         rt.last_outcome = outcome
         result = outcome.result
