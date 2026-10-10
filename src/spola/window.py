@@ -65,7 +65,7 @@ def progress_text(stats: dict | None) -> tuple[str, float | None]:
     if not total_files and not total:
         checks = stats.get("checks") or 0
         return (_("Comparing files ({n} checked)").format(n=checks) if checks else ""), None
-    text = _("{done} of {total} files").format(done=files, total=total_files)
+    text = ngettext("{done} of {total} file", "{done} of {total} files", total_files).format(done=files, total=total_files)
     speed = stats.get("speed") or 0
     if speed:
         text += " · " + _("{speed}/s").format(speed=GLib.format_size(int(speed)))

@@ -6,7 +6,7 @@ classification) is plain Python without GTK, and is covered by the tests in
 tests/. The GTK side (app, window, tray) only displays and triggers.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 APP_ID = "io.github.daniel_g_carrasco.spola"
 APP_NAME = "Spola"

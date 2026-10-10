@@ -121,8 +121,17 @@ class SpolaApp(Adw.Application):
             GLib.timeout_add(500, lambda: ExclusionsDialog(self._window(), self.engine.cfg.pairs[0].id)
                              .present(self._window()) and False)
         if os.environ.get("SPOLA_DEV_OPEN_REVIEW") and self.engine.cfg.pairs:
-            GLib.timeout_add(int(float(os.environ.get("SPOLA_DEV_OPEN_REVIEW", "1")) * 1000),
-                             lambda: self._window().review(self.engine.cfg.pairs[0].id) and False)
+            tries = [0]
+
+            def review_first():          # waits for a pair that needs a look, then opens it
+                waiting = [p for p in self.engine.cfg.pairs
+                           if self.engine.runtime[p.id].conflicts or self.engine.runtime[p.id].refused]
+                tries[0] += 1
+                if not waiting and tries[0] < 80:
+                    return True
+                self._window().review((waiting or self.engine.cfg.pairs)[0].id)
+                return False
+            GLib.timeout_add(500, review_first)
         shot = os.environ.get("SPOLA_SCREENSHOT")
         if shot:   # developer aid: save the window as PNG after a few seconds
             GLib.timeout_add(int(float(os.environ.get("SPOLA_SCREENSHOT_DELAY", "3")) * 1000),
@@ -131,11 +140,16 @@ class SpolaApp(Adw.Application):
     def _screenshot(self, path: str) -> None:
         window = self._window()
         width, height = window.get_width(), window.get_height()
+        scale = float(os.environ.get("SPOLA_SCREENSHOT_SCALE", "1"))
         snapshot = Gtk.Snapshot()
+        snapshot.scale(scale, scale)       # drawn at that scale, not stretched afterwards
         Gtk.WidgetPaintable.new(window).snapshot(snapshot, width, height)
         node = snapshot.to_node()
         if node is not None:
-            window.get_renderer().render_texture(node, None).save_to_png(path)
+            gi.require_version("Graphene", "1.0")
+            from gi.repository import Graphene
+            area = Graphene.Rect().init(0, 0, width * scale, height * scale)
+            window.get_renderer().render_texture(node, area).save_to_png(path)
         if os.environ.get("SPOLA_SCREENSHOT_QUIT", "1") == "1":
             self._quit()
 

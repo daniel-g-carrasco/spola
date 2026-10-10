@@ -65,21 +65,36 @@
     <screenshot type="default">
       <caption>Folder pairs with their status</caption>
       <caption xml:lang="it">Le coppie di cartelle con il loro stato</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/main-window.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/main-window.png</image>
     </screenshot>
     <screenshot>
       <caption>Conflicts: both versions, a choice for each</caption>
       <caption xml:lang="it">I conflitti: entrambe le versioni, una scelta per ciascuno</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/conflicts.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/conflicts.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Sync status of the folders in Files</caption>
+      <caption xml:lang="it">Lo stato delle cartelle in File</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/files-folders.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Sync status of every file in Files</caption>
+      <caption xml:lang="it">Lo stato di ogni file in File</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/files-emblems.png</image>
     </screenshot>
     <screenshot>
       <caption>Preferences</caption>
       <caption xml:lang="it">Le preferenze</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.0/data/screenshots/preferences.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/preferences.png</image>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.1.1" date="2026-10-11" type="development">
+      <description>
+        <p>The site and the repository page in English, sharper screenshots including Files, and a few fixes: a hidden marker file now tells a synced folder from an empty one in its place (ext4 reuses inode numbers), and the progress line says "1 file" instead of "1 files".</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-10" type="development">
       <description>
         <p>First development version: one or more folder pairs, two-way sync with previews and safety stops, tray icon.</p>
