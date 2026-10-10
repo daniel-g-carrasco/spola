@@ -11,6 +11,10 @@ OUT="$(realpath -m "${1:?usage: nautilus_smoke.sh OUT_DIR}")"
 export ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rm -rf "$OUT"
 mkdir -p "$OUT"/{config,state,data,xdg-data,remote/Sync,home/Sync/Progetti}
+# A private runtime dir too: the portals the private bus starts (documents,
+# gvfs) would otherwise mount over the real session's /run/user/<uid>.
+mkdir -m 700 -p "$OUT/runtime"
+export XDG_RUNTIME_DIR="$OUT/runtime"
 DISPLAY_NUM="${BROADWAY_NUM:-11}"
 
 gtk4-broadwayd ":$DISPLAY_NUM" >/dev/null 2>&1 &
