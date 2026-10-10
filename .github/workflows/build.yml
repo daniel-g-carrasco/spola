@@ -20,7 +20,8 @@ jobs:
       - name: Install PyGObject, gettext, rclone and the validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream ruff
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream
+          pipx install ruff
           curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
           unzip -q rclone.zip
           echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
