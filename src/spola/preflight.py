@@ -179,3 +179,57 @@ def scan_names(root: str, remote_root: str = "/", limit: int = 200,
             if len(problems) >= limit:
                 return problems
     return problems
+
+
+@dataclass(frozen=True)
+class Refused:
+    path: str        # relative to the pair's root
+    is_dir: bool
+    code: str        # "emoji", "long-path", "case-collision"
+
+
+def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = frozenset(),
+                  skip=lambda rel: False, limit: int = 5000) -> list[Refused]:
+    """What a run must leave out because Koofr would refuse it. One refused
+    upload makes the whole bisync run fail, deletions included, so these are
+    excluded from the run and shown to the user instead. A folder with a bad
+    name is left out whole. Of names that differ only in case, the one already
+    synced (in `known`, the last listing) is kept, otherwise the first in order."""
+    refused: list[Refused] = []
+    remote_prefix = len(normalize_remote(remote_root).rstrip("/"))
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = "" if rel_dir == "." else rel_dir
+        keep_dirs = []
+        groups: dict[str, list[tuple[str, bool]]] = {}
+        for name, is_dir in [(d, True) for d in dirnames] + [(f, False) for f in filenames]:
+            rel = os.path.join(rel_dir, name)
+            if skip(rel + ("/" if is_dir else "")):
+                continue
+            if _non_bmp(name):
+                refused.append(Refused(rel, is_dir, "emoji"))
+            elif remote_prefix + 1 + len(rel) > KOOFR_MAX_PATH:
+                refused.append(Refused(rel, is_dir, "long-path"))
+            else:
+                groups.setdefault(unicodedata.normalize("NFC", name).casefold(), []).append((name, is_dir))
+                continue
+            if len(refused) >= limit:
+                return refused
+        for members in groups.values():
+            members.sort()
+            kept = next((m for m in members if os.path.join(rel_dir, m[0]) in known), members[0])
+            for name, is_dir in members:
+                if (name, is_dir) != kept:
+                    refused.append(Refused(os.path.join(rel_dir, name), is_dir, "case-collision"))
+                elif is_dir:
+                    keep_dirs.append(name)
+        dirnames[:] = [d for d in dirnames if d in keep_dirs]
+    return refused
+
+
+def refused_reason(code: str) -> str:
+    return {
+        "emoji": _("Koofr does not accept emoji and similar characters in names."),
+        "long-path": _("The path is longer than the 1023 characters Koofr accepts."),
+        "case-collision": _("Another name in the same folder differs only in upper and lower case, and Koofr does not tell them apart."),
+    }.get(code, code)
