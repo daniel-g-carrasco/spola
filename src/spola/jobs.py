@@ -17,8 +17,8 @@ from dataclasses import dataclass
 from . import listings
 from .config import Config, Pair
 from .paths import Paths
-from .preflight import Problem, check_root_identity
-from .rclone import DEFAULT_FILTERS, BisyncRequest, Mode, effective_max_delete, remote_spec
+from .preflight import Problem, Refused, check_root_identity, refused_paths
+from .rclone import DEFAULT_FILTERS, BisyncRequest, Mode, effective_max_delete, exclude_lines, remote_spec
 
 
 class NotReady(Exception):
@@ -33,6 +33,7 @@ class Job:
     request: BisyncRequest
     path1: str
     path2: str
+    refused: list[Refused]
 
 
 def ensure_filters(paths: Paths, pair: Pair) -> None:
@@ -61,6 +62,16 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     backup = paths.backup_dir(pair.id) / time.strftime("%Y%m%d-%H%M%S")
     paths.rclone_config.parent.mkdir(parents=True, exist_ok=True)
 
+    previous = listings.load(workdir, 1) if listings.find(workdir, 1) else None
+    known = frozenset(e.path for e in previous or [])
+    refused = refused_paths(pair.local, pair.remote, known,
+                            skip=lambda rel: rel.startswith(("SyncTrash/", ".Trash-")))
+    exclude_file = None
+    if refused:
+        exclude_file = paths.state / "exclude" / f"{pair.id}.txt"
+        exclude_file.parent.mkdir(parents=True, exist_ok=True)
+        exclude_file.write_text(exclude_lines(refused), encoding="utf-8")
+
     path2 = path2_override or remote_spec(pair.remote)
     request = BisyncRequest(
         path1=pair.local,
@@ -73,8 +84,9 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         mode=mode,
         dry_run=dry_run,
         force=force,
+        exclude_from=exclude_file,
     )
-    return Job(pair, request, pair.local.rstrip("/") + "/", path2)
+    return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
 
 
 def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = None) -> int:

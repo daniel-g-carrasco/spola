@@ -66,6 +66,7 @@ def _print_plan(outcome: Outcome) -> None:
         (plan.delete_local, _("Deleted here (moved to Spola's backup)")),
         (plan.delete_remote, _("Deleted on Koofr")),
         (plan.conflicts, _("Changed on both sides: both versions are kept")),
+        (plan.refused, _("Left out: Koofr does not accept these names (rename them to sync them)")),
     ]
     if plan.empty and outcome.result is Result.OK:
         print(_("Nothing to do: the two folders already match."))
@@ -112,6 +113,8 @@ def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quie
             outcome = run.wait()
     if not quiet:
         print()
+    if outcome is not None:
+        outcome.plan.refused = [r.path for r in job.refused]
     return outcome
 
 

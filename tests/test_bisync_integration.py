@@ -168,6 +168,26 @@ class BisyncScenarios(unittest.TestCase):
         self.assertIn(out.result, (Result.NEEDS_REPAIR, Result.NEEDS_CONFIRMATION))
         self.assertEqual(self.files(self.local), ["f0.txt", "f1.txt", "f2.txt"])
 
+    def test_names_koofr_refuses_are_left_out_not_blocking(self):
+        for i in range(5):
+            self.write(self.local, f"f{i}.txt", str(i), age=600)
+        self.align()
+        self.write(self.local, "foto \U0001F600 [1]*.jpg", "emoji and glob characters")
+        self.write(self.local, "Vacanze \U0001F334/a.jpg", "in a folder with an emoji")
+        self.write(self.local, "normale.txt", "this one must still go")
+        (self.local / "f0.txt").unlink()                  # and deletions still apply
+        job = jobs.prepare(self.cfg, self.pair, self.paths, Mode.SYNC, path2_override=str(self.remote))
+        self.assertEqual(sorted(r.path for r in job.refused), ["Vacanze \U0001F334", "foto \U0001F600 [1]*.jpg"])
+        out = self.bisync()
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual(self.files(self.remote), ["f1.txt", "f2.txt", "f3.txt", "f4.txt", "normale.txt"])
+        self.assertTrue((self.local / "foto \U0001F600 [1]*.jpg").exists())     # never touched
+        # renamed: synced at the next run
+        (self.local / "foto \U0001F600 [1]*.jpg").rename(self.local / "foto.jpg")
+        out = self.bisync()
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertIn("foto.jpg", self.files(self.remote))
+
     def test_same_pair_cannot_run_twice(self):
         self.write(self.local, "big.bin", "x" * 2_000_000)
         first = self.start(Mode.RESYNC, extra=["--bwlimit", "400k"])

@@ -13,8 +13,9 @@ import _setup  # noqa: F401
 from spola.config import Config, Pair
 from spola.preflight import (
     check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
-    root_identity, scan_names,
+    refused_paths, root_identity, scan_names,
 )
+from spola.rclone import exclude_lines, filter_escape
 
 
 def codes(problems):
@@ -127,6 +128,37 @@ class NameScanTest(unittest.TestCase):
             (Path(tmp) / "SyncTrash").mkdir()
             (Path(tmp) / "SyncTrash" / "a\U0001F600").write_text("x")
             self.assertEqual(scan_names(tmp, skip=lambda rel: rel.startswith("SyncTrash")), [])
+
+
+class RefusedPathsTest(unittest.TestCase):
+    def test_what_a_run_leaves_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            (t / "ok.txt").write_text("a")
+            (t / "foto \U0001F600.jpg").write_text("b")
+            (t / "Vacanze \U0001F334").mkdir()
+            (t / "Vacanze \U0001F334" / "dentro.jpg").write_text("c")     # not listed: the folder is out
+            (t / "Report.pdf").write_text("d")
+            (t / "report.PDF").write_text("e")
+            (t / "SyncTrash").mkdir()
+            (t / "SyncTrash" / "x\U0001F600").write_text("f")
+            got = {(r.path, r.is_dir, r.code) for r in refused_paths(
+                tmp, "/x", skip=lambda rel: rel.startswith("SyncTrash/"))}
+            self.assertEqual(got, {("foto \U0001F600.jpg", False, "emoji"),
+                                   ("Vacanze \U0001F334", True, "emoji"),
+                                   ("report.PDF", False, "case-collision")})
+            # the name already synced wins the case collision
+            got = {r.path for r in refused_paths(tmp, "/x", known=frozenset({"report.PDF"}),
+                                                 skip=lambda rel: rel.startswith("SyncTrash/"))}
+            self.assertIn("Report.pdf", got)
+            self.assertNotIn("report.PDF", got)
+
+    def test_exclude_patterns_are_literal(self):
+        self.assertEqual(filter_escape("a[1]*?{x}.txt"), "/a\\[1\\]\\*\\?\\{x\\}.txt")
+        from spola.preflight import Refused
+        self.assertEqual(exclude_lines([Refused("d \U0001F334", True, "emoji"), Refused("f.txt", False, "emoji")]),
+                         "/d \U0001F334/**\n/f.txt\n")
+        self.assertEqual(exclude_lines([]), "")
 
 
 if __name__ == "__main__":

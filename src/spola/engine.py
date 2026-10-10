@@ -50,11 +50,12 @@ class Status(enum.IntEnum):
     NEEDS_CONFIRMATION = 1
     ERROR = 2
     CONFLICTS = 3
-    SYNCING = 4
-    PENDING = 5
-    NEEDS_SETUP = 6
-    PAUSED = 7
-    OK = 8
+    SKIPPED = 4          # synced, but some files are left out (names Koofr refuses)
+    SYNCING = 5
+    PENDING = 6
+    NEEDS_SETUP = 7
+    PAUSED = 8
+    OK = 9
 
 
 def quick_ignore(rel: str) -> bool:
@@ -87,11 +88,13 @@ class PairRuntime:
     task: Task | None = None
     last_outcome: Outcome | None = None
     conflicts: list[str] = field(default_factory=list)
+    refused: list = field(default_factory=list)     # preflight.Refused of the last run
     retries: int = 0
     retry_source: int = 0
     debounce_source: int = 0
     first_change: float = 0.0
     changed_during_run: set[str] = field(default_factory=set)
+    pending_refused: list = field(default_factory=list)
     watcher: TreeWatcher | None = None
 
 
@@ -297,6 +300,8 @@ class Engine(GObject.Object):
             return Status.PENDING
         if rt.conflicts:
             return Status.CONFLICTS
+        if rt.refused:
+            return Status.SKIPPED
         return Status.OK
 
     def _set_status(self, pair: Pair, rt: PairRuntime, status: Status, message: str | None = None) -> None:
@@ -307,7 +312,7 @@ class Engine(GObject.Object):
             rt.message = _("Paused") if pair.paused else self.blocked_reason()
         elif status is Status.NEEDS_SETUP:
             rt.message = _("First alignment to confirm")
-        elif status in (Status.OK, Status.CONFLICTS, Status.PENDING):
+        elif status in (Status.OK, Status.CONFLICTS, Status.SKIPPED, Status.PENDING):
             rt.message = ""
         self.emit("pair-changed", pair.id)
 
@@ -426,6 +431,7 @@ class Engine(GObject.Object):
             return fail(str(e))
         self.active = task
         rt.run, rt.task = run, task
+        rt.pending_refused = job.refused
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
         if not task.dry_run:
@@ -466,12 +472,20 @@ class Engine(GObject.Object):
         return False
 
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
+        outcome.plan.refused = [r.path for r in rt.pending_refused]
         if task.dry_run:
             self._set_status(pair, rt, self._idle_status(pair, rt))
             return
         rt.last_outcome = outcome
         result = outcome.result
         if result is Result.OK:
+            new = {r.path for r in rt.pending_refused} - {r.path for r in rt.refused}
+            rt.refused = list(rt.pending_refused)
+            if new:
+                self.emit("attention", pair.id, "refused",
+                          ngettext("{n} file is not synced: Koofr does not accept its name.",
+                                   "{n} files are not synced: Koofr does not accept their names.",
+                                   len(rt.refused)).format(n=len(rt.refused)))
             rt.retries = 0
             rt.last_sync = time.time()
             if task.mode is Mode.RESYNC:
@@ -560,7 +574,7 @@ class Engine(GObject.Object):
             GLib.source_remove(rt.debounce_source)
         delay = DEBOUNCE_S if now - rt.first_change < MAX_WAIT_S - DEBOUNCE_S else 1
         rt.debounce_source = GLib.timeout_add_seconds(delay, self._debounce_fired, pair.id)
-        if rt.status in (Status.OK, Status.CONFLICTS):
+        if rt.status in (Status.OK, Status.CONFLICTS, Status.SKIPPED):
             self._set_status(pair, rt, Status.PENDING)
 
     def _debounce_fired(self, pair_id: str) -> bool:

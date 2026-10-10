@@ -52,6 +52,17 @@ DEFAULT_FILTERS = """\
 """
 
 
+def filter_escape(path: str) -> str:
+    """A literal path as an rclone filter glob, anchored at the root."""
+    out = "".join("\\" + ch if ch in "\\*?[]{}" else ch for ch in path)
+    return "/" + out
+
+
+def exclude_lines(refused) -> str:
+    lines = [filter_escape(r.path) + ("/**" if r.is_dir else "") for r in refused]
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
 def find_rclone() -> str | None:
     override = os.environ.get("SPOLA_RCLONE")
     if override:
@@ -123,6 +134,7 @@ class BisyncRequest:
     resync_mode: str = "newer"
     backup_dir2: str | None = None
     bwlimit: str | None = None
+    exclude_from: Path | None = None   # per-run exclusions (names Koofr refuses)
     extra_test_flags: list[str] = field(default_factory=list)   # tests only
 
 
@@ -148,6 +160,10 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         "--color", "NEVER",
         "-v",
     ]
+    if req.exclude_from:
+        # a separate file on purpose: bisync fingerprints only --filters-file,
+        # and a change there would demand a new first alignment
+        args += ["--exclude-from", str(req.exclude_from)]
     if req.backup_dir2:
         args += ["--backup-dir2", req.backup_dir2]
     if req.bwlimit:
@@ -273,6 +289,7 @@ class Plan:
     delete_local: list[str] = field(default_factory=list)
     delete_remote: list[str] = field(default_factory=list)
     replace_local: list[str] = field(default_factory=list)    # local version moved to the backup
+    refused: list[str] = field(default_factory=list)          # left out: names Koofr refuses
     conflicts: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 

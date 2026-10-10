@@ -155,6 +155,7 @@ class SpolaApp(Adw.Application):
             "confirm": _("“{name}” is waiting for your confirmation"),
             "repair": _("“{name}” needs a repair"),
             "error": _("“{name}” cannot be synced"),
+            "refused": _("Some files in “{name}” are not synced"),
         }
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)

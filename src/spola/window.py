@@ -31,6 +31,7 @@ STATUS_ICONS = {
     Status.NEEDS_REPAIR: "-error-symbolic",
     Status.NEEDS_CONFIRMATION: "-attention-symbolic",
     Status.CONFLICTS: "-attention-symbolic",
+    Status.SKIPPED: "-attention-symbolic",
 }
 
 
@@ -49,6 +50,7 @@ def status_text(status: Status) -> str:
         Status.NEEDS_REPAIR: _("Needs repair"),
         Status.NEEDS_CONFIRMATION: _("Waiting for your confirmation"),
         Status.CONFLICTS: _("Conflicts to check"),
+        Status.SKIPPED: _("Some files cannot be synced"),
     }[status]
 
 
@@ -328,6 +330,9 @@ class PairRow(Adw.ActionRow):
             state = f"{state}: {detail}" if detail else state
         elif rt.status is Status.CONFLICTS:
             state += " (" + ngettext("{n} file", "{n} files", len(rt.conflicts)).format(n=len(rt.conflicts)) + ")"
+        elif rt.status is Status.SKIPPED:
+            names = ", ".join(r.path for r in rt.refused[:2]) + (" \u2026" if len(rt.refused) > 2 else "")
+            state += f": {names}"
         elif rt.message and rt.status is not Status.OK and rt.message != state:
             state = f"{state}: {rt.message}"
         elif rt.status is Status.OK and rt.last_sync:
@@ -569,6 +574,8 @@ class PreviewDialog(Adw.Dialog):
             (plan.delete_local, _("Deleted here (moved to Spola's backup)"), "user-trash-symbolic"),
             (plan.delete_remote, _("Deleted on Koofr"), "user-trash-symbolic"),
             (plan.conflicts, _("Changed on both sides: both versions are kept"), "dialog-warning-symbolic"),
+            (plan.refused, _("Left out: Koofr does not accept these names (rename them to sync them)"),
+             "action-unavailable-symbolic"),
         ]
         if plan.empty:
             group.add(Adw.ActionRow(title=_("Nothing to do: the two folders already match.")))
