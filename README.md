@@ -15,9 +15,21 @@ Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) id
 
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
-**Status: development, not released yet.** The design document (in Italian) is [docs/progetto.md](docs/progetto.md).
+The design document (in Italian) is [docs/progetto.md](docs/progetto.md). Spola is not affiliated with Koofr.
 
-Spola is not affiliated with Koofr.
+## Install
+
+### Flatpak
+
+From [our own Flatpak repository](https://daniel-g-carrasco.github.io/spola/); updates arrive through GNOME Software:
+
+```bash
+flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref
+```
+
+The GNOME runtime comes from Flathub. The repository is signed; the key's fingerprint is `DFE7 82B9 7EA0 ED33 B6A2  C0F2 BFB2 EC99 7FDB C5B1`. A `.flatpak` bundle is attached to every [release](https://github.com/daniel-g-carrasco/spola/releases) too. The emblems in Files need `nautilus-python` on the host (Fedora: `sudo dnf install nautilus-python`; Margine OS ships it).
+
+On [Margine OS](https://margine.dev): `ujust install-spola`, and `ujust install-spola migrate` to take over the folders of Koofr Desktop.
 
 ## Safety first
 
@@ -41,7 +53,7 @@ Preferences has a switch, *Show sync status in Files*: Spola installs a small na
 
 The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/daniel_g_carrasco/spola/Sync`) is also there for other file managers: states per folder, states per file, sync now, web link, share link, and signals when states change.
 
-## Run from source
+### From source
 
 Needs Python 3.11 or newer, PyGObject, GTK 4, libadwaita 1.6 or newer, libsecret and rclone 1.71 or newer.
 

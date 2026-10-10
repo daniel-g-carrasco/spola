@@ -711,8 +711,8 @@ class PreferencesDialog(Adw.PreferencesDialog):
             self.add_toast(Adw.Toast(title=str(e), timeout=6))
             return
         self._set("nautilus_integration", enabled)
-        if nautilus_integration.files_running():
-            self.add_toast(Adw.Toast(title=_("Restart Files to apply (it keeps running until then)"), timeout=8))
+        # (no process check: inside the Flatpak the host's Files is not visible)
+        self.add_toast(Adw.Toast(title=_("Restart Files to apply (it keeps running until then)"), timeout=8))
 
     def _set_autostart(self, enabled: bool) -> None:
         self._set("autostart", enabled)

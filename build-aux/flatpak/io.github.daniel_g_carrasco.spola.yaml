@@ -1,0 +1,96 @@
+# Flatpak manifest, used for local builds and by CI.
+#
+#   flatpak install flathub org.gnome.Platform//50 org.gnome.Sdk//50 \
+#       org.freedesktop.Sdk.Extension.golang//25.08
+#   flatpak-builder --user --install --force-clean build-dir \
+#       build-aux/flatpak/io.github.daniel_g_carrasco.spola.yaml
+#   flatpak run io.github.daniel_g_carrasco.spola
+#
+# rclone is built from its release tarball plus the vendor tarball rclone
+# publishes with every release, so the build needs no network and the
+# version is pinned here (keep RCLONE_VERSION in build.yml in step).
+app-id: io.github.daniel_g_carrasco.spola
+branch: stable
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang
+command: spola
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # rclone talks to Koofr; the network monitor portal needs it too
+  - --share=network
+  # the tray icon registers itself with the host's tray (no name is owned)
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # The synced folders are the user's own, anywhere in the home folder, and
+  # they must be watched for changes made by every other program: folders
+  # granted through the document portal give no change notifications
+  # (xdg-desktop-portal issue 567) and go through a slow FUSE layer, so a
+  # real bind mount of the home folder is the only thing that works, as in
+  # every other sync client on Flathub. Removable drives for pairs there.
+  - --filesystem=home
+  - --filesystem=/run/media
+  - --filesystem=/media
+
+modules:
+  - name: rclone
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/golang/bin
+      env:
+        GOFLAGS: -mod=vendor
+        GOPROXY: "off"
+        GOCACHE: /run/build/rclone/go-cache
+        GOPATH: /run/build/rclone/go
+        CGO_ENABLED: "0"
+    build-commands:
+      - go version
+      - go build -mod=vendor -trimpath -tags noselfupdate -ldflags "-s -w -X github.com/rclone/rclone/fs.Version=v1.75.2" -o rclone .
+      - install -Dm755 rclone /app/bin/rclone
+      - /app/bin/rclone version
+    sources:
+      - type: archive
+        url: https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2.tar.gz
+        sha256: fa64537e7276196310dbb0bcea6330f03b40e5790197b88f14cce6a19f40eb67
+      - type: archive
+        url: https://github.com/rclone/rclone/releases/download/v1.75.2/rclone-v1.75.2-vendor.tar.gz
+        sha256: 69b356c0b1800052c33ce0e0e11f18df8717a721aab346b553dc1ab44c8caae8
+        dest: vendor
+
+  - name: spola
+    buildsystem: simple
+    build-commands:
+      # the Python package, the Files extension and its emblems: the app
+      # installs the last two for the user from here (see nautilus_integration.py)
+      - install -d /app/share/spola
+      - cp -r src/spola /app/share/spola/spola
+      - cp -r nautilus /app/share/spola/nautilus
+      - install -Dm644 data/icons/hicolor/scalable/emblems/*.svg -t /app/share/spola/data/icons/hicolor/scalable/emblems
+      - install -Dm755 bin/spola /app/bin/spola
+      - python3 tools/compile_po.py --dest /app/share/locale
+      - install -Dm644 data/io.github.daniel_g_carrasco.spola.desktop -t /app/share/applications
+      - install -Dm644 data/io.github.daniel_g_carrasco.spola.metainfo.xml -t /app/share/metainfo
+      - install -Dm644 data/io.github.daniel_g_carrasco.spola.service -t /app/share/dbus-1/services
+      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.spola.svg -t /app/share/icons/hicolor/scalable/apps
+      # the app icon's symbolic version and the tray states, exported to the host by their name
+      - install -Dm644 data/icons/hicolor/symbolic/apps/*.svg -t /app/share/icons/hicolor/symbolic/apps
+      - install -Dm644 data/icons/hicolor/64x64/apps/io.github.daniel_g_carrasco.spola.png -t /app/share/icons/hicolor/64x64/apps
+      - install -Dm644 data/icons/hicolor/128x128/apps/io.github.daniel_g_carrasco.spola.png -t /app/share/icons/hicolor/128x128/apps
+      - install -Dm644 data/icons/hicolor/256x256/apps/io.github.daniel_g_carrasco.spola.png -t /app/share/icons/hicolor/256x256/apps
+      - desktop-file-validate /app/share/applications/io.github.daniel_g_carrasco.spola.desktop
+      - appstreamcli validate --no-net /app/share/metainfo/io.github.daniel_g_carrasco.spola.metainfo.xml
+      - /app/bin/spola --version
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - build-dir
+          - .flatpak-builder
+          - locale
+          - .ruff_cache

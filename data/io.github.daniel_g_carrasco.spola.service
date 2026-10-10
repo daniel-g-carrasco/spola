@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=io.github.daniel_g_carrasco.spola
+Exec=/app/bin/spola --gapplication-service
