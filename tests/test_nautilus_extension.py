@@ -112,6 +112,25 @@ class ProviderTest(unittest.TestCase):
         spin()
         self.assertEqual(len(self.provider.proxy.calls), 1)
 
+    def test_roots_get_their_own_state(self):
+        root = "/h/data/work"
+        self.provider.proxy.replies["GetStates"] = GLib.Variant("(a{su})", ({ext.uri_of(root): 3},))
+        f = FakeFile(root)
+        self.provider.update_file_info(f)                 # seen from /h/data: a root, nobody's child
+        self.assertEqual(f.emblems, [])
+        self.assertEqual(self.provider.proxy.calls, [("GetStates", ([ext.uri_of(root)],))])
+        self.assertIn(root, self.refreshed)
+        self.provider.update_file_info(f)
+        self.assertEqual(f.emblems, ["spola-pending-symbolic"])
+        # asked once more only after a RootChanged
+        self.provider.update_file_info(FakeFile(root))
+        self.assertEqual(len(self.provider.proxy.calls), 1)
+        self.provider._on_signal(None, None, "RootChanged", GLib.Variant("(s)", (ext.uri_of(root),)))
+        self.assertEqual(len(self.provider.proxy.calls), 2)
+        # and when the roots arrive
+        self.provider._roots_ready(GLib.Variant("(a(ss))", ([(ext.uri_of(root), "p1")],)))
+        self.assertEqual(self.provider.proxy.calls[-1][0], "GetStates")
+
     def test_outside_roots_and_no_spola(self):
         f = FakeFile("/h/elsewhere/x.txt")
         self.provider.update_file_info(f)
