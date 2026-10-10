@@ -474,10 +474,15 @@ class Engine(GObject.Object):
         if result is Result.OK:
             rt.retries = 0
             rt.last_sync = time.time()
-            if task.mode is Mode.RESYNC and not pair.initialized:
-                pair.initialized = True
-                self.save_config()
-                self._start_watcher(pair, rt)
+            if task.mode is Mode.RESYNC:
+                if not pair.initialized:
+                    pair.initialized = True
+                    self.save_config()
+                    self._start_watcher(pair, rt)
+                # A resync leaves no .lst-old behind, so an interruption of the
+                # next run could not be recovered (--recover needs it). A run
+                # right away, with nothing to do, writes it.
+                self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
             rt.status = Status.OK
             self._update_conflicts(pair, rt)
             if outcome.plan.conflicts:

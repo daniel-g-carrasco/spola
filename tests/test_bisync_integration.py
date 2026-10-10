@@ -59,9 +59,13 @@ class BisyncScenarios(unittest.TestCase):
         return outcome
 
     def align(self):
+        """First alignment as the app does it: resync, then a sealing run."""
         out = self.bisync(Mode.RESYNC)
         self.assertIs(out.result, Result.OK, out.message)
         self.pair.initialized = True
+        self.assertIs(self.bisync().result, Result.OK)
+        workdir = self.paths.workdir(self.pair.id)
+        self.assertEqual(len(list(workdir.glob("*.lst-old"))), 2, "no backup listing for --recover")
 
     def write(self, side: Path, rel: str, text: str, age: float = 0):
         path = side / rel

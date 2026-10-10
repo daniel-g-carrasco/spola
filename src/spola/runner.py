@@ -54,7 +54,10 @@ class BisyncRun:
         self._take_lock()
         try:
             self.log_dir.mkdir(parents=True, exist_ok=True)
-            self._log_path = self.log_dir / time.strftime("%Y%m%d-%H%M%S.jsonl")
+            # unique even for two runs in the same second
+            now = time.time()
+            self._log_path = self.log_dir / (time.strftime("%Y%m%d-%H%M%S", time.localtime(now))
+                                             + f".{int(now % 1 * 1e6):06d}-{os.getpid()}.jsonl")
             self._proc = subprocess.Popen(
                 self.argv, env=self.env, stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,

@@ -291,16 +291,30 @@ class Outcome:
     stats: dict | None = None
 
 
+# rclone names a remote whose options it overrides with a hash suffix:
+# "koofr{Y64jj}:spola-test/a.txt", "local{HK82T}:/home/u/folder/a.txt".
+_REMOTE_PREFIX = re.compile(r"^[A-Za-z0-9_.-]+(?:\{[A-Za-z0-9]+\})?:")
+
+
+def _strip_remote(path: str) -> str:
+    if path.startswith("/"):
+        return path
+    return _REMOTE_PREFIX.sub("", path, count=1)
+
+
 def _relative(path: str, roots: list[str]) -> str:
+    """The path of a log line relative to the root of its side."""
+    path = _strip_remote(path)
     for root in roots:
-        if root and path.startswith(root):
-            return path[len(root):].lstrip("/")
-    return path
+        root = _strip_remote(root).rstrip("/") + "/"
+        if root != "/" and path.startswith(root):
+            return path[len(root):]
+    return path.lstrip("/")
 
 
 def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
               cancelled: bool = False) -> Outcome:
-    roots = [path1.rstrip("/") + "/", path2.rstrip("/") + "/", path2]
+    roots = [path1, path2]
     plan = Plan()
     stats = None
     first_error = ""
@@ -349,5 +363,5 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
     else:
         result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
-        setattr(plan, name, list(dict.fromkeys(getattr(plan, name))))
+        setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
     return Outcome(result, exit_code, first_error, plan, stats)

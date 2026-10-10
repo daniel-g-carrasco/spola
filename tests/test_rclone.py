@@ -113,6 +113,24 @@ class ParseTest(unittest.TestCase):
             self.assertEqual(out.plan.replace_local, ["differ.txt"], name)
             self.assertEqual(out.plan.delete_local + out.plan.delete_remote, [], name)
 
+    def test_real_koofr_paths(self):
+        # recorded on Koofr: queue lines carry "koofr{hash}:" and "local{hash}:" prefixes
+        for name in ("koofr-sync.jsonl", "koofr-sync-dry-run.jsonl"):
+            out = summarize(0, events(name), "/home/user/scratch/spola-test/", "koofr:spola-test")
+            self.assertIs(out.result, Result.OK, name)
+            self.assertEqual(sorted(out.plan.upload), ["appunti.txt", "nuovo-locale.txt"], name)
+            self.assertEqual(sorted(out.plan.download), ["dal-cloud.txt", "nuovo-cloud.txt"], name)
+            self.assertEqual(out.plan.delete_remote, ["Progetti/nota-01.txt"], name)
+        out = summarize(0, events("koofr-resync.jsonl"), "/home/user/scratch/spola-test/", "koofr:spola-test")
+        self.assertEqual(len(out.plan.upload), 23)
+        self.assertEqual(sorted(out.plan.download), ["comune.txt", "dal-cloud.txt"])
+        self.assertEqual(out.plan.replace_local, ["comune.txt"])
+
+    def test_root_remote(self):
+        out = summarize(0, [parse_line('{"level":"info","msg":"- Path1 Queue copy to Path2 - koofr{ab12}:a/b.txt"}')],
+                        "/h/x/", "koofr:")
+        self.assertEqual(out.plan.upload, ["a/b.txt"])
+
     def test_critical(self):
         out = summarize(7, events("critical-no-listings.jsonl"), "/ROOT/a/", "/ROOT/b/")
         self.assertIs(out.result, Result.NEEDS_REPAIR)
