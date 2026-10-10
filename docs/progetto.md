@@ -537,3 +537,13 @@ Proposta per `margine-image`: ramo locale `feat/nautilus-python` (commit 7cc9742
 **Fase 7, pronta in locale:** ramo `feat/ujust-spola` in `margine-image` con `ujust install-spola [install|migrate|remove]` (`migrate` ferma Koofr Desktop, rileva le coppie con `spola import-koofr-desktop`, riavvia Spola; l'allineamento resta nella finestra, con anteprima). Da aprire come PR quando il repository Flatpak è pubblicato, perché la ricetta installa da lì.
 
 Incidente da ricordare: le sessioni D-Bus private dei banchi di prova avviavano un secondo portale documenti che montava `/run/user/1000/doc` sopra quello della sessione vera; dopo la fine della prova le app Flatpak non partivano più ("bwrap: Can't find source path .../doc/by-app"). Rimedio: `systemctl --user restart xdg-document-portal.service`; prevenzione: i banchi di prova usano un `XDG_RUNTIME_DIR` privato.
+
+## Appendice I. Pubblicazione (2026-10-10, sera)
+
+- Repository pubblico https://github.com/daniel-g-carrasco/spola (25 commit locali caricati, poi le correzioni del CI).
+- Repository Flatpak firmato su GitHub Pages: https://daniel-g-carrasco.github.io/spola/spola.flatpakref, pubblicato dal workflow al tag `v0.1.0`; installazione verificata da un client (firma accettata, estensione `.Locale`, `rclone` e `spola` funzionanti nella sandbox). Flatpak scarica solo le lingue configurate: con la sessione in inglese il catalogo italiano non c'è (`flatpak config --user --set languages "en;it"`).
+- GitHub Pages attivato dal ramo `gh-pages`. Sito: progetto Cloudflare Pages da creare dal pannello (cartella `site`), dominio `spola.neistar.com`.
+- PR per Margine: #474 (nautilus-python dichiarato) unita; #477 (`ujust install-spola`) aperta con i check verdi.
+- Il CI ha trovato un difetto reale che su btrfs non si vede: su ext4 una cartella cancellata e ricreata può riavere lo stesso inode, e il controllo d'identità della radice basato su dispositivo e inode non la riconosceva. Ora ogni radice sincronizzata contiene un file nascosto `.spola-root` con l'ID della coppia (escluso dalla sincronizzazione dalla regola `.spola-*`); se manca, la coppia si ferma. Alle coppie di prima il marcatore viene scritto al primo controllo, solo se dispositivo e inode coincidono e almeno una voce dell'ultimo elenco è ancora al suo posto. La chiave della firma, l'impronta e la posizione del privato sono nell'Appendice H.
+
+Sul laptop Spola gira ancora dai sorgenti (`~/dev/spola`, unità `spola.service` e avvio automatico): il passaggio al Flatpak richiede di copiare configurazione e stato in `~/.var/app/io.github.daniel_g_carrasco.spola/` e un nuovo accesso (il portachiavi del Flatpak è separato); da fare con calma, non è urgente.
