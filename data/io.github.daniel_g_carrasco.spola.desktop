@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Spola
+GenericName=Koofr Sync
+GenericName[it]=Sincronizzazione Koofr
+Comment=Keep your folders in sync with Koofr
+Comment[it]=Sincronizza le tue cartelle con Koofr
+Exec=spola
+Icon=io.github.daniel_g_carrasco.spola
+Terminal=false
+Categories=Network;FileTransfer;GTK;
+Keywords=Koofr;cloud;sync;backup;rclone;
+Keywords[it]=Koofr;cloud;sincronizzazione;backup;rclone;
+StartupNotify=true
+X-GNOME-UsesNotifications=true

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: shown by GNOME Software. -->
+<component type="desktop-application">
+  <id>io.github.daniel_g_carrasco.spola</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>Spola</name>
+  <summary>Keep your folders in sync with Koofr</summary>
+  <summary xml:lang="it">Sincronizza le tue cartelle con Koofr</summary>
+
+  <developer id="io.github.daniel_g_carrasco">
+    <name>Daniel Grasso</name>
+  </developer>
+
+  <description>
+    <p>
+      Spola keeps folders on your computer and folders on Koofr identical, in both directions, in the background. It is built on rclone's two-way sync and puts the safety of your files first.
+    </p>
+    <p xml:lang="it">
+      Spola mantiene identiche, in entrambe le direzioni e in background, le cartelle del tuo computer e quelle su Koofr. Usa la sincronizzazione a due vie di rclone e mette al primo posto la sicurezza dei tuoi file.
+    </p>
+    <ul>
+      <li>A preview of the first alignment before anything happens</li>
+      <li xml:lang="it">Un'anteprima del primo allineamento prima che succeda qualsiasi cosa</li>
+      <li>Stops and asks before deleting many files at once</li>
+      <li xml:lang="it">Si ferma e chiede prima di eliminare molti file insieme</li>
+      <li>Files changed on both sides: both versions are kept</li>
+      <li xml:lang="it">File cambiati da entrambe le parti: restano entrambe le versioni</li>
+      <li>Replaced and deleted files are kept in a local backup for 30 days</li>
+      <li xml:lang="it">I file sostituiti ed eliminati restano in un backup locale per 30 giorni</li>
+      <li>Status icon in the tray, notifications only when something needs you</li>
+      <li xml:lang="it">Icona di stato nel tray, notifiche solo quando serve</li>
+    </ul>
+    <p>Spola is not affiliated with Koofr.</p>
+    <p xml:lang="it">Spola non è affiliata a Koofr.</p>
+  </description>
+
+  <launchable type="desktop-id">io.github.daniel_g_carrasco.spola.desktop</launchable>
+  <provides>
+    <binary>spola</binary>
+  </provides>
+
+  <url type="homepage">https://spola.neistar.com</url>
+  <url type="bugtracker">https://github.com/daniel-g-carrasco/spola/issues</url>
+  <url type="vcs-browser">https://github.com/daniel-g-carrasco/spola</url>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#e0a96d</color>
+    <color type="primary" scheme_preference="dark">#7d4a22</color>
+  </branding>
+
+  <content_rating type="oars-1.1"/>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <internet>always</internet>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-10" type="development">
+      <description>
+        <p>First development version: one or more folder pairs, two-way sync with previews and safety stops, tray icon.</p>
+      </description>
+    </release>
+  </releases>
+</component>
