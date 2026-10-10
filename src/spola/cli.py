@@ -67,7 +67,7 @@ def _print_plan(outcome: Outcome) -> None:
         (plan.delete_remote, _("Deleted on Koofr")),
         (plan.conflicts, _("Changed on both sides: both versions are kept")),
     ]
-    if plan.empty:
+    if plan.empty and outcome.result is Result.OK:
         print(_("Nothing to do: the two folders already match."))
     for paths, title in sections:
         if paths:
@@ -245,6 +245,8 @@ def main(argv: list[str]) -> int:
         if outcome and outcome.result is Result.OK:
             pair.initialized = True
             config.save(cfg, paths.config_file)
+            # writes the .lst-old that --recover needs if a later run is interrupted
+            _run(cfg, pair, paths, rclone, creds, Mode.SYNC, quiet=True)
             print(_("Aligned."))
             return 0
         if outcome:
