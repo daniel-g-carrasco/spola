@@ -16,7 +16,8 @@ from pathlib import Path
 
 CONFIG_VERSION = 1
 DEFAULT_MAX_DELETE_PERCENT = 10
-DEFAULT_POLL_MINUTES = 10
+DEFAULT_POLL_MINUTES = 10        # full runs when Koofr's activity feed is not available
+DEFAULT_FULL_CHECK_MINUTES = 60  # full runs while the activity feed works
 
 
 @dataclass
@@ -47,8 +48,11 @@ class Pair:
 @dataclass
 class Config:
     user: str = ""                       # Koofr account e-mail
+    mount_id: str = ""                   # Koofr primary mount (web links, activity feed)
+    instance_id: str = ""                # this installation, in rclone's user agent
     pairs: list[Pair] = field(default_factory=list)
     poll_minutes: int = DEFAULT_POLL_MINUTES
+    full_check_minutes: int = DEFAULT_FULL_CHECK_MINUTES
     pause_on_metered: bool = True
     pause_on_power_saver: bool = True
     backup_days: int = 30
@@ -77,9 +81,17 @@ class Config:
 def load(path: Path) -> Config:
     try:
         with open(path, encoding="utf-8") as f:
-            return Config.from_json(json.load(f))
+            cfg = Config.from_json(json.load(f))
     except FileNotFoundError:
-        return Config()
+        cfg = Config()
+    if not cfg.instance_id:
+        # saved at once: the window and the command line must share it
+        cfg.instance_id = secrets.token_hex(4)
+        try:
+            save(cfg, path)
+        except OSError:
+            pass
+    return cfg
 
 
 def save(cfg: Config, path: Path) -> None:

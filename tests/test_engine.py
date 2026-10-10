@@ -15,6 +15,7 @@ from _setup import rclone_binary
 from gi.repository import GLib
 
 from spola import engine as engine_mod
+from spola import koofr_api
 from spola.account import Credentials
 from spola.config import Config, Pair
 from spola.engine import Engine, Status, conflict_name_pattern, slept
@@ -95,6 +96,43 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(seen), 3)
         self.assertIsNone(seen[0])
         self.engine.set_paused_all(False)
+
+    def test_activity_feed_rings_the_pair_and_falls_back_when_it_fails(self):
+        self.align()
+        calls = []
+        feed = {"items": [], "fail": False}
+
+        def fake_activity(user, password, mount, since):
+            calls.append(since)
+            if feed["fail"]:
+                raise koofr_api.ApiError("HTTP 503")
+            return feed["items"]
+
+        orig = koofr_api.activity, koofr_api.primary_mount_id
+        koofr_api.activity, koofr_api.primary_mount_id = fake_activity, lambda u, p: "m-1"
+        try:
+            self.engine.feed_enabled = True
+            self.engine.creds = Credentials("dev", "", "app-password")
+            # someone uploads to Koofr: the feed reports it, the pair runs
+            (self.remote / "from-phone.txt").write_text("hi")
+            feed["items"] = [koofr_api.Activity("1", 2_000_000_000_000, "file_uploaded", "m-1",
+                                                "/test/from-phone.txt", "", "Dalvik/2.1.0")]
+            self.engine._poll_activity()
+            self.assertTrue(spin_until(lambda: (self.local / "from-phone.txt").exists(), 30))
+            self.assertTrue(self.engine.feed_ok)
+            self.assertEqual(self.engine.cfg.mount_id, "m-1")
+            # the same item again is not a new change
+            self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
+            self.engine._poll_activity()
+            spin_until(lambda: False, 1)
+            self.assertEqual(calls[-1], 2_000_000_000_000)
+            self.assertIs(self.status(), Status.OK)
+            # the feed breaks: back to the short periodic runs
+            feed["fail"] = True
+            self.engine._poll_activity()
+            self.assertTrue(spin_until(lambda: self.engine.feed_ok is False, 10))
+        finally:
+            koofr_api.activity, koofr_api.primary_mount_id = orig
 
     def test_never_runs_on_its_own_before_alignment(self):
         self.engine.sync_all("poll")

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .i18n import _
 from .paths import Paths
@@ -30,12 +30,15 @@ class Quota:
 
 @dataclass
 class Credentials:
+    """In memory only. `obscured` is for rclone's environment, `password` for
+    Spola's own read-only API calls."""
     user: str
     obscured: str
+    password: str = field(default="", repr=False)
 
     @classmethod
     def from_password(cls, user: str, password: str, rclone: str) -> "Credentials":
-        return cls(user, obscure(password, rclone))
+        return cls(user, obscure(password, rclone), password)
 
 
 def _run(rclone: str, paths: Paths, creds: Credentials, *args: str) -> str:
