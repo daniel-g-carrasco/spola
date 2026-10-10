@@ -12,12 +12,12 @@
   <a href="https://spola.neistar.com">spola.neistar.com</a>
 </p>
 
-Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) identical, in both directions, in the background. It is a GTK 4 / libadwaita app built on [rclone](https://rclone.org)'s two-way sync (`rclone bisync`), with a tray icon and, later, Nautilus emblems.
+Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) identical, in both directions, in the background. I wrote it because Koofr's own client never felt at home on GNOME. It is a GTK 4 / libadwaita app built on [rclone](https://rclone.org)'s two-way sync (`rclone bisync`), with a tray icon and, later, Nautilus emblems.
 
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
 <p align="center">
-  <img src="data/screenshots/main-window.png" alt="Spola's window: three folder pairs, one with conflicts to check" width="560">
+  <img src="data/screenshots/main-window.png" alt="Spola's window: three folder pairs, one up to date, one with a conflict, one syncing" width="600">
 </p>
 
 The design document (in Italian) is [docs/progetto.md](docs/progetto.md). Spola is not affiliated with Koofr.
@@ -55,6 +55,10 @@ Each folder pair is one row: its status, what the last sync did, a progress bar 
 ## In Files (Nautilus)
 
 Preferences has a switch, *Show sync status in Files*: Spola installs a small nautilus-python extension and its emblems for your user (`~/.local/share/nautilus-python/extensions/spola-nautilus.py`, `~/.local/share/icons/hicolor/scalable/emblems/`), and Files shows an emblem on every synced file and folder: synced, syncing, changed here and waiting, error, conflict, left out. Right-click gives *Sync Now with Koofr*, *Open on Koofr* and *Copy Koofr Share Link*. The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so Files stays as fast as it is; with Spola not running it does nothing. Files needs nautilus-python (Fedora: `nautilus-python`) and a restart (`nautilus -q`) after the switch.
+
+<p align="center">
+  <img src="data/screenshots/files-emblems.png" alt="Files in list view: synced files, an excluded lock file, the two copies of a conflict" width="700">
+</p>
 
 The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/daniel_g_carrasco/spola/Sync`) is also there for other file managers: states per folder, states per file, sync now, web link, share link, and signals when states change.
 
