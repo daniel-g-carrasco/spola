@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Spola</title>
-  <meta name="description" content="Sincronizza le tue cartelle con Koofr, su GNOME. Gratuita e open source, con anteprime prima di ogni passo importante.">
+  <meta name="description" content="Spola sincronizza le tue cartelle con Koofr, su GNOME. Gratuita e open source, con un'anteprima prima di ogni passo importante.">
   <link rel="icon" href="icon.png">
   <style>
     :root {
@@ -17,22 +17,26 @@
     }
     * { box-sizing: border-box; }
     body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, "Segoe UI", Cantarell, sans-serif; }
-    main { max-width: 720px; margin: 0 auto; padding: 48px 20px 64px; }
+    main { max-width: 680px; margin: 0 auto; padding: 48px 20px 64px; }
     header { display: flex; align-items: center; gap: 20px; margin-bottom: 8px; }
     header img { width: 96px; height: 96px; }
     h1 { margin: 0; font-size: 2rem; }
+    h2 { margin-top: 40px; font-size: 1.3rem; }
     .tagline { margin: 4px 0 0; color: var(--dim); font-size: 1.1rem; }
-    p { margin: 16px 0; }
-    .buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 28px 0; }
+    p { margin: 14px 0; }
+    .buttons { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0 8px; }
     .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: 600;
            background: var(--card); color: var(--fg); border: 1px solid var(--line); }
     .btn.primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
     ul { padding-left: 20px; }
     li { margin: 6px 0; }
-    .note { border-left: 4px solid var(--accent); padding: 8px 14px; background: var(--card); border-radius: 0 8px 8px 0; }
-    code, pre { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .1rem .35rem; }
+    code, pre { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .1rem .35rem; font-size: .95em; }
     pre { padding: .7rem .9rem; overflow-x: auto; }
-    footer { margin-top: 40px; color: var(--dim); font-size: .9rem; }
+    figure { margin: 24px 0; }
+    figure img { width: 100%; max-width: 600px; display: block; border-radius: 10px; border: 1px solid var(--line); }
+    figcaption { color: var(--dim); font-size: .92rem; margin-top: 8px; }
+    .note { border-left: 4px solid var(--accent); padding: 8px 14px; background: var(--card); border-radius: 0 8px 8px 0; }
+    footer { margin-top: 48px; color: var(--dim); font-size: .9rem; }
     a { color: var(--accent); }
     .en { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line); }
   </style>
@@ -51,42 +55,84 @@
   </header>
 
   <p>
-    Spola tiene identiche, in entrambe le direzioni e in background, le cartelle del tuo computer e quelle
-    su <a href="https://koofr.eu">Koofr</a>. Il nome è quello della spola del telaio, che porta il filo da
-    un lato all'altro; in italiano <em>fare la spola</em> vuol dire andare avanti e indietro. Sotto c'è il
-    motore a due vie di <a href="https://rclone.org">rclone</a>; sopra, un'app GTK 4 che mette al primo
-    posto la sicurezza dei tuoi file.
+    Spola tiene identiche, in entrambe le direzioni e in background, le cartelle del tuo computer e quelle su
+    <a href="https://koofr.eu">Koofr</a>. Il nome è quello della spola del telaio, che porta il filo da un lato
+    all'altro; in italiano <em>fare la spola</em> vuol dire andare avanti e indietro. Sotto c'è il motore a due
+    vie di <a href="https://rclone.org">rclone</a>; sopra, un'app GTK 4 che mette al primo posto la sicurezza
+    dei tuoi file. Gratuita e open source (MIT).
   </p>
 
   <div class="buttons">
     <a class="btn primary" href="https://daniel-g-carrasco.github.io/spola/spola.flatpakref">Installa su Linux (Flatpak)</a>
     <a class="btn" href="https://github.com/daniel-g-carrasco/spola">Sorgente su GitHub</a>
   </div>
-  <p class="release">Da terminale: <code>flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref</code>.
-  Gli aggiornamenti arrivano da soli, con GNOME Software o con <code>flatpak update</code>.</p>
+  <p>Da terminale: <code>flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref</code>.
+  Gli aggiornamenti arrivano da soli, con GNOME Software o con <code>flatpak update</code>.
+  Su <a href="https://margine.dev">Margine OS</a>: <code>ujust install-spola</code>.</p>
+
+  <figure>
+    <img src="screenshots/main-window.png" alt="La finestra di Spola: tre coppie di cartelle, una con conflitti da controllare">
+    <figcaption>Ogni coppia di cartelle è una riga: stato, ultimo giro, e un pulsante quando serve una tua decisione.</figcaption>
+  </figure>
+
+  <h2>Come funziona</h2>
+  <p>
+    Si entra con l'indirizzo dell'account Koofr e una <em>password per applicazioni</em> (si crea dalle
+    impostazioni dell'account: Koofr non accetta la password principale da altri programmi), poi si scelgono
+    le coppie: una cartella sul computer e una su Koofr. Spola sta nel tray, si accorge delle modifiche locali
+    appena succedono e di quelle fatte da altri dispositivi entro un minuto, e ogni ora rifà un controllo
+    completo. Non ci sono motori scritti da zero: ogni giro è un <code>rclone bisync</code>, con le sue
+    protezioni e qualcuna in più.
+  </p>
 
   <h2>Prima di tutto, i tuoi file</h2>
   <ul>
-    <li><strong>Anteprima prima di ogni passo importante.</strong> Il primo allineamento di una cartella, una riparazione e ogni giro fermato da un controllo di sicurezza ti mostrano l'elenco di ciò che succederebbe, e partono solo se confermi.</li>
-    <li><strong>Niente cancellazioni a sorpresa.</strong> Un giro che eliminerebbe più del 10% di una parte si ferma e aspetta. I file eliminati o sostituiti sul computer finiscono in un backup locale per 30 giorni; su Koofr, nel cestino di Koofr.</li>
-    <li><strong>Conflitti con entrambe le versioni</strong>, con nomi leggibili, e una finestra per decidere quale tenere.</li>
-    <li><strong>Disco non montato, cartella sostituita:</strong> la coppia si ferma prima ancora di avviare rclone.</li>
-    <li>La password per applicazioni di Koofr resta nel portachiavi e non passa mai da una riga di comando.</li>
+    <li><strong>Un'anteprima prima di ogni passo importante.</strong> Il primo allineamento di una cartella, una riparazione e ogni giro fermato da un controllo di sicurezza ti mostrano l'elenco di ciò che succederebbe, e partono solo se confermi.</li>
+    <li><strong>Niente cancellazioni a sorpresa.</strong> Un giro che eliminerebbe più del 10% dei file di una parte si ferma e aspetta. I file eliminati o sostituiti sul computer finiscono in un backup locale per 30 giorni; su Koofr, nel cestino di Koofr.</li>
+    <li><strong>Conflitti senza perdite.</strong> Un file cambiato da entrambe le parti resta in due copie con nomi leggibili; una finestra ti fa scegliere quale continua, e l'altra va nel cestino.</li>
+    <li><strong>Disco non montato, cartella sostituita:</strong> la coppia si ferma prima ancora di avviare rclone, invece di vedere una cancellazione totale.</li>
+    <li>I nomi che Koofr rifiuta (emoji, nomi che differiscono solo per maiuscole) restano fuori dal giro e ti vengono segnalati; il resto si sincronizza.</li>
+    <li>La password resta nel portachiavi e non passa mai da una riga di comando.</li>
   </ul>
 
-  <h2>Com'è fatta</h2>
-  <ul>
-    <li>Un'app GTK 4 e libadwaita, in italiano e inglese, con icona di stato nel tray e notifiche solo quando serve qualcosa da te.</li>
-    <li>Le modifiche fatte da altri dispositivi arrivano entro un minuto, senza rileggere ogni volta tutto il cloud.</li>
-    <li>In File (Nautilus): emblemi su file e cartelle sincronizzati e un menu Koofr, senza rallentare File.</li>
-    <li>Rileva le coppie di cartelle di Koofr Desktop e le prende in carico.</li>
-  </ul>
+  <figure>
+    <img src="screenshots/conflicts.png" alt="La finestra dei conflitti: il file, le due versioni con dimensione e data, il menu per decidere">
+    <figcaption>I conflitti: le due versioni con dimensione e data, un clic per aprirle nel gestore di file, un menu per decidere.</figcaption>
+  </figure>
 
-  <p class="note">Spola non è affiliata a Koofr. Serve una <em>password per applicazioni</em>, che si crea dalle impostazioni dell'account Koofr.</p>
+  <h2>Nel gestore di file</h2>
+  <p>
+    Con un interruttore nelle Preferenze, File (Nautilus) mostra un emblema su ogni file e cartella
+    sincronizzati: aggiornato, in corso, in attesa, errore, conflitto, escluso. Con il tasto destro:
+    <em>Sincronizza ora con Koofr</em>, <em>Apri su Koofr</em>, <em>Copia il link di condivisione</em>.
+    Serve <code>nautilus-python</code> sul sistema (Margine OS lo ha già).
+  </p>
+
+  <h2>Preferenze ed esclusioni</h2>
+  <p>
+    Pausa sulle connessioni a consumo e in risparmio energetico, avvio all'accesso, giorni di conservazione
+    dei backup, limiti di velocità, lingua dei nomi delle copie in conflitto. Ogni coppia ha le sue esclusioni,
+    già pronte per i file temporanei e per ciò che Koofr Desktop lasciava fuori.
+  </p>
+
+  <figure>
+    <img src="screenshots/preferences.png" alt="Le preferenze di Spola">
+    <figcaption>Le preferenze: poche, quelle che servono.</figcaption>
+  </figure>
+
+  <h2>Se usi Koofr Desktop</h2>
+  <p>
+    Spola rileva le coppie di cartelle di Koofr Desktop e le prende in carico (<code>spola import-koofr-desktop</code>,
+    o <code>ujust install-spola migrate</code> su Margine OS). Prima va fermato Koofr Desktop: due motori sulle stesse
+    cartelle sono il modo più rapido per perdere file. Di solito le cartelle sono già identiche sulle due parti e il
+    primo allineamento non trasferisce nulla, ma lo vedi comunque in anteprima.
+  </p>
+
+  <p class="note">Spola non è affiliata a Koofr.</p>
 
   <section class="en">
     <h2>In English</h2>
-    <p>Spola keeps folders on your computer and folders on Koofr identical, in both directions, in the background. It is a GTK 4 app built on rclone's two-way sync, with a preview before every big step, a stop before mass deletions, conflicts that keep both versions, a tray icon, and emblems in Files. Install it on Linux from the Flatpak repository above. Not affiliated with Koofr.</p>
+    <p>Spola keeps folders on your computer and folders on Koofr identical, in both directions, in the background. It is a GTK 4 app built on rclone's two-way sync, with a preview before every big step, a stop before mass deletions, conflicts that keep both versions, a tray icon and emblems in Files. Install it on Linux from the Flatpak repository above. Not affiliated with Koofr.</p>
   </section>
 
   <footer>
