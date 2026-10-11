@@ -13,12 +13,15 @@ tests/test_tray.py counts the signals on a private bus.
 The item is registered by object path on our unique bus name, so no
 org.kde.StatusNotifierItem-* name has to be owned (none is allowed in the
 Flatpak); both GNOME's AppIndicator extension and Noctalia accept that.
+
+The menu changes while files are transferring (a submenu lists them), so
+LayoutUpdated is throttled too, and items are numbered depth-first.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from gi.repository import Gio, GLib
 
@@ -27,6 +30,7 @@ ITEM_PATH = "/StatusNotifierItem"
 MENU_PATH = "/StatusNotifierItem/Menu"
 MIN_ICON_INTERVAL_MS = 500
 MIN_TOOLTIP_INTERVAL_MS = 2000
+MIN_MENU_INTERVAL_MS = 2000
 
 ITEM_XML = """
 <node>
@@ -123,13 +127,43 @@ class MenuItem:
     action: Callable[[], None] | None = None
     enabled: bool = True
     separator: bool = False
+    children: list[MenuItem] = field(default_factory=list)
+    icon: str = ""
 
     def props(self) -> dict:
         if self.separator:
             return {"type": GLib.Variant("s", "separator")}
-        return {"label": GLib.Variant("s", self.label),
-                "enabled": GLib.Variant("b", self.enabled and (self.action is not None)),
-                "visible": GLib.Variant("b", True)}
+        props = {
+            # "_" marks a mnemonic in dbusmenu: file names need it doubled
+            "label": GLib.Variant("s", self.label.replace("_", "__")),
+            "enabled": GLib.Variant("b", self.enabled and (self.action is not None or bool(self.children))),
+            "visible": GLib.Variant("b", True)}
+        if self.children:
+            props["children-display"] = GLib.Variant("s", "submenu")
+        if self.icon:
+            props["icon-name"] = GLib.Variant("s", self.icon)
+        return props
+
+    def key(self) -> tuple:
+        return (self.label, self.enabled and (self.action is not None or bool(self.children)),
+                self.separator, self.icon, tuple(c.key() for c in self.children))
+
+
+def number(items: list[MenuItem]) -> tuple[dict[int, MenuItem], dict[int, list[int]]]:
+    """Ids for the items, depth-first from 1 (0 is the root), and the
+    children of each id."""
+    by_id: dict[int, MenuItem] = {}
+    children: dict[int, list[int]] = {0: []}
+
+    def walk(parent: int, lst: list[MenuItem]) -> None:
+        for item in lst:
+            item_id = len(by_id) + 1
+            by_id[item_id] = item
+            children[parent].append(item_id)
+            children[item_id] = []
+            walk(item_id, item.children)
+    walk(0, items)
+    return by_id, children
 
 
 class Throttle:
@@ -180,12 +214,15 @@ class TrayIcon:
         self.tooltip_title = title
         self.tooltip_body = ""
         self.items: list[MenuItem] = []
+        self._by_id: dict[int, MenuItem] = {}
+        self._children: dict[int, list[int]] = {0: []}
         self.revision = 1
         self.connection: Gio.DBusConnection | None = None
         self._reg_ids: list[int] = []
         self._watch_id = 0
         self._icon = Throttle(MIN_ICON_INTERVAL_MS, lambda: self._signal(ITEM_PATH, "org.kde.StatusNotifierItem", "NewIcon"))
         self._tooltip = Throttle(MIN_TOOLTIP_INTERVAL_MS, lambda: self._signal(ITEM_PATH, "org.kde.StatusNotifierItem", "NewToolTip"))
+        self._layout_signal = Throttle(MIN_MENU_INTERVAL_MS, self._layout_updated)
         self._icon.emitted = self.icon_name
         self._tooltip.emitted = (self.tooltip_title, self.tooltip_body)
 
@@ -206,6 +243,7 @@ class TrayIcon:
     def stop(self) -> None:
         self._icon.cancel()
         self._tooltip.cancel()
+        self._layout_signal.cancel()
         if self._watch_id:
             Gio.bus_unwatch_name(self._watch_id)
             self._watch_id = 0
@@ -223,12 +261,15 @@ class TrayIcon:
         self._tooltip.set((title, body))
 
     def set_menu(self, items: list[MenuItem]) -> None:
-        def key(lst):
-            return [(i.label, i.enabled and i.action is not None, i.separator) for i in lst]
-        changed = key(items) != key(self.items)
+        changed = [i.key() for i in items] != [i.key() for i in self.items]
         self.items = items
-        if changed and self.connection:
+        self._by_id, self._children = number(items)
+        if changed:
             self.revision += 1
+            self._layout_signal.set(self.revision)
+
+    def _layout_updated(self) -> None:
+        if self.connection:
             self.connection.emit_signal(None, MENU_PATH, "com.canonical.dbusmenu", "LayoutUpdated",
                                         GLib.Variant("(ui)", (self.revision, 0)))
 
@@ -276,17 +317,18 @@ class TrayIcon:
 
     # -- D-Bus: menu -----------------------------------------------------------------
 
-    def _layout(self) -> tuple:
-        children = [GLib.Variant("(ia{sv}av)", (i + 1, item.props(), []))
-                    for i, item in enumerate(self.items)]
-        return (0, {"children-display": GLib.Variant("s", "submenu")}, children)
+    def _layout(self, item_id: int = 0, depth: int = -1) -> tuple:
+        children = []
+        if depth != 0:
+            children = [GLib.Variant("(ia{sv}av)", self._layout(child, depth - 1))
+                        for child in self._children.get(item_id, [])]
+        return (item_id, self._props_of(item_id), children)
 
     def _props_of(self, item_id: int) -> dict:
         if item_id == 0:
             return {"children-display": GLib.Variant("s", "submenu")}
-        if 1 <= item_id <= len(self.items):
-            return self.items[item_id - 1].props()
-        return {}
+        item = self._by_id.get(item_id)
+        return item.props() if item else {}
 
     def _menu_get(self, _conn, _sender, _path, _iface, prop):
         return {
@@ -298,11 +340,15 @@ class TrayIcon:
 
     def _menu_call(self, _conn, _sender, _path, _iface, method, params, invocation):
         if method == "GetLayout":
-            invocation.return_value(GLib.Variant("(u(ia{sv}av))", (self.revision, self._layout())))
+            parent, depth, _names = params.unpack()
+            if parent != 0 and parent not in self._by_id:
+                invocation.return_dbus_error("com.canonical.dbusmenu.Error.UnknownId", str(parent))
+                return
+            invocation.return_value(GLib.Variant("(u(ia{sv}av))", (self.revision, self._layout(parent, depth))))
         elif method == "GetGroupProperties":
             ids, _names = params.unpack()
             if not ids:
-                ids = list(range(len(self.items) + 1))
+                ids = [0] + list(self._by_id)
             invocation.return_value(GLib.Variant("(a(ia{sv}))", ([(i, self._props_of(i)) for i in ids],)))
         elif method == "GetProperty":
             item_id, name = params.unpack()
@@ -328,8 +374,9 @@ class TrayIcon:
             invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
     def _activate(self, item_id: int, event_id: str) -> None:
-        if event_id != "clicked" or not 1 <= item_id <= len(self.items):
+        item = self._by_id.get(item_id)
+        if event_id != "clicked" or item is None:
             return
-        action = self.items[item_id - 1].action
+        action = item.action
         if action is not None:
             GLib.idle_add(lambda: action() and False)

@@ -29,8 +29,11 @@ def source_dir() -> Path:
 
 
 def data_home(environ=None) -> Path:
+    """The host's data folder, the one Files reads. Inside the Flatpak
+    XDG_DATA_HOME is the sandbox's own (~/.var/app/<app-id>/data): the host's
+    is in HOST_XDG_DATA_HOME when the host sets one, else ~/.local/share."""
     environ = os.environ if environ is None else environ
-    base = environ.get("XDG_DATA_HOME")
+    base = environ.get("HOST_XDG_DATA_HOME" if environ.get("FLATPAK_ID") else "XDG_DATA_HOME")
     if not base or not os.path.isabs(base):
         base = os.path.join(environ.get("HOME", os.path.expanduser("~")), ".local", "share")
     return Path(base)

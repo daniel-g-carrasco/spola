@@ -24,6 +24,14 @@ class InstallTest(unittest.TestCase):
             self.assertEqual(len(removed), len(written))
             self.assertFalse(ni.installed(env))
 
+    def test_flatpak_writes_to_the_host_data_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sandbox = f"{tmp}/.var/app/io.example/data"
+            env = {"FLATPAK_ID": "io.example", "XDG_DATA_HOME": sandbox, "HOME": tmp}
+            self.assertEqual(ni.extension_path(env).parent.parent.parent, ni.Path(tmp, ".local", "share"))
+            env["HOST_XDG_DATA_HOME"] = f"{tmp}/data"
+            self.assertEqual(ni.data_home(env), ni.Path(tmp, "data"))
+
     def test_foreign_extension_is_kept(self):
         with tempfile.TemporaryDirectory() as tmp:
             env = {"XDG_DATA_HOME": tmp, "HOME": tmp}

@@ -170,23 +170,96 @@ def clean_app_icon(source: Path) -> str:
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode") + "\n"
 
 
+def clock_hands(x, top, width, y, right) -> str:
+    """The hands at 12 and 3 o'clock as one L-shaped outline: two
+    overlapping rectangles would leave a dot where they cross (evenodd).
+    The vertical hand starts at (x, top), the horizontal one at height y
+    and ends at `right`; both are `width` thick."""
+    return poly([(x, top), (x + width, top), (x + width, y), (right, y), (right, y + width), (x, y + width)])
+
+
 def emblem_icons() -> dict[str, str]:
     """Emblems fill the whole 16 px canvas: Files draws them small and dim."""
     disk = circle(8, 8, 7.5)
     ring = disk + " " + circle(8, 8, 5)
-    clock_hands = rect(7.3, 4.2, 1.4, 4.4) + " " + rect(7.3, 7.3, 3.8, 1.4)
     slash = poly([(3.4, 11.2), (11.2, 3.4), (12.6, 4.8), (4.8, 12.6)])
     return {
         "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
                            cls="success"),
         "syncing": symbolic(disk + " " + " ".join(ring_arrow(8, 8, 5, 3.5, start, end, tip_deg=26)
                                                    for start, end in ((40, 160), (220, 340)))),
-        "pending": symbolic(ring + " " + clock_hands),
+        "pending": symbolic(ring + " " + clock_hands(7.3, 4.2, 1.4, 7.3, 11.1)),
         "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error"),
         "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
                              + " " + circle(8, 12.2, 1.05), cls="warning"),
         "excluded": symbolic(ring + " " + slash),
     }
+
+
+def rounded_rect(x, y, w, h, r) -> str:
+    return (f"M{fmt(x + r)},{fmt(y)} L{fmt(x + w - r)},{fmt(y)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w)},{fmt(y + r)} "
+            f"L{fmt(x + w)},{fmt(y + h - r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w - r)},{fmt(y + h)} "
+            f"L{fmt(x + r)},{fmt(y + h)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x)},{fmt(y + h - r)} "
+            f"L{fmt(x)},{fmt(y + r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + r)},{fmt(y)} Z")
+
+
+def thick_polyline(points, width) -> str:
+    """The outline of a polyline drawn `width` wide, with mitred joins and
+    flat ends (symbolic icons cannot use strokes)."""
+    half = width / 2
+
+    def normal(a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy)
+        return -dy / length, dx / length
+
+    def side(sign):
+        out = []
+        for i, p in enumerate(points):
+            if i == 0 or i == len(points) - 1:
+                n = normal(points[0], points[1]) if i == 0 else normal(points[-2], points[-1])
+                out.append((p[0] + sign * half * n[0], p[1] + sign * half * n[1]))
+                continue
+            n1, n2 = normal(points[i - 1], p), normal(p, points[i + 1])
+            mx, my = n1[0] + n2[0], n1[1] + n2[1]
+            scale = half / ((mx * n1[0] + my * n1[1]) or 1e-9)
+            out.append((p[0] + sign * mx * scale, p[1] + sign * my * scale))
+        return out
+    return poly(side(1) + list(reversed(side(-1))))
+
+
+def emblem_variants() -> dict[str, dict[str, str]]:
+    """Heavier emblems to compare with the current ones in Files' grid,
+    where the emblem box is dimmed (dim-label) and drawn at 16 px:
+      bold:   no disk, the glyphs themselves thick and as large as the canvas;
+      square: the current glyphs cut out of a rounded square, about a third
+              more colour than the disk."""
+    check_bold = thick_polyline([(1.6, 8.4), (5.9, 12.7), (14.4, 4.2)], 3.0)
+    ring_bold = circle(8, 8, 7.6) + " " + circle(8, 8, 5.5)
+    bold = {
+        "synced": symbolic(check_bold, cls="success"),
+        "syncing": symbolic(" ".join(ring_arrow(8, 8, 5.9, 3.7, start, end, tip_deg=28)
+                                     for start, end in ((40, 160), (220, 340)))),
+        "pending": symbolic(ring_bold + " " + clock_hands(7, 3.9, 2, 6.8, 11.3)),
+        "error": symbolic(ring_bold + " " + rect(6.9, 3.8, 2.2, 5) + " " + circle(8, 11.2, 1.3), cls="error"),
+        "conflict": symbolic(poly([(8, 0.4), (15.8, 15), (0.2, 15)]) + " " + rect(6.95, 5, 2.1, 5.2)
+                             + " " + circle(8, 12.3, 1.2), cls="warning"),
+        "excluded": symbolic(ring_bold + " " + poly([(3.6, 11), (11, 3.6), (12.4, 5), (5, 12.4)])),
+    }
+    square = rounded_rect(0.5, 0.5, 15, 15, 3.5)
+    cut_ring = circle(8, 8, 5.4) + " " + circle(8, 8, 4)
+    squares = {
+        "synced": symbolic(square + " " + poly([(3.6, 8.3), (5.1, 6.8), (7, 8.7), (10.9, 4.8), (12.4, 6.3), (7, 11.7)]),
+                           cls="success"),
+        "syncing": symbolic(square + " " + " ".join(ring_arrow(8, 8, 5.2, 3.6, start, end, tip_deg=26)
+                                                    for start, end in ((40, 160), (220, 340)))),
+        "pending": symbolic(square + " " + cut_ring + " " + clock_hands(7.35, 5.2, 1.3, 7.4, 10.35)),
+        "error": symbolic(square + " " + rect(6.9, 3.4, 2.2, 5.8) + " " + circle(8, 11.6, 1.25), cls="error"),
+        "conflict": symbolic(poly([(8, 0.4), (15.8, 15), (0.2, 15)]) + " " + rect(6.95, 5, 2.1, 5.2)
+                             + " " + circle(8, 12.3, 1.2), cls="warning"),
+        "excluded": symbolic(square + " " + cut_ring + " " + poly([(4.4, 10.6), (10.6, 4.4), (11.6, 5.4), (5.4, 11.6)])),
+    }
+    return {"bold": bold, "square": squares}
 
 
 def write_pngs(svg: Path, sizes=(64, 128, 256)) -> None:
@@ -219,4 +292,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) == 3 and sys.argv[1] == "--emblem-variants":
+        for variant, icons in emblem_variants().items():
+            out = Path(sys.argv[2]) / variant
+            out.mkdir(parents=True, exist_ok=True)
+            for state, svg in icons.items():
+                (out / f"emblem-spola-{state}-symbolic.svg").write_text(svg, encoding="utf-8")
+            print(out)
+    else:
+        main()

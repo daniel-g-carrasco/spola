@@ -1,11 +1,10 @@
-"""Main window, sign-in page, "add folder" and preview dialogs."""
+"""Main window: the synced folders grouped by where they are, a page per
+folder, the sign-in page, and the dialogs that review a folder."""
 
 from __future__ import annotations
 
 import json
 import os
-import threading
-from pathlib import Path
 
 import gi
 
@@ -15,136 +14,72 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
 from . import account, autostart, conflicts, jobs, koofr_api, nautilus_integration, preflight, secrets  # noqa: E402
-from .config import normalize_remote  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
-from .i18n import _, ngettext  # noqa: E402
-from .rclone import Mode, Outcome, Result, default_excluded, describe  # noqa: E402
+from .grouping import expected_remote, group_pairs  # noqa: E402
+from .i18n import _, ngettext, pgettext  # noqa: E402
+from .rclone import Mode, Outcome, Result, describe  # noqa: E402
+from .ui import (NEEDS_LOOK, display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
+                 place_name, status_css, status_detail, status_icon, status_line, status_text, syncing_for_real)
 
 PREVIEW_LIMIT = 300
-
-STATUS_ICONS = {
-    Status.OK: "-synced-symbolic",
-    Status.SYNCING: "-syncing-symbolic",
-    Status.PENDING: "-syncing-symbolic",
-    Status.PAUSED: "-paused-symbolic",
-    Status.NEEDS_SETUP: "-paused-symbolic",
-    Status.ERROR: "-error-symbolic",
-    Status.NEEDS_REPAIR: "-error-symbolic",
-    Status.NEEDS_CONFIRMATION: "-attention-symbolic",
-    Status.CONFLICTS: "-attention-symbolic",
-    Status.SKIPPED: "-attention-symbolic",
-}
+STATE_VERSION = 2       # window.json of the first layout (600 px wide) is ignored
 
 
-def status_icon(status: Status) -> str:
-    return APP_ID + STATUS_ICONS[status]
+class StatusIcon(Gtk.Stack):
+    """The status icon of a pair, or a spinner while it syncs: one slot, so
+    the rows keep the same shape whatever happens."""
 
+    def __init__(self):
+        super().__init__(valign=Gtk.Align.CENTER)
+        self.image = Gtk.Image(pixel_size=16)
+        self.add_child(self.image)
+        self.spinner = Adw.Spinner(width_request=16, height_request=16)
+        self.add_child(self.spinner)
 
-def status_text(status: Status) -> str:
-    return {
-        Status.OK: _("Up to date"),
-        Status.SYNCING: _("Syncing"),
-        Status.PENDING: _("Changes waiting to be synced"),
-        Status.PAUSED: _("Paused"),
-        Status.NEEDS_SETUP: _("First alignment to confirm"),
-        Status.ERROR: _("Error"),
-        Status.NEEDS_REPAIR: _("Needs repair"),
-        Status.NEEDS_CONFIRMATION: _("Waiting for your confirmation"),
-        Status.CONFLICTS: _("Conflicts to check"),
-        Status.SKIPPED: _("Some files cannot be synced"),
-    }[status]
-
-
-def progress_text(stats: dict | None) -> tuple[str, float | None]:
-    """A short line for the row and the fraction for its bar (None while
-    the two sides are still being compared)."""
-    if not stats:
-        return "", None
-    total, done = stats.get("totalBytes") or 0, stats.get("bytes") or 0
-    files, total_files = stats.get("transfers") or 0, stats.get("totalTransfers") or 0
-    if not total_files and not total:
-        checks = stats.get("checks") or 0
-        return (_("Comparing files ({n} checked)").format(n=checks) if checks else ""), None
-    text = ngettext("{done} of {total} file", "{done} of {total} files", total_files).format(done=files, total=total_files)
-    speed = stats.get("speed") or 0
-    if speed:
-        text += " · " + _("{speed}/s").format(speed=GLib.format_size(int(speed)))
-    fraction = done / total if total else (files / total_files if total_files else 0.0)
-    return text, max(0.0, min(1.0, fraction))
-
-
-def display_path(path: str) -> str:
-    home = str(Path.home())
-    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
-
-
-def reveal(window, path: str) -> None:
-    """Show the file in the file manager, selected (the OpenURI portal's
-    OpenDirectory inside the sandbox)."""
-    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(window, None, None, None)
-
-
-def file_details(copy: conflicts.Copy) -> str:
-    when = GLib.DateTime.new_from_unix_local(int(copy.mtime)).format("%d %b %H:%M")
-    return f"{GLib.format_size(copy.size)} \u00b7 {when}"
-
-
-def run_in_thread(work, done) -> None:
-    """work() in a thread, done(result, error) back on the main loop."""
-    def target():
-        try:
-            result, error = work(), None
-        except Exception as e:  # shown to the user, never swallowed
-            result, error = None, e
-        GLib.idle_add(lambda: done(result, error) and False)
-    threading.Thread(target=target, daemon=True).start()
+    def show(self, status: Status) -> None:
+        if status is Status.SYNCING:
+            self.set_visible_child(self.spinner)
+            return
+        self.image.set_from_icon_name(status_icon(status))
+        self.image.set_css_classes(status_css(status))
+        self.set_visible_child(self.image)
 
 
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app, engine: Engine):
-        super().__init__(application=app, title=APP_NAME, default_width=600, default_height=680)
+        super().__init__(application=app, title=APP_NAME, default_width=480, default_height=640,
+                         width_request=360, height_request=400)
         self.set_hide_on_close(True)
         self.app = app
         self.engine = engine
         self.rows: dict[str, PairRow] = {}
+        self.groups: list[Adw.PreferencesGroup] = []
         self._state_file = engine.paths.state / "window.json"
         self._restore_state()
         self.connect("close-request", lambda *_: self.save_state() and False)
 
         self.toasts = Adw.ToastOverlay()
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
-        menu = Gio.Menu()
-        section = Gio.Menu()
-        section.append(_("Sync All Now"), "app.sync-all")
-        section.append(_("Pause All"), "app.pause-all")
-        menu.append_section(None, section)
-        section = Gio.Menu()
-        section.append(_("Preferences"), "app.preferences")
-        section.append(_("About Spola"), "app.about")
-        section.append(_("Quit"), "app.quit")
-        menu.append_section(None, section)
-        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
-                                       tooltip_text=_("Main Menu"), primary=True))
-        view.add_top_bar(header)
-        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self.stack.add_named(self._login_page(), "login")
-        self.stack.add_named(self._main_page(), "main")
-        view.set_content(self.stack)
-        self.toasts.set_child(view)
+        self.nav = Adw.NavigationView()
+        self.nav.add(self._folders_page())
+        self.toasts.set_child(self.nav)
         self.set_content(self.toasts)
 
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
+        engine.connect("status-changed", lambda _e: self._update_banner())
         engine.connect("run-finished", self._on_run_finished)
+        self.nav.connect("popped", lambda _n, page: page.detach() if isinstance(page, PairPage) else None)
         self._rebuild_rows()
         self.show_page()
 
     def show_page(self) -> None:
-        self.stack.set_visible_child_name("main" if self.engine.creds else "login")
-        if self.engine.creds:
-            self.account_row.set_title(self.engine.creds.user)
-            self._refresh_quota()
+        signed_in = self.engine.creds is not None
+        if not signed_in:
+            self.nav.pop_to_tag("folders")
+        self.stack.set_visible_child_name("list" if signed_in and self.engine.cfg.pairs
+                                          else "empty" if signed_in else "login")
+        self.add_button.set_visible(signed_in)
+        self._update_banner()
 
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=text, timeout=5))
@@ -166,20 +101,123 @@ class MainWindow(Adw.ApplicationWindow):
         try:
             with open(self._state_file, encoding="utf-8") as f:
                 state = json.load(f)
+            if state.get("version") != STATE_VERSION:
+                return
             self.set_default_size(int(state["width"]), int(state["height"]))
             if state.get("maximized"):
                 self.maximize()
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
 
     def save_state(self) -> None:
         width, height = self.get_default_size()
-        state = {"width": width, "height": height, "maximized": self.is_maximized()}
+        state = {"version": STATE_VERSION, "width": width, "height": height, "maximized": self.is_maximized()}
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
             self._state_file.write_text(json.dumps(state), encoding="utf-8")
         except OSError:
             pass
+
+    # -- the folders page --------------------------------------------------------------
+
+    def _folders_page(self) -> Adw.NavigationPage:
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.add_button = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=_("Add Folder"))
+        self.add_button.connect("clicked", lambda *_: self.add_folder())
+        header.pack_start(self.add_button)
+        menu = Gio.Menu()
+        section = Gio.Menu()
+        section.append(_("Sync All Now"), "app.sync-all")
+        section.append(_("Pause All"), "app.pause-all")
+        menu.append_section(None, section)
+        section = Gio.Menu()
+        section.append(_("Preferences"), "app.preferences")
+        section.append(_("About Spola"), "app.about")
+        section.append(_("Quit"), "app.quit")
+        menu.append_section(None, section)
+        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
+                                       tooltip_text=_("Main Menu"), primary=True))
+        view.add_top_bar(header)
+        self.banner = Adw.Banner(button_label=_("Review"))
+        self.banner.connect("button-clicked", lambda *_: self.review(self._banner_pair) if self._banner_pair else None)
+        self._banner_pair = ""
+        view.add_top_bar(self.banner)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.stack.add_named(self._login_page(), "login")
+        empty = Adw.StatusPage(icon_name="folder-symbolic", title=_("No Synced Folders"),
+                               description=_("Choose a folder on this computer and the Koofr folder "
+                                             "to keep identical to it."))
+        add = Gtk.Button(label=_("Add Folder"), halign=Gtk.Align.CENTER, css_classes=["suggested-action", "pill"])
+        add.connect("clicked", lambda *_: self.add_folder())
+        empty.set_child(add)
+        self.stack.add_named(empty, "empty")
+        self.list_page = Adw.PreferencesPage()
+        self.stack.add_named(self.list_page, "list")
+        view.set_content(self.stack)
+        return Adw.NavigationPage(title=APP_NAME, tag="folders", child=view)
+
+    def add_folder(self) -> None:
+        from .add_folder import AddFolderDialog
+        AddFolderDialog(self).present(self)
+
+    def _rebuild_rows(self) -> None:
+        for group in self.groups:
+            self.list_page.remove(group)
+        self.groups.clear()
+        self.rows.clear()
+        for parent, members in group_pairs(self.engine.cfg.pairs):
+            group = Adw.PreferencesGroup(title=escape(place_name(parent)))
+            for pair_id, title in members:
+                row = PairRow(self, pair_id, title)
+                self.rows[pair_id] = row
+                group.add(row)
+                row.update()
+            self.list_page.add(group)
+            self.groups.append(group)
+        page = self.nav.get_visible_page()
+        if isinstance(page, PairPage) and self.engine.cfg.pair(page.pair_id) is None:
+            self.nav.pop_to_tag("folders")
+        self.show_page()
+
+    def _update_row(self, pair_id: str) -> None:
+        row = self.rows.get(pair_id)
+        if row:
+            row.update()
+        self._update_banner()
+
+    def _update_banner(self) -> None:
+        """The folders that wait for the user, so a closed branch of the list
+        never hides one: the most serious one is opened by Review."""
+        waiting = sorted((self.engine.runtime[p.id].status, p.name, p.id) for p in self.engine.cfg.pairs
+                         if p.id in self.engine.runtime and self.engine.runtime[p.id].status in NEEDS_LOOK)
+        if not waiting or self.engine.creds is None:
+            self._banner_pair = ""
+            self.banner.set_revealed(False)
+            return
+        status, name, pair_id = waiting[0]
+        self._banner_pair = pair_id
+        if len(waiting) == 1:
+            title = {
+                Status.NEEDS_REPAIR: _("“{name}” needs a repair"),
+                Status.NEEDS_CONFIRMATION: _("“{name}” is waiting for your confirmation"),
+                Status.NEEDS_SETUP: _("“{name}” is waiting for its first alignment"),
+                Status.CONFLICTS: _("Conflicts in “{name}”"),
+            }[status].format(name=name)
+        else:
+            title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
+                             len(waiting)).format(n=len(waiting))
+        self.banner.set_title(escape(title))
+        self.banner.set_revealed(True)
+
+    def show_pair(self, pair_id: str) -> None:
+        page = self.nav.get_visible_page()
+        if isinstance(page, PairPage) and page.pair_id == pair_id:
+            return
+        self.nav.pop_to_tag("folders")
+        if self.engine.cfg.pair(pair_id):
+            self.nav.push(PairPage(self, pair_id))
 
     # -- sign in ---------------------------------------------------------------
 
@@ -192,7 +230,7 @@ class MainWindow(Adw.ApplicationWindow):
         clamp = Adw.Clamp(maximum_size=420)
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
         group = Adw.PreferencesGroup()
-        self.email = Adw.EntryRow(title=_("E-mail"))
+        self.email = Adw.EntryRow(title=_("E-mail"), text=self.engine.cfg.user or "")
         self.password = Adw.PasswordEntryRow(title=_("App password"))
         self.password.connect("entry-activated", lambda *_: self._sign_in())
         group.add(self.email)
@@ -220,26 +258,25 @@ class MainWindow(Adw.ApplicationWindow):
 
         def work():
             creds = account.Credentials.from_password(user, password, self.engine.rclone)
-            quota = account.check(self.engine.rclone, self.engine.paths, creds)
+            account.check(self.engine.rclone, self.engine.paths, creds)
             secrets.store(user, password)
             try:
                 mount_id = koofr_api.primary_mount_id(user, password)
             except koofr_api.ApiError:
                 mount_id = ""      # the activity poll fetches it later
-            return creds, quota, mount_id
+            return creds, mount_id
 
         def done(result, error):
             self.login_button.set_sensitive(True)
             if error:
                 self._login_failed(str(error))
                 return
-            creds, quota, mount_id = result
+            creds, mount_id = result
             self.password.set_text("")
             self.engine.cfg.user = creds.user
             self.engine.cfg.mount_id = mount_id or self.engine.cfg.mount_id
             self.engine.save_config()
             self.engine.set_credentials(creds)
-            self._show_quota(quota)
             self.show_page()
 
         run_in_thread(work, done)
@@ -248,7 +285,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.login_error.set_label(message)
         self.login_error.set_visible(True)
 
-    def _sign_out(self) -> None:
+    def sign_out(self, parent: Gtk.Widget, done=None) -> None:
         user = self.engine.cfg.user
         dialog = Adw.AlertDialog(
             heading=_("Sign out?"),
@@ -269,69 +306,21 @@ class MainWindow(Adw.ApplicationWindow):
             self.engine.set_paused_all(False)
             self.email.set_text(user)
             self.show_page()
+            if done:
+                done()
 
         dialog.connect("response", on_response)
-        dialog.present(self)
-
-    # -- main page ---------------------------------------------------------------
-
-    def _main_page(self) -> Gtk.Widget:
-        page = Adw.PreferencesPage()
-        self.pairs_group = Adw.PreferencesGroup(title=_("Folders"))
-        add = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=_("Add Folder"), css_classes=["flat"])
-        add.connect("clicked", lambda *_: AddPairDialog(self).present(self))
-        self.pairs_group.set_header_suffix(add)
-        self.empty_row = Adw.ActionRow(title=_("No folders yet"),
-                                       subtitle=_("Add a folder to keep it in sync with Koofr."))
-        page.add(self.pairs_group)
-
-        group = Adw.PreferencesGroup(title=_("Account"))
-        self.account_row = Adw.ActionRow(title="", subtitle="")
-        sign_out = Gtk.Button(label=_("Sign Out"), valign=Gtk.Align.CENTER)
-        sign_out.connect("clicked", lambda *_: self._sign_out())
-        self.account_row.add_suffix(sign_out)
-        group.add(self.account_row)
-        page.add(group)
-        return page
-
-    def _refresh_quota(self) -> None:
-        creds = self.engine.creds
-        if creds is None or self.engine.rclone is None or self.engine.dev_remote:
-            return
-        run_in_thread(lambda: account.check(self.engine.rclone, self.engine.paths, creds),
-                      lambda quota, error: self._show_quota(quota) if quota else None)
-
-    def _show_quota(self, quota) -> None:
-        if quota and quota.total:
-            self.account_row.set_subtitle(_("{used} used of {total}").format(
-                used=GLib.format_size(quota.used or 0), total=GLib.format_size(quota.total)))
-
-    def _rebuild_rows(self) -> None:
-        for row in list(self.rows.values()) + [self.empty_row]:
-            if row.get_parent() is not None:
-                self.pairs_group.remove(row)
-        self.rows.clear()
-        for pair in self.engine.cfg.pairs:
-            row = PairRow(self, pair.id)
-            self.rows[pair.id] = row
-            self.pairs_group.add(row)
-            row.update()
-        if not self.engine.cfg.pairs:
-            self.pairs_group.add(self.empty_row)
-
-    def _update_row(self, pair_id: str) -> None:
-        row = self.rows.get(pair_id)
-        if row:
-            row.update()
+        dialog.present(parent)
 
     # -- previews and confirmations ----------------------------------------------------
 
     def review(self, pair_id: str) -> None:
         """Whatever the pair needs a look at: a preview to confirm, the
-        conflicts, the files left out."""
+        conflicts, the files left out; on top of the pair's page."""
         rt = self.engine.runtime.get(pair_id)
         if rt is None:
             return
+        self.show_pair(pair_id)
         if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             self.open_preview(pair_id)
         elif rt.conflicts:
@@ -362,120 +351,171 @@ class MainWindow(Adw.ApplicationWindow):
 
 
 class PairRow(Adw.ActionRow):
-    def __init__(self, window: MainWindow, pair_id: str):
-        super().__init__()
-        self.window, self.engine, self.pair_id = window, window.engine, pair_id
-        self.icon = Gtk.Image(pixel_size=16)
-        self.add_prefix(self.icon)
-        self.progress = Gtk.ProgressBar(valign=Gtk.Align.CENTER, width_request=110, visible=False)
-        self.add_suffix(self.progress)
-        self.action_button = Gtk.Button(valign=Gtk.Align.CENTER)
-        self.action_button.connect("clicked", lambda *_: self._primary())
-        self.add_suffix(self.action_button)
-        self.menu_button = Gtk.MenuButton(icon_name="view-more-symbolic", valign=Gtk.Align.CENTER,
-                                          css_classes=["flat"], tooltip_text=_("More"))
-        self.add_suffix(self.menu_button)
-        self.set_subtitle_lines(3)
+    """One synced folder in the list: its status icon, its name relative to
+    the group, one line of status; the page of the folder opens on click."""
 
-        group = Gio.SimpleActionGroup()
-        for name, handler in (("sync", self._sync_now), ("pause", self._toggle_pause),
-                              ("preview", self._preview), ("open", self._open_local),
-                              ("open-web", self._open_web), ("remove", self._remove),
-                              ("conflicts", lambda: ConflictsDialog(self.window, self.pair_id).present(self.window)),
-                              ("left-out", lambda: LeftOutDialog(self.window, self.pair_id).present(self.window)),
-                              ("exclusions", lambda: ExclusionsDialog(self.window, self.pair_id).present(self.window)),
-                              ("stop", lambda: self.engine.stop(self.pair_id))):
-            action = Gio.SimpleAction.new(name, None)
-            action.connect("activate", lambda _a, _p, h=handler: h())
-            group.add_action(action)
-        self.insert_action_group("pair", group)
-        self.actions = group
-        self.connect("activated", lambda *_: self.window.review(self.pair_id))
+    def __init__(self, window: MainWindow, pair_id: str, title: str):
+        super().__init__(title=escape(title), activatable=True, title_lines=1, subtitle_lines=1)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        self.icon = StatusIcon()
+        self.add_prefix(self.icon)
+        self.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+        self.connect("activated", lambda *_: self.window.show_pair(self.pair_id))
 
     def update(self) -> None:
         pair = self.engine.cfg.pair(self.pair_id)
         rt = self.engine.runtime.get(self.pair_id)
         if pair is None or rt is None:
             return
-        self.set_title(GLib.markup_escape_text(pair.name))
-        lines = [GLib.markup_escape_text(f"{display_path(pair.local)}  ⇄  Koofr {pair.remote}")]
-        state = status_text(rt.status)
-        syncing = rt.status is Status.SYNCING and not (rt.task and rt.task.dry_run)
-        self.progress.set_visible(syncing)
-        if rt.status is Status.SYNCING:
-            if syncing:
-                detail, fraction = progress_text(rt.stats)
-                if fraction is None:
-                    self.progress.pulse()
-                else:
-                    self.progress.set_fraction(fraction)
-            else:
-                detail = rt.message
-            state = f"{state}: {detail}" if detail else state
-        elif rt.status is Status.CONFLICTS:
-            n = len(self.engine.conflicts(self.pair_id))       # conflicts, not copies
-            state += " (" + ngettext("{n} file", "{n} files", n).format(n=n) + ")"
-        elif rt.status is Status.SKIPPED:
-            names = ", ".join(r.path for r in rt.refused[:2]) + (" \u2026" if len(rt.refused) > 2 else "")
-            state += f": {names}"
-        elif rt.message and rt.status is not Status.OK and rt.message != state:
-            state = f"{state}: {rt.message}"
-        elif rt.status is Status.OK and rt.last_sync:
-            state += " · " + _("last sync at {time}").format(
-                time=GLib.DateTime.new_from_unix_local(int(rt.last_sync)).format("%H:%M"))
-            summary = describe(rt.last_outcome.plan) if rt.last_outcome and rt.last_outcome.result is Result.OK else ""
-            if summary:
-                state += f": {summary}"
-        lines.append(GLib.markup_escape_text(state))
-        self.set_subtitle("\n".join(lines))
-        self.icon.set_from_icon_name(status_icon(rt.status))
+        line = status_line(self.engine, self.pair_id)
+        if pair.remote != expected_remote(pair.local, str(os.path.expanduser("~"))):
+            line += " · " + _("Koofr {path}").format(path=pair.remote)
+        self.set_subtitle(escape(line))
+        self.set_tooltip_text(line)
+        self.icon.show(rt.status)
 
-        attention = rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED)
-        self.set_activatable(attention or rt.status is Status.NEEDS_SETUP)
+
+class PairPage(Adw.NavigationPage):
+    """Everything about one synced folder: its status and the action it
+    needs, where the two sides are, pause, the reviews, removal."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        pair = window.engine.cfg.pair(pair_id)
+        super().__init__(title=pair.name)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(title=pair.name, subtitle=place_name(os.path.dirname(pair.local))))
+        view.add_top_bar(header)
+        page = Adw.PreferencesPage()
+
+        group = Adw.PreferencesGroup()
+        self.status_row = Adw.ActionRow(subtitle_lines=0)
+        self.icon = StatusIcon()
+        self.status_row.add_prefix(self.icon)
+        self.action_button = Gtk.Button(valign=Gtk.Align.CENTER)
+        self.action_button.connect("clicked", lambda *_: self._primary())
+        self.status_row.add_suffix(self.action_button)
+        group.add(self.status_row)
+        self.progress = Gtk.ProgressBar(margin_top=14, margin_bottom=14, margin_start=12, margin_end=12)
+        self.progress_row = Adw.PreferencesRow(child=self.progress, activatable=False, focusable=False)
+        group.add(self.progress_row)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=_("Location"))
+        here = Adw.ActionRow(title=_("This Computer"), subtitle=escape(display_path(pair.local)), activatable=True,
+                             tooltip_text=_("Open Folder"))
+        here.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+        here.connect("activated", lambda *_: self._open_local())
+        group.add(here)
+        koofr = Adw.ActionRow(title=_("Koofr"), subtitle=escape(pair.remote), activatable=True,
+                              tooltip_text=_("Open on Koofr"))
+        koofr.add_suffix(Gtk.Image(icon_name="adw-external-link-symbolic"))
+        koofr.connect("activated", lambda *_: self._open_web())
+        group.add(koofr)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=pgettext("settings group", "Syncing"))
+        self.keep = Adw.SwitchRow(title=_("Keep in Sync"),
+                                  subtitle=_("When off, nothing is copied either way until you turn it on"))
+        self.keep.connect("notify::active", lambda r, _p: self.engine.set_paused(self.pair_id, not r.get_active()))
+        group.add(self.keep)
+        self.conflicts_row = self._link_row(group, _("Conflicts"),
+                                            lambda: ConflictsDialog(self.window, self.pair_id).present(self.window))
+        self.left_out_row = self._link_row(group, _("Files Not Synced"),
+                                           lambda: LeftOutDialog(self.window, self.pair_id).present(self.window))
+        self.preview_row = self._link_row(group, _("Preview Next Sync"), self._preview,
+                                          _("What the next sync would do, without changing anything"))
+        self.exclusions_row = self._link_row(group, _("Exclusions"),
+                                             lambda: ExclusionsDialog(self.window, self.pair_id).present(self.window))
+        page.add(group)
+
+        group = Adw.PreferencesGroup()
+        remove = Adw.ButtonRow(title=_("Stop Syncing This Folder…"))
+        remove.add_css_class("destructive-action")      # (css_classes= would drop the row's own classes)
+        remove.connect("activated", lambda *_: self._remove())
+        group.add(remove)
+        page.add(group)
+
+        view.set_content(page)
+        self.set_child(view)
+        self._handlers = [
+            self.engine.connect("pair-changed", lambda _e, pid: self.update() if pid == pair_id else None),
+            self.engine.connect("status-changed", lambda _e: self.update())]
+        self.update()
+
+    def detach(self) -> None:
+        """Popped off the view, the page is gone for good: stop following the engine."""
+        for handler in self._handlers:
+            self.engine.disconnect(handler)
+        self._handlers = []
+
+    @staticmethod
+    def _link_row(group, title: str, action, subtitle: str = "") -> Adw.ActionRow:
+        row = Adw.ActionRow(title=title, subtitle=escape(subtitle), activatable=True)
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+        row.connect("activated", lambda *_: action())
+        group.add(row)
+        return row
+
+    def update(self) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        rt = self.engine.runtime.get(self.pair_id)
+        if pair is None or rt is None:
+            return
+        self.status_row.set_title(escape(status_text(rt.status)))
+        self.status_row.set_subtitle(escape(status_detail(self.engine, self.pair_id, short=False)))
+        self.icon.show(rt.status)
+        syncing = syncing_for_real(self.engine, self.pair_id)
+        self.progress_row.set_visible(syncing)
+        if syncing:
+            fraction = progress_text(rt.stats)[1]
+            if fraction is None:
+                self.progress.pulse()
+            else:
+                self.progress.set_fraction(fraction)
+
+        signed_in = self.engine.creds is not None
         if rt.status is Status.NEEDS_SETUP:
-            label, css = _("Align…"), ["suggested-action"]
-        elif attention:
-            label, css = _("Review…"), ["suggested-action"]
+            label, css, sensitive = _("Align…"), ["suggested-action"], signed_in
+        elif rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED):
+            label, css, sensitive = _("Review…"), ["suggested-action"], True
         elif rt.status is Status.SYNCING:
-            label, css = _("Stop"), []
+            label, css, sensitive = _("Stop"), [], True
         else:
-            label, css = _("Sync Now"), []
+            label, css, sensitive = _("Sync Now"), [], signed_in and not pair.paused and not self.engine.cfg.paused_all
         self.action_button.set_label(label)
         self.action_button.set_css_classes(css)
-        self.action_button.set_sensitive(self.engine.creds is not None)
+        self.action_button.set_sensitive(sensitive)
 
-        menu = Gio.Menu()
-        if rt.conflicts:
-            menu.append(_("Conflicts…"), "pair.conflicts")
-        if rt.refused:
-            menu.append(_("Files Not Synced…"), "pair.left-out")
-        menu.append(_("Resume") if pair.paused else _("Pause"), "pair.pause")
-        if pair.initialized:
-            menu.append(_("Preview Next Sync…"), "pair.preview")
-        menu.append(_("Exclusions…"), "pair.exclusions")
-        menu.append(_("Open Folder"), "pair.open")
-        menu.append(_("Open on Koofr"), "pair.open-web")
-        section = Gio.Menu()
-        section.append(_("Remove…"), "pair.remove")
-        menu.append_section(None, section)
-        self.menu_button.set_menu_model(menu)
+        if self.keep.get_active() == pair.paused:
+            self.keep.set_active(not pair.paused)
+        n = len(self.engine.conflicts(self.pair_id)) if rt.conflicts else 0
+        self.conflicts_row.set_visible(n > 0)
+        self.conflicts_row.set_subtitle(escape(ngettext("{n} file changed on both sides",
+                                                        "{n} files changed on both sides", n).format(n=n)))
+        self.left_out_row.set_visible(bool(rt.refused))
+        self.left_out_row.set_subtitle(escape(ngettext("{n} name Koofr does not accept",
+                                                       "{n} names Koofr does not accept",
+                                                       len(rt.refused)).format(n=len(rt.refused))))
+        self.preview_row.set_visible(pair.initialized)
+        self.preview_row.set_sensitive(rt.status is not Status.SYNCING and signed_in)
+        patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")]
+        self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
+                                                .format(n=len(patterns))))
 
     def _primary(self) -> None:
-        rt = self.engine.runtime[self.pair_id]
+        rt = self.engine.runtime.get(self.pair_id)
+        if rt is None:
+            return
         if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION,
                          Status.CONFLICTS, Status.SKIPPED):
             self.window.review(self.pair_id)
         elif rt.status is Status.SYNCING:
             self.engine.stop(self.pair_id)
         else:
-            self._sync_now()
-
-    def _sync_now(self) -> None:
-        self.engine.request_sync(self.pair_id, "manual")
-
-    def _toggle_pause(self) -> None:
-        pair = self.engine.cfg.pair(self.pair_id)
-        self.engine.set_paused(self.pair_id, not pair.paused)
+            self.engine.request_sync(self.pair_id, "manual")
 
     def _preview(self) -> None:
         PreviewDialog(self.window, self.pair_id, Mode.SYNC, False, _("Preview"),
@@ -536,11 +576,11 @@ class ConflictsDialog(Adw.Dialog):
                                 activatable=True, tooltip_text=_("Show in the file manager"))
             parts = []
             if conflict.local:
-                parts.append(_("this computer: {details}").format(details=file_details(conflict.local)))
+                parts.append(_("This computer: {details}").format(details=file_details(conflict.local)))
             if conflict.koofr:
                 parts.append(_("Koofr: {details}").format(details=file_details(conflict.koofr)))
-            row.set_subtitle(GLib.markup_escape_text(" \u00b7 ".join(parts)))
-            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic"))
+            row.set_subtitle(GLib.markup_escape_text("\n".join(parts)))
+            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
             first = conflict.copies[0]
             row.connect("activated", lambda _r, c=first: reveal(self.window, os.path.join(pair.local, c.path)))
             group = Gio.SimpleActionGroup()
@@ -638,7 +678,18 @@ class PreferencesDialog(Adw.PreferencesDialog):
         cfg = self.engine.cfg
         page = Adw.PreferencesPage()
 
-        group = Adw.PreferencesGroup(title=_("Syncing"))
+        group = Adw.PreferencesGroup(title=_("Account"))
+        signed_in = self.engine.creds is not None
+        self.account_row = Adw.ActionRow(title=escape(self.engine.creds.user if signed_in else _("Not signed in")))
+        if signed_in:
+            sign_out = Gtk.Button(label=_("Sign Out"), valign=Gtk.Align.CENTER)
+            sign_out.connect("clicked", lambda *_: window.sign_out(self, done=self.close))
+            self.account_row.add_suffix(sign_out)
+            self._refresh_quota()
+        group.add(self.account_row)
+        page.add(group)
+
+        group = Adw.PreferencesGroup(title=pgettext("settings group", "Syncing"))
         metered = Adw.SwitchRow(title=_("Pause on metered connections"), active=cfg.pause_on_metered)
         metered.connect("notify::active", lambda r, _p: self._set("pause_on_metered", r.get_active(), conditions=True))
         group.add(metered)
@@ -647,7 +698,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(saver)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Speed limits"), description=_("In KB/s; 0 means no limit. Applied from the next sync."))
+        group = Adw.PreferencesGroup(title=_("Speed Limits"), description=_("In KB/s; 0 means no limit. Applied from the next sync."))
         for name, title in (("upload_limit_kb", _("Upload to Koofr")), ("download_limit_kb", _("Download from Koofr"))):
             row = Adw.SpinRow.new_with_range(0, 1_000_000, 100)
             row.set_title(title)
@@ -696,6 +747,17 @@ class PreferencesDialog(Adw.PreferencesDialog):
         page.add(group)
         self.add(page)
 
+    def _refresh_quota(self) -> None:
+        creds = self.engine.creds
+        if creds is None or self.engine.rclone is None or self.engine.dev_remote:
+            return
+
+        def done(quota, _error):
+            if quota and quota.total:
+                self.account_row.set_subtitle(_("{used} used of {total}").format(
+                    used=GLib.format_size(quota.used or 0), total=GLib.format_size(quota.total)))
+        run_in_thread(lambda: account.check(self.engine.rclone, self.engine.paths, creds), done)
+
     def _set(self, name: str, value, conditions: bool = False) -> None:
         setattr(self.engine.cfg, name, value)
         self.engine.save_config()
@@ -719,110 +781,6 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self._set("autostart", enabled)
         app = getattr(self.engine, "app", None)
         autostart.apply(enabled, app.get_dbus_connection() if app else None)
-
-
-class AddPairDialog(Adw.Dialog):
-    def __init__(self, window: MainWindow):
-        super().__init__(title=_("Add Folder"), content_width=520)
-        self.window, self.engine = window, window.engine
-        self.local: str | None = None
-        view = Adw.ToolbarView()
-        header = Adw.HeaderBar(show_end_title_buttons=False, show_start_title_buttons=False)
-        cancel = Gtk.Button(label=_("Cancel"))
-        cancel.connect("clicked", lambda *_: self.close())
-        header.pack_start(cancel)
-        self.add_button = Gtk.Button(label=_("Add"), css_classes=["suggested-action"], sensitive=False)
-        self.add_button.connect("clicked", lambda *_: self._check_and_add())
-        header.pack_end(self.add_button)
-        view.add_top_bar(header)
-
-        page = Adw.PreferencesPage()
-        group = Adw.PreferencesGroup(description=_(
-            "The two folders are kept identical in both directions. Choose a Koofr folder that is empty "
-            "or that already holds the same files: the first alignment is shown before anything happens."))
-        self.local_row = Adw.ActionRow(title=_("Folder on this computer"), subtitle=_("None chosen"))
-        choose = Gtk.Button(label=_("Choose…"), valign=Gtk.Align.CENTER)
-        choose.connect("clicked", lambda *_: self._choose())
-        self.local_row.add_suffix(choose)
-        group.add(self.local_row)
-        self.remote_row = Adw.EntryRow(title=_("Folder on Koofr"))
-        self.remote_row.connect("changed", lambda *_: self._validate())
-        group.add(self.remote_row)
-        page.add(group)
-        self.problems = Adw.PreferencesGroup(title=_("Cannot add this folder"), visible=False)
-        page.add(self.problems)
-        self.problem_rows: list[Gtk.Widget] = []
-        view.set_content(page)
-        self.set_child(view)
-
-    def _choose(self) -> None:
-        dialog = Gtk.FileDialog(title=_("Choose a Folder"), modal=True)
-
-        def done(d, result):
-            try:
-                folder = d.select_folder_finish(result)
-            except GLib.Error:
-                return
-            path = folder.get_path() if folder else None
-            if not path:
-                return
-            self.local = path
-            self.local_row.set_subtitle(GLib.markup_escape_text(path))
-            if not self.remote_row.get_text():
-                self.remote_row.set_text("/" + Path(path).name)
-            self._validate()
-
-        dialog.select_folder(self.window, None, done)
-
-    def _validate(self) -> None:
-        self.add_button.set_sensitive(bool(self.local and self.remote_row.get_text().strip()))
-
-    def _show_problems(self, problems) -> None:
-        for row in self.problem_rows:
-            self.problems.remove(row)
-        self.problem_rows = []
-        for p in problems[:12]:
-            row = Adw.ActionRow(title=GLib.markup_escape_text(p.message),
-                                subtitle=GLib.markup_escape_text(p.path), subtitle_lines=2, title_lines=3)
-            self.problems.add(row)
-            self.problem_rows.append(row)
-        if len(problems) > 12:
-            row = Adw.ActionRow(title=_("…and {n} more").format(n=len(problems) - 12))
-            self.problems.add(row)
-            self.problem_rows.append(row)
-        self.problems.set_visible(bool(problems))
-
-    def _check_and_add(self) -> None:
-        local = self.local
-        try:
-            remote = normalize_remote(self.remote_row.get_text())
-        except ValueError as e:
-            self._show_problems([preflight.Problem("remote", str(e), self.remote_row.get_text())])
-            return
-        problems = (preflight.check_local_root(local)
-                    + preflight.check_overlap(local, remote, self.engine.cfg)
-                    + preflight.check_koofr_desktop(local, Path.home() / ".koofr" / "config.json"))
-        if remote == "/":
-            problems.append(preflight.Problem("remote-root", _("Choose a folder on Koofr, not the whole Koofr storage."), "/"))
-        if problems:
-            self._show_problems(problems)
-            return
-        self.add_button.set_sensitive(False)
-        self.add_button.set_label(_("Checking names…"))
-        def done(found, error):
-            self.add_button.set_label(_("Add"))
-            self._validate()
-            if error:
-                self._show_problems([preflight.Problem("scan", str(error), local)])
-                return
-            if found:
-                self._show_problems(found)
-                return
-            pair = self.engine.add_pair(local, remote)
-            self.close()
-            self.window.open_preview(pair.id)
-
-        run_in_thread(lambda: preflight.scan_names(local, remote, skip=default_excluded), done)
 
 
 class PreviewDialog(Adw.Dialog):

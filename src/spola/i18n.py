@@ -66,5 +66,11 @@ def _(message: str) -> str:
     return _translation.gettext(message)
 
 
+def pgettext(context: str, message: str) -> str:
+    """For a word that translates differently in another place ("Syncing"
+    as a state, "Syncing" as the title of a group of settings)."""
+    return _translation.pgettext(context, message)
+
+
 def ngettext(singular: str, plural: str, n: int) -> str:
     return _translation.ngettext(singular, plural, n)

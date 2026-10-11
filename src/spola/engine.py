@@ -28,6 +28,7 @@ from gi.repository import Gio, GLib, GObject
 from . import config as config_mod
 from . import conflicts as conflicts_mod
 from . import jobs, koofr_api, listings
+from .recent import Recent
 from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, every_translation, ngettext
@@ -150,6 +151,7 @@ class Engine(GObject.Object):
         self._activity_seen: set[str] = set()
         self._activity_busy = False
         self.runtime: dict[str, PairRuntime] = {p.id: PairRuntime() for p in cfg.pairs}
+        self.recent = Recent(paths.state / "recent.json")
         self.queue: list[Task] = []
         self.active: Task | None = None
         self._poll_source = 0
@@ -269,6 +271,7 @@ class Engine(GObject.Object):
                     GLib.source_remove(source)
         self.cfg.pairs.remove(pair)
         self.save_config()
+        self.recent.forget_pair(pair_id)
         self.emit("pairs-changed")
 
     def set_paused(self, pair_id: str, paused: bool) -> None:
@@ -337,9 +340,13 @@ class Engine(GObject.Object):
     def _idle_status(self, pair: Pair, rt: PairRuntime) -> Status:
         if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION) and rt.run is None:
             return rt.status
+        if pair.paused:
+            # the user's own pause comes first: a pair put on hold before its
+            # first alignment waits quietly, and asks for it once resumed
+            return Status.PAUSED
         if not pair.initialized:
             return Status.NEEDS_SETUP
-        if pair.paused or self.blocked_reason():
+        if self.blocked_reason():
             return Status.PAUSED
         if rt.status is Status.ERROR and rt.retry_source:
             return Status.ERROR
@@ -364,7 +371,12 @@ class Engine(GObject.Object):
         self.emit("pair-changed", pair.id)
 
     def overall(self) -> Status:
-        statuses = [rt.status for pid, rt in self.runtime.items() if self.cfg.pair(pid)]
+        """The most serious status. A pair the user put on hold does not make
+        the tray say "Paused" while the others sync: it counts only when
+        every pair is paused."""
+        pairs = [p for p in self.cfg.pairs if p.id in self.runtime]
+        statuses = [self.runtime[p.id].status for p in pairs if not p.paused] \
+            or [self.runtime[p.id].status for p in pairs]
         return min(statuses) if statuses else Status.OK
 
     # -- requests ----------------------------------------------------------------
@@ -610,6 +622,8 @@ class Engine(GObject.Object):
                 # right away, with nothing to do, writes it.
                 self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
             rt.status = Status.OK
+            self.recent.record(pair.id, pair.local, outcome.plan.upload,
+                               outcome.plan.download + outcome.plan.replace_local)
             listed = self._update_conflicts(pair, rt)
             foreign = self._follow_up(pair, rt, outcome)
             touched = set(outcome.plan.upload) | set(outcome.plan.download) | set(outcome.plan.delete_local) \
