@@ -250,6 +250,7 @@ class Refused:
     path: str        # relative to the pair's root
     is_dir: bool
     code: str        # "emoji", "long-path", "case-collision"
+    other: str = ""  # case-collision: the name synced in its place
 
 
 def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = frozenset(),
@@ -284,14 +285,16 @@ def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = fro
             kept = next((m for m in members if os.path.join(rel_dir, m[0]) in known), members[0])
             for name, is_dir in members:
                 if (name, is_dir) != kept:
-                    refused.append(Refused(os.path.join(rel_dir, name), is_dir, "case-collision"))
+                    refused.append(Refused(os.path.join(rel_dir, name), is_dir, "case-collision", kept[0]))
                 elif is_dir:
                     keep_dirs.append(name)
         dirnames[:] = [d for d in dirnames if d in keep_dirs]
     return refused
 
 
-def refused_reason(code: str) -> str:
+def refused_reason(code: str, other: str = "") -> str:
+    if code == "case-collision" and other:
+        return _("Koofr does not tell upper and lower case apart: “{other}” is synced in its place.").format(other=other)
     return {
         "emoji": _("Koofr does not accept emoji and similar characters in names."),
         "long-path": _("The path is longer than the 1023 characters Koofr accepts."),

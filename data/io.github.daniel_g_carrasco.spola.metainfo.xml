@@ -29,6 +29,8 @@
       <li xml:lang="it">File cambiati da entrambe le parti: restano entrambe le versioni</li>
       <li>Replaced and deleted files are kept in a local backup for 30 days</li>
       <li xml:lang="it">I file sostituiti ed eliminati restano in un backup locale per 30 giorni</li>
+      <li>Add a folder by browsing your Koofr folders, with suggestions</li>
+      <li xml:lang="it">Aggiungi una cartella sfogliando quelle su Koofr, con dei suggerimenti</li>
       <li>Status icon in the tray, notifications only when something needs you</li>
       <li xml:lang="it">Icona di stato nel tray, notifiche solo quando serve</li>
     </ul>
@@ -63,33 +65,48 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>Folder pairs with their status</caption>
-      <caption xml:lang="it">Le coppie di cartelle con il loro stato</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/main-window.png</image>
+      <caption>Your folders, grouped by where they are, and what is going on at the top</caption>
+      <caption xml:lang="it">Le tue cartelle, raggruppate per dove si trovano, e in cima cosa sta succedendo</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/main-window.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>A folder's page: status, both locations, pause, exclusions</caption>
+      <caption xml:lang="it">La pagina di una cartella: stato, le due posizioni, pausa, esclusioni</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/folder.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Adding a folder: the matching Koofr folder is suggested</caption>
+      <caption xml:lang="it">Aggiungere una cartella: la cartella di Koofr corrispondente viene suggerita</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/add-folder.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Browsing the folders on Koofr</caption>
+      <caption xml:lang="it">Sfogliare le cartelle su Koofr</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/koofr-folders.png</image>
     </screenshot>
     <screenshot>
       <caption>Conflicts: both versions, a choice for each</caption>
       <caption xml:lang="it">I conflitti: entrambe le versioni, una scelta per ciascuno</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/conflicts.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/conflicts.png</image>
     </screenshot>
     <screenshot>
       <caption>Sync status of the folders in Files</caption>
       <caption xml:lang="it">Lo stato delle cartelle in File</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/files-folders.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/files-folders.png</image>
     </screenshot>
     <screenshot>
       <caption>Sync status of every file in Files</caption>
       <caption xml:lang="it">Lo stato di ogni file in File</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/files-emblems.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>Preferences</caption>
-      <caption xml:lang="it">Le preferenze</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.1.1/data/screenshots/preferences.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/files-emblems.png</image>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.2.0" date="2026-10-11" type="development">
+      <description>
+        <p>A new window, after the GNOME guidelines: the folders grouped by where they are, the overall status at the top, a page for each folder. Adding a folder suggests the matching folder on Koofr and lets you browse your Koofr folders or create one. The tray icon stays quiet when everything is up to date, turns blue while syncing, orange or red when something needs you, and its menu lists the files being transferred and the last ones synced. Fixed: Files showed no emblems after Spola restarted, and the Flatpak installed the Files extension where Files does not look.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-10-11" type="development">
       <description>
         <p>The site and the repository page in English, sharper screenshots including Files, and a few fixes: a hidden marker file now tells a synced folder from an empty one in its place (ext4 reuses inode numbers), and the progress line says "1 file" instead of "1 files".</p>

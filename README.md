@@ -17,7 +17,7 @@ Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) id
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
 <p align="center">
-  <img src="data/screenshots/main-window.png" alt="Spola's window: three folder pairs, one up to date, one with a conflict, one syncing" width="600">
+  <img src="data/screenshots/main-window.png" alt="Spola's window: the overall status at the top, then the folders grouped by where they are, one of them syncing" width="480">
 </p>
 
 The design document (in Italian) is [docs/progetto.md](docs/progetto.md). Spola is not affiliated with Koofr.
@@ -42,15 +42,25 @@ Spola never writes its own sync engine: rclone bisync does the work, and Spola p
 
 - **Preview before every big step.** The first alignment of a folder, a repair, and any run that stopped on a safety check are shown as a list of what would happen, and run only after you confirm.
 - **No surprise deletions.** A run that would delete more than 10% of a side stops and waits (small folders may lose up to 5 files). Files deleted or replaced on this computer go to a local backup, kept 30 days.
-- **Conflicts keep both versions** (`report.conflict1.odt`, `report.conflict2.odt`).
-- **Unmounted drive, replaced folder:** the local folder must still be the one that was paired (same device and inode), otherwise the pair stops before rclone runs.
+- **Conflicts keep both versions**, with readable names (`report.conflict-local-2026-10-10-1.odt`, `report.conflict-koofr-2026-10-10-1.odt`).
+- **Unmounted drive, replaced folder:** the local folder must still be the one that was paired (a hidden `.spola-root` marker, or the same device and inode with known files in it), otherwise the pair stops before rclone runs.
 - **Folders that must never be synced** (the home folder itself, `~/.config`, `~/.var`, `~/.ssh`, system folders) are refused, and so is a folder that Koofr Desktop is still syncing.
 - **Names Koofr refuses** (emoji, names that differ only in upper/lower case) are found before the first run.
 - **The password stays in the keyring**, and reaches rclone only through the environment of the child process, never on a command line.
 
 ## In the window
 
-Each folder pair is one row: its status, what the last sync did, a progress bar while it runs. A pair that needs you (a preview to confirm, conflicts, files Koofr refuses) says so and opens the right view with one click, as does its notification. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names; the discarded one goes to the wastebasket. Each pair has its own exclusions (rclone filter syntax, seeded with sensible defaults). Preferences: pause on metered networks and in power saver mode, start at login, backup retention, language of the conflict copies' names.
+At the top, the state of everything: up to date, syncing (with the folder and its progress), paused, or the folders waiting for you, with a Review button. Below, the folders grouped by the folder they live in (`~/data`, `~/data/media`...), one row each with its status; the Koofr path is shown only when it is not the same as the one in your home folder. Each folder has its own page: its status and the action it needs, where it is on both sides, Keep in Sync, a preview of the next sync, its exclusions (rclone filter syntax, seeded with sensible defaults), conflicts and files Koofr refuses, and removal. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names; the discarded one goes to the wastebasket.
+
+Adding a folder: choose it on this computer, then the folder on Koofr. Spola suggests the one in the same place (`~/data/work` and `/data/work`) or with the same name, and lets you browse your Koofr folders one level at a time, or make a new one; folders already synced cannot be chosen. The first alignment is shown as a preview before anything is copied.
+
+The tray icon stays in the panel's colour while everything is up to date or paused, turns blue while syncing, orange when something needs you and red on errors. Its menu lists the files being transferred and the five last synced: a click shows the file in Files.
+
+Preferences: account, pause on metered networks and in power saver mode, speed limits, start at login, the Files integration, backup retention, language of the conflict copies' names.
+
+<p align="center">
+  <img src="data/screenshots/add-folder.png" alt="Adding a folder: the folder on this computer, then the Koofr folder among suggestions or by browsing" width="480">
+</p>
 
 ## In Files (Nautilus)
 
