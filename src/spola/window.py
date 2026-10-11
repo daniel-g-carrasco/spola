@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
-from . import account, autostart, conflicts, jobs, koofr_api, nautilus_integration, preflight, secrets  # noqa: E402
+from . import account, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, ngettext, pgettext  # noqa: E402
@@ -807,15 +807,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(auto)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Files"))
+        group = Adw.PreferencesGroup(title=_("File Manager"))
         try:
-            available = bool(nautilus_integration.source_dir())
+            available = bool(file_managers.source_dir())
         except FileNotFoundError:
             available = False
-        files = Adw.SwitchRow(title=_("Show sync status in Files"),
-                              subtitle=_("Emblems on files and folders, and a Koofr menu; needs nautilus-python "
-                                         "and a restart of Files"),
-                              active=nautilus_integration.installed(), sensitive=available)
+        files = Adw.SwitchRow(title=_("Show sync status in the file manager"),
+                              subtitle=_("Emblems and a Koofr menu in Files, Nemo and Caja; the Koofr menu in "
+                                         "Dolphin and Thunar. Restart the file manager to apply."),
+                              active=file_managers.installed(), sensitive=available)
         files.connect("notify::active", lambda r, _p: self._set_files(r.get_active()))
         group.add(files)
         page.add(group)
@@ -860,15 +860,16 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def _set_files(self, enabled: bool) -> None:
         try:
             if enabled:
-                nautilus_integration.install()
+                file_managers.install()
             else:
-                nautilus_integration.uninstall()
+                file_managers.uninstall()
         except OSError as e:
             self.add_toast(Adw.Toast(title=str(e), timeout=6))
             return
         self._set("nautilus_integration", enabled)
-        # (no process check: inside the Flatpak the host's Files is not visible)
-        self.add_toast(Adw.Toast(title=_("Restart Files to apply (it keeps running until then)"), timeout=8))
+        # (no process check: inside the Flatpak the host's file manager is not visible)
+        self.add_toast(Adw.Toast(title=_("Restart the file manager to apply (it keeps running until then)"),
+                                 timeout=8))
 
     def _set_autostart(self, enabled: bool) -> None:
         self._set("autostart", enabled)

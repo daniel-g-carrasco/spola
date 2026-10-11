@@ -14,7 +14,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, autostart, config, nautilus_integration, portal, recent, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, autostart, config, file_managers, portal, recent, secrets  # noqa: E402
 from .account import Credentials  # noqa: E402
 from .dbus_service import SyncService  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
@@ -78,14 +78,16 @@ class SpolaApp(Adw.Application):
         self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
         self.tray.start(self.get_dbus_connection())
         self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
-                                        else self.activate())
+                                        else self.activate(),
+                                        open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
+                                        show_link=self._show_link, tell=self._tell)
         self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
         if self.engine.cfg.nautilus_integration:
             try:
-                nautilus_integration.install()      # a newer Spola brings a newer extension
+                file_managers.install()      # a newer Spola brings a newer extension
             except (OSError, FileNotFoundError):
                 pass
 
@@ -250,6 +252,26 @@ class SpolaApp(Adw.Application):
             path = os.path.dirname(path)
         if path:
             Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(None, None, None, None)
+
+    def _show_link(self, name: str, url: str) -> None:
+        """A share link asked from a file manager that can only run a command
+        (Dolphin, Thunar): shown with a Copy button, in front, so the copy
+        works on Wayland too."""
+        window = self._window()
+        window.present()
+        entry = Gtk.Entry(text=url, editable=False, hexpand=True)
+        dialog = Adw.AlertDialog(heading=_("Koofr Share Link"), body=name, extra_child=entry)
+        dialog.add_response("close", _("Close"))
+        dialog.add_response("copy", _("Copy"))
+        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("copy")
+        dialog.connect("response", lambda _d, r: window.get_clipboard().set(url) if r == "copy" else None)
+        dialog.present(window)
+
+    def _tell(self, message: str) -> None:
+        note = Gio.Notification.new(APP_NAME)
+        note.set_body(message)
+        self.send_notification("file-manager", note)
 
     def _review(self, pair_id: str) -> None:
         """From a notification: show the window on what needs attention."""

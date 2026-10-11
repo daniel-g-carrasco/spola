@@ -138,7 +138,7 @@ env HOME="$out/home" XDG_CONFIG_HOME="$out/config" XDG_STATE_HOME="$out/state" X
     dbus-run-session -- bash -c "
         $(declare -f pairs changes)
         pairs '$ROOT/bin/spola' \"\$HOME\"
-        /usr/bin/python3 -c \"import sys; sys.path.insert(0, '$ROOT/src'); from spola import nautilus_integration as n; n.install()\"
+        /usr/bin/python3 -c \"import sys; sys.path.insert(0, '$ROOT/src'); from spola import file_managers as n; n.install()\"
         if [ -n '${EMBLEMS_OVERRIDE:-}' ]; then      # other emblem designs, to compare them
             cp '${EMBLEMS_OVERRIDE:-}'/*.svg '$out/xdg-data/icons/hicolor/scalable/emblems/'
         fi

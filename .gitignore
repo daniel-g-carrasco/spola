@@ -8,3 +8,4 @@ po/*.pot
 build-dir/
 .flatpak-builder/
 .ruff_cache/
+build-dolphin/
