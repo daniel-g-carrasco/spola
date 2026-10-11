@@ -264,7 +264,9 @@ def emblem_icons() -> dict[str, str]:
         "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error"),
         "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
                              + " " + circle(8, 12.2, 1.05), cls="warning"),
-        "excluded": symbolic(ring + " " + slash),
+        # two paths, not one: the bar's ends go into the ring, and with evenodd
+        # in a single path the overlap would turn into a gap
+        "excluded": symbolic(ring, slash),
     }
 
 
