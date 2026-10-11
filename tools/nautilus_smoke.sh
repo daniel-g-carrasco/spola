@@ -5,6 +5,7 @@
 # $OUT/extension.log (SPOLA_NAUTILUS_LOG). Nothing touches the real session.
 #
 #   tools/nautilus_smoke.sh OUT_DIR
+#   SPOLA_LATE=1 tools/nautilus_smoke.sh OUT_DIR    Files first, Spola a few seconds later
 set -euo pipefail
 
 OUT="$(realpath -m "${1:?usage: nautilus_smoke.sh OUT_DIR}")"
@@ -47,6 +48,11 @@ dbus-run-session -- bash -c '
     /usr/bin/python3 "$ROOT/bin/spola" add "$HOME/Sync" /Sync >/dev/null
     echo s | /usr/bin/python3 "$ROOT/bin/spola" align "$HOME/Sync" >/dev/null
     /usr/bin/python3 -c "import sys; sys.path.insert(0, \"$ROOT/src\"); from spola import nautilus_integration as n; print(\"installed:\", len(n.install()), \"files\")"
+    if [ -n "${SPOLA_LATE:-}" ]; then
+        # Files is open before Spola: the files it shows must get their emblems when Spola arrives
+        NAUTILUS_PYTHON_DEBUG=misc timeout 40 nautilus --new-window "$HOME/Sync/Progetti" > "$OUT_NAUTILUS_LOG.early" 2>&1 &
+        sleep 6
+    fi
     /usr/bin/python3 "$ROOT/bin/spola" --background &
     spola=$!
     for i in $(seq 1 50); do

@@ -40,7 +40,9 @@ SYNCED, SYNCING, PENDING, ERROR, CONFLICT, EXCLUDED = 1, 2, 3, 4, 5, 6
 EMBLEMS = {SYNCED: "spola-synced-symbolic", SYNCING: "spola-syncing-symbolic", PENDING: "spola-pending-symbolic",
            ERROR: "spola-error-symbolic", CONFLICT: "spola-conflict-symbolic", EXCLUDED: "spola-excluded-symbolic"}
 MAX_FOLDERS = 400          # folders kept in the cache (oldest dropped first)
+MAX_SEEN = 5000            # files Files asked about, to ask again when Spola comes back
 CALL_TIMEOUT_MS = 10000
+ROOTS_RETRY_S = (1, 2, 5, 10, 30)   # GetRoots failed while Spola is there: it may be starting
 
 HOME_REAL = os.path.realpath("/home")
 LOG = os.environ.get("SPOLA_NAUTILUS_LOG")     # tests inside a real Files: one line per event
@@ -76,6 +78,20 @@ class StateCache:
         self.states = {}                # path -> state
         self.folders = {}               # folder path -> True, insertion order = age
         self.in_flight = set()          # folders being asked about
+        # Files keeps the answer it got for a file until told otherwise: what
+        # it asked while Spola was away (no roots, no emblem) must be asked
+        # again when Spola comes back, or those files stay bare until Files
+        # restarts. Most recent last.
+        self.seen = {}
+
+    def saw(self, path):
+        self.seen.pop(path, None)
+        self.seen[path] = True
+        if len(self.seen) > MAX_SEEN:
+            del self.seen[next(iter(self.seen))]
+
+    def seen_in_roots(self):
+        return [p for p in self.seen if self.root_of(p) is not None]
 
     def set_roots(self, roots):
         self.roots = [(p.rstrip("/"), pair_id) for p, pair_id in roots]
@@ -140,6 +156,7 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
         self.proxy = None
         self._pending_folders = set()
         self._schedule = 0
+        self._roots_retry = 0
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION,
                                   Gio.DBusProxyFlags.DO_NOT_AUTO_START | Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES,
                                   None, APP_ID, OBJECT_PATH, INTERFACE, None, self._proxy_ready)
@@ -156,6 +173,7 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
         self._owner_changed()
 
     def _owner_changed(self):
+        self._roots_retry = 0
         if self.proxy and self.proxy.get_name_owner():
             self._call("GetRoots", None, self._roots_ready)
         else:
@@ -164,11 +182,18 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
 
     def _roots_ready(self, reply):
         if reply is None:
+            # Spola took its name but does not answer yet (still starting): ask again a little later
+            if self.proxy and self.proxy.get_name_owner() and self._roots_retry < len(ROOTS_RETRY_S):
+                delay = ROOTS_RETRY_S[self._roots_retry]
+                self._roots_retry += 1
+                log(f"roots: no answer, again in {delay} s")
+                GLib.timeout_add_seconds(delay, lambda: self._call("GetRoots", None, self._roots_ready) and False)
             return
+        self._roots_retry = 0
         (roots,) = reply.unpack()
         self.cache.set_roots([(path_of(uri) or "", pair_id) for uri, pair_id in roots])
         log(f"roots {len(roots)}")
-        self._refresh(self.cache.clear())
+        self._refresh(self.cache.clear() + self.cache.seen_in_roots())
         self._fetch_root_states()
 
     def _fetch_root_states(self):
@@ -225,7 +250,10 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
         answer from the cache and return at once."""
         uri = file.get_uri()
         path = path_of(uri)
-        if not path or self.cache.root_of(path) is None:
+        if not path:
+            return
+        self.cache.saw(path)
+        if self.cache.root_of(path) is None:
             return
         state = self.cache.state(path)
         if state is None:

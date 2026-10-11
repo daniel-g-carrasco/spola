@@ -18,8 +18,9 @@ from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, ngettext, pgettext  # noqa: E402
 from .rclone import Mode, Outcome, Result, describe  # noqa: E402
-from .ui import (NEEDS_LOOK, display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
-                 place_name, status_css, status_detail, status_icon, status_line, status_text, syncing_for_real)
+from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
+                 place_name, status_badge, status_css, status_detail, status_icon, status_line, status_text,
+                 syncing_for_real, when)
 
 PREVIEW_LIMIT = 300
 STATE_VERSION = 2       # window.json of the first layout (600 px wide) is ignored
@@ -66,7 +67,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
-        engine.connect("status-changed", lambda _e: self._update_banner())
+        engine.connect("status-changed", lambda _e: self.overall.update())
         engine.connect("run-finished", self._on_run_finished)
         self.nav.connect("popped", lambda _n, page: page.detach() if isinstance(page, PairPage) else None)
         self._rebuild_rows()
@@ -79,7 +80,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("list" if signed_in and self.engine.cfg.pairs
                                           else "empty" if signed_in else "login")
         self.add_button.set_visible(signed_in)
-        self._update_banner()
+        self.overall.update()
 
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=text, timeout=5))
@@ -139,10 +140,6 @@ class MainWindow(Adw.ApplicationWindow):
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
                                        tooltip_text=_("Main Menu"), primary=True))
         view.add_top_bar(header)
-        self.banner = Adw.Banner(button_label=_("Review"))
-        self.banner.connect("button-clicked", lambda *_: self.review(self._banner_pair) if self._banner_pair else None)
-        self._banner_pair = ""
-        view.add_top_bar(self.banner)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self._login_page(), "login")
@@ -154,6 +151,10 @@ class MainWindow(Adw.ApplicationWindow):
         empty.set_child(add)
         self.stack.add_named(empty, "empty")
         self.list_page = Adw.PreferencesPage()
+        self.overall = OverallStatus(self)
+        group = Adw.PreferencesGroup()
+        group.add(self.overall)
+        self.list_page.add(group)
         self.stack.add_named(self.list_page, "list")
         view.set_content(self.stack)
         return Adw.NavigationPage(title=APP_NAME, tag="folders", child=view)
@@ -185,31 +186,7 @@ class MainWindow(Adw.ApplicationWindow):
         row = self.rows.get(pair_id)
         if row:
             row.update()
-        self._update_banner()
-
-    def _update_banner(self) -> None:
-        """The folders that wait for the user, so a closed branch of the list
-        never hides one: the most serious one is opened by Review."""
-        waiting = sorted((self.engine.runtime[p.id].status, p.name, p.id) for p in self.engine.cfg.pairs
-                         if p.id in self.engine.runtime and self.engine.runtime[p.id].status in NEEDS_LOOK)
-        if not waiting or self.engine.creds is None:
-            self._banner_pair = ""
-            self.banner.set_revealed(False)
-            return
-        status, name, pair_id = waiting[0]
-        self._banner_pair = pair_id
-        if len(waiting) == 1:
-            title = {
-                Status.NEEDS_REPAIR: _("“{name}” needs a repair"),
-                Status.NEEDS_CONFIRMATION: _("“{name}” is waiting for your confirmation"),
-                Status.NEEDS_SETUP: _("“{name}” is waiting for its first alignment"),
-                Status.CONFLICTS: _("Conflicts in “{name}”"),
-            }[status].format(name=name)
-        else:
-            title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
-                             len(waiting)).format(n=len(waiting))
-        self.banner.set_title(escape(title))
-        self.banner.set_revealed(True)
+        self.overall.update()
 
     def show_pair(self, pair_id: str) -> None:
         page = self.nav.get_visible_page()
@@ -348,6 +325,120 @@ class MainWindow(Adw.ApplicationWindow):
                           _("The sync stopped because it would delete or change many files at once ({reason}). "
                             "Check the list: if it is what you expect, confirm.").format(reason=rt.message),
                           _("Confirm")).present(self)
+
+
+class OverallStatus(Gtk.Box):
+    """Everything at a glance, at the top of the list: a coloured icon, what
+    is going on, one line of detail, the progress while syncing and the one
+    action that matters now. The folders that wait for the user come first,
+    the most serious one is opened by Review."""
+
+    LOOK = (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.ERROR, Status.CONFLICTS,
+            Status.SKIPPED, Status.NEEDS_SETUP)
+
+    def __init__(self, window: MainWindow):
+        super().__init__(spacing=16, css_classes=["card"])
+        self.window, self.engine = window, window.engine
+        self.icon = Gtk.Image(pixel_size=48, valign=Gtk.Align.CENTER, margin_start=18, margin_top=18,
+                              margin_bottom=18, accessible_role=Gtk.AccessibleRole.PRESENTATION)
+        self.append(self.icon)
+        self.texts = texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, valign=Gtk.Align.CENTER,
+                                     hexpand=True, margin_top=14, margin_bottom=14)
+        self.title = Gtk.Label(xalign=0, wrap=True, css_classes=["title-3"])
+        self.detail = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])
+        self.progress = Gtk.ProgressBar(margin_top=6, visible=False)
+        for widget in (self.title, self.detail, self.progress):
+            texts.append(widget)
+        self.append(texts)
+        self.action = Gtk.Button(valign=Gtk.Align.CENTER, margin_end=18, visible=False)
+        self.action.connect("clicked", lambda *_: self._act())
+        self.append(self.action)
+        self._do = None
+
+    def _act(self) -> None:
+        if self._do:
+            self._do()
+
+    def _show(self, status: Status, title: str, detail: str = "", action: str = "", do=None,
+              suggested: bool = False) -> None:
+        self.icon.set_from_icon_name(status_badge(status))
+        self.title.set_label(title)
+        self.detail.set_label(detail)
+        self.detail.set_visible(bool(detail))
+        self.action.set_visible(bool(action))
+        self.texts.set_margin_end(0 if action else 18)      # the progress bar keeps off the edge
+        self.action.set_label(action)
+        self.action.set_css_classes(["suggested-action"] if suggested else [])
+        self._do = do
+
+    def update(self) -> None:
+        engine, cfg = self.engine, self.engine.cfg
+        pairs = [p for p in cfg.pairs if p.id in engine.runtime]
+        self.progress.set_visible(False)
+        if not pairs or engine.creds is None:
+            return
+        waiting = sorted((engine.runtime[p.id].status, p.name.casefold(), p.id) for p in pairs
+                         if not p.paused and engine.runtime[p.id].status in self.LOOK)
+        if waiting:
+            status, _name, pair_id = waiting[0]
+            pair, rt = cfg.pair(pair_id), engine.runtime[pair_id]
+            if len(waiting) > 1:
+                names = [cfg.pair(pid).name for _s, _n, pid in waiting]
+                title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
+                                 len(waiting)).format(n=len(waiting))
+                detail = ", ".join(names[:3]) + (" \u2026" if len(names) > 3 else "")
+            else:
+                title = {
+                    Status.NEEDS_REPAIR: _("“{name}” needs a repair"),
+                    Status.NEEDS_CONFIRMATION: _("“{name}” is waiting for your confirmation"),
+                    Status.NEEDS_SETUP: _("“{name}” is waiting for its first alignment"),
+                    Status.CONFLICTS: _("Conflicts in “{name}”"),
+                    Status.SKIPPED: _("Some files in “{name}” are not synced"),
+                    Status.ERROR: _("“{name}” cannot be synced"),
+                }[status].format(name=pair.name)
+                n = len(engine.conflicts(pair_id)) if status is Status.CONFLICTS else len(rt.refused)
+                detail = {
+                    Status.CONFLICTS: ngettext("{n} file changed on both sides",
+                                               "{n} files changed on both sides", n).format(n=n),
+                    Status.SKIPPED: ngettext("{n} name Koofr does not accept",
+                                             "{n} names Koofr does not accept", n).format(n=n),
+                }.get(status, rt.message)
+            if status is Status.ERROR:
+                self._show(status, title, detail, _("Try Again"),
+                           lambda: engine.request_sync(pair_id, "manual"))
+            else:
+                self._show(status, title, detail, _("Review"), lambda: self.window.review(pair_id), suggested=True)
+            return
+        task = engine.active
+        if task is not None and not task.dry_run and cfg.pair(task.pair_id):
+            pair, rt = cfg.pair(task.pair_id), engine.runtime[task.pair_id]
+            text, fraction = progress_text(rt.stats)
+            self._show(Status.SYNCING, _("Syncing “{name}”").format(name=pair.name), text or _("Comparing the two sides…"))
+            self.progress.set_visible(True)
+            if fraction is None:
+                self.progress.pulse()
+            else:
+                self.progress.set_fraction(fraction)
+            return
+        active = [p for p in pairs if not p.paused]
+        if cfg.paused_all:
+            self._show(Status.PAUSED, _("Paused"), _("Nothing is synced until you resume."), _("Resume"),
+                       lambda: engine.set_paused_all(False))
+            return
+        if not active or engine.blocked_reason():
+            self._show(Status.PAUSED, _("Paused"), engine.blocked_reason() or _("Every folder is paused."))
+            return
+        if any(engine.runtime[p.id].status in (Status.PENDING, Status.SYNCING) for p in active):
+            self._show(Status.PENDING, status_text(Status.PENDING))
+            return
+        synced = [engine.runtime[p.id].last_sync for p in active if engine.runtime[p.id].last_sync]
+        detail = ngettext("{n} folder", "{n} folders", len(active)).format(n=len(active))
+        if synced:
+            detail += " · " + _("last sync {time}").format(time=when(max(synced)))
+        paused = len(pairs) - len(active)
+        if paused:
+            detail += " · " + ngettext("{n} paused", "{n} paused", paused).format(n=paused)
+        self._show(Status.OK, _("Everything Is Up to Date"), detail)
 
 
 class PairRow(Adw.ActionRow):

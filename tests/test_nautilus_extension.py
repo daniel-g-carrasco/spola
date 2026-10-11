@@ -141,6 +141,47 @@ class ProviderTest(unittest.TestCase):
         spin()
         self.assertEqual(self.provider.proxy.calls, [])             # not even asked
 
+    def test_files_seen_while_spola_was_away_are_asked_again(self):
+        # Spola quits: the roots go, Files asks again and gets no emblem
+        self.provider.proxy.owner = None
+        self.provider._owner_changed()
+        bare = FakeFile("/h/data/work/a/doc.odt")
+        self.provider.update_file_info(bare)
+        self.provider.update_file_info(FakeFile("/h/elsewhere/x.txt"))
+        self.assertEqual(bare.emblems, [])
+        # Spola is back: the files Files has were left without emblem, so they are refreshed
+        self.refreshed.clear()
+        self.provider.proxy.owner = ":1.9"
+        self.provider._roots_ready(GLib.Variant("(a(ss))", ([(ext.uri_of("/h/data/work"), "p1")],)))
+        self.assertIn("/h/data/work/a/doc.odt", self.refreshed)
+        self.assertNotIn("/h/elsewhere/x.txt", self.refreshed)
+
+    def test_roots_are_asked_again_when_spola_is_still_starting(self):
+        self.provider._roots_retry = 0
+        timers = []
+        real = ext.GLib.timeout_add_seconds
+        ext.GLib.timeout_add_seconds = lambda delay, fn: timers.append((delay, fn)) or 1
+        try:
+            self.provider._roots_ready(None)                # the name is there, the object not yet
+            self.assertEqual([d for d, _f in timers], [1])
+            self.provider.proxy.replies["GetRoots"] = GLib.Variant("(a(ss))", ([(ext.uri_of("/h/data/work"), "p1")],))
+            timers[0][1]()
+            self.assertEqual(self.provider.proxy.calls[0][0], "GetRoots")
+            self.assertEqual(self.provider._roots_retry, 0)
+            # gone for good: no endless retries
+            for _ in range(10):
+                self.provider._roots_ready(None)
+            self.assertEqual([d for d, _f in timers][1:], list(ext.ROOTS_RETRY_S))
+        finally:
+            ext.GLib.timeout_add_seconds = real
+
+    def test_seen_is_bounded(self):
+        cache = ext.StateCache()
+        for i in range(ext.MAX_SEEN + 10):
+            cache.saw(f"/h/f{i}")
+        self.assertEqual(len(cache.seen), ext.MAX_SEEN)
+        self.assertNotIn("/h/f0", cache.seen)
+
     def test_signals(self):
         self.provider.cache.set_folder("/h/data/work/a", {"doc.odt": 1})
         self.provider._on_signal(None, None, "StatesChanged",

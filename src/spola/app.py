@@ -21,7 +21,7 @@ from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .ui import status_icon, status_text  # noqa: E402
+from .ui import status_text, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
@@ -188,7 +188,7 @@ class SpolaApp(Adw.Application):
         reason = "" if engine.creds else _("Not signed in to Koofr")
         reason = reason or (engine.blocked_reason() if overall is Status.PAUSED else "")
         summary = reason or status_text(overall)
-        self.tray.set_icon(status_icon(overall))
+        self.tray.set_icon(tray_icon(overall))
         self.tray.set_tooltip(APP_NAME, summary)
         if summary != self._last_summary:
             self._last_summary = summary
