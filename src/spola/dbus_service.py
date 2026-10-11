@@ -4,10 +4,16 @@
     /io/github/daniel_g_carrasco/spola/Sync
     io.github.daniel_g_carrasco.spola.Sync1
 
-States are integers (states.State). Paths travel as file:// URIs. The
-extension lives in the file manager's process on the host and must never
+States are integers (states.State). Paths travel as file:// URIs; the
+actions also take a plain absolute path, for the file managers whose menus
+can only run a command (Dolphin's service menu, Thunar's custom actions).
+The extension lives in the file manager's process on the host and must never
 wait: everything here answers from memory, except CreateShareLink, which
 asks rclone in a thread and answers when it is done.
+
+OpenOnKoofr and ShowShareLink do the whole job in Spola (open the browser,
+show the link with a Copy button): a command run from a menu cannot read an
+answer, and on Wayland an app in the background cannot set the clipboard.
 """
 
 from __future__ import annotations
@@ -21,6 +27,7 @@ from gi.repository import Gio, GLib
 
 from . import APP_ID, koofr_api
 from .engine import Engine
+from .i18n import _
 from .paths import Paths
 from .rclone import koofr_env, remote_spec
 from .states import State, ancestors_and_self
@@ -45,6 +52,8 @@ XML = f"""
     <method name="GetWebUrl"><arg type="s" name="uri" direction="in"/><arg type="s" name="url" direction="out"/></method>
     <method name="CreateShareLink"><arg type="s" name="uri" direction="in"/><arg type="s" name="url" direction="out"/></method>
     <method name="ShowWindow"><arg type="s" name="what" direction="in"/></method>
+    <method name="OpenOnKoofr"><arg type="s" name="uri" direction="in"/></method>
+    <method name="ShowShareLink"><arg type="s" name="uri" direction="in"/></method>
     <signal name="StatesChanged"><arg type="a{{su}}" name="states"/></signal>
     <signal name="RootChanged"><arg type="s" name="root"/></signal>
   </interface>
@@ -57,8 +66,12 @@ def uri_for(path: str) -> str:
 
 
 def path_for(uri: str) -> str | None:
-    f = Gio.File.new_for_uri(uri)
-    path = f.get_path() if f.get_uri_scheme() == "file" else None
+    """The local path of a file:// URI, or of an absolute path as it is."""
+    if uri.startswith("/"):
+        path = os.path.normpath(uri)
+    else:
+        f = Gio.File.new_for_uri(uri)
+        path = f.get_path() if f.get_uri_scheme() == "file" else None
     if path and path.startswith("/home/"):
         real_home = os.path.realpath("/home")
         if real_home != "/home":
@@ -67,9 +80,15 @@ def path_for(uri: str) -> str | None:
 
 
 class SyncService:
-    def __init__(self, engine: Engine, show_window: Callable[[str], None]):
+    def __init__(self, engine: Engine, show_window: Callable[[str], None],
+                 open_url: Callable[[str], None] = lambda url: None,
+                 show_link: Callable[[str, str], None] = lambda name, url: None,
+                 tell: Callable[[str], None] = lambda message: None):
         self.engine = engine
         self.show_window = show_window
+        self.open_url = open_url          # the browser, from Spola
+        self.show_link = show_link        # (file name, link): a window with a Copy button
+        self.tell = tell                  # a notification: what went wrong
         self.connection: Gio.DBusConnection | None = None
         self._reg = 0
         self._pending: dict[str, int] = {}
@@ -155,21 +174,36 @@ class SyncService:
                 found = self.locate(uri)
                 if found:
                     self.engine.request_sync(found[0].id, "manual")
+                else:
+                    self._not_synced(uri)
                 invocation.return_value(None)
             elif method == "GetWebUrl":
                 (uri,) = params.unpack()
-                found = self.locate(uri)
-                if not found:
+                url = self.web_url(uri)
+                if not url:
                     invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder")
                     return
-                pair, rel = found
-                remote = pair.remote.rstrip("/") + ("/" + rel if rel else "")
-                if rel and not os.path.isdir(os.path.join(pair.local, rel)):
-                    remote = os.path.dirname(remote) or "/"
-                invocation.return_value(GLib.Variant("(s)", (koofr_api.web_url(self.engine.cfg.mount_id, remote),)))
+                invocation.return_value(GLib.Variant("(s)", (url,)))
+            elif method == "OpenOnKoofr":
+                (uri,) = params.unpack()
+                url = self.web_url(uri)
+                if url:
+                    self.open_url(url)
+                else:
+                    self._not_synced(uri)
+                invocation.return_value(None)
             elif method == "CreateShareLink":
                 (uri,) = params.unpack()
                 self._share_link(uri, invocation)
+            elif method == "ShowShareLink":
+                (uri,) = params.unpack()
+                if self.locate(uri) is None:
+                    self._not_synced(uri)
+                else:
+                    name = os.path.basename(path_for(uri) or uri)
+                    self._share_link(uri, None, lambda url, error: self.show_link(name, url) if url
+                                     else self.tell(error))
+                invocation.return_value(None)
             elif method == "ShowWindow":
                 (what,) = params.unpack()
                 self.show_window(what)
@@ -179,11 +213,32 @@ class SyncService:
         except Exception as e:  # never let the file manager hang on us
             invocation.return_dbus_error(f"{INTERFACE}.Failed", str(e))
 
-    def _share_link(self, uri: str, invocation) -> None:
+    def web_url(self, uri: str) -> str:
+        """Koofr's web page of the item: the folder itself, or the folder
+        that holds the file. '' outside the synced folders."""
+        found = self.locate(uri)
+        if not found:
+            return ""
+        pair, rel = found
+        remote = pair.remote.rstrip("/") + ("/" + rel if rel else "")
+        if rel and not os.path.isdir(os.path.join(pair.local, rel)):
+            remote = os.path.dirname(remote) or "/"
+        return koofr_api.web_url(self.engine.cfg.mount_id, remote)
+
+    def _not_synced(self, uri: str) -> None:
+        name = os.path.basename(path_for(uri) or uri) or uri
+        self.tell(_("“{name}” is not in a folder synced with Koofr.").format(name=name))
+
+    def _share_link(self, uri: str, invocation, then=None) -> None:
+        """rclone link in a thread; the link goes back over D-Bus
+        (invocation) or to then(url, error)."""
         found = self.locate(uri)
         creds, rclone = self.engine.creds, self.engine.rclone
         if not found or creds is None or rclone is None:
-            invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder, or not signed in")
+            if invocation is not None:
+                invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder, or not signed in")
+            elif then is not None:
+                then("", _("Not signed in to Koofr"))
             return
         pair, rel = found
         remote = pair.remote.rstrip("/") + ("/" + rel if rel else "")
@@ -201,7 +256,9 @@ class SyncService:
             GLib.idle_add(done, url, error)
 
         def done(url, error):
-            if url:
+            if then is not None:
+                then(url, error)
+            elif url:
                 invocation.return_value(GLib.Variant("(s)", (url,)))
             else:
                 invocation.return_dbus_error(f"{INTERFACE}.Failed", error)

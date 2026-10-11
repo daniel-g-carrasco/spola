@@ -32,7 +32,7 @@ From [our own Flatpak repository](https://daniel-g-carrasco.github.io/spola/); u
 flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref
 ```
 
-The GNOME runtime comes from Flathub. The repository is signed; the key's fingerprint is `DFE7 82B9 7EA0 ED33 B6A2  C0F2 BFB2 EC99 7FDB C5B1`. A `.flatpak` bundle is attached to every [release](https://github.com/daniel-g-carrasco/spola/releases) too. The emblems in Files need `nautilus-python` on the host (Fedora: `sudo dnf install nautilus-python`; Margine OS ships it).
+The GNOME runtime comes from Flathub. The repository is signed; the key's fingerprint is `DFE7 82B9 7EA0 ED33 B6A2  C0F2 BFB2 EC99 7FDB C5B1`. A `.flatpak` bundle is attached to every [release](https://github.com/daniel-g-carrasco/spola/releases) too. The emblems in the file manager need its Python bindings on the host (Fedora: `nautilus-python`, `nemo-python` or `python3-caja`; Margine OS ships the first).
 
 On [Margine OS](https://margine.dev): `ujust install-spola`, and `ujust install-spola migrate` to take over the folders of Koofr Desktop.
 
@@ -62,15 +62,27 @@ Preferences: account, pause on metered networks and in power saver mode, speed l
   <img src="data/screenshots/add-folder.png" alt="Adding a folder: the folder on this computer, then the Koofr folder among suggestions or by browsing" width="480">
 </p>
 
-## In Files (Nautilus)
+## In the file manager
 
-Preferences has a switch, *Show sync status in Files*: Spola installs a small nautilus-python extension and its emblems for your user (`~/.local/share/nautilus-python/extensions/spola-nautilus.py`, `~/.local/share/icons/hicolor/scalable/emblems/`), and Files shows an emblem on every synced file and folder: synced, syncing, changed here and waiting, error, conflict, left out. Right-click gives *Sync Now with Koofr*, *Open on Koofr* and *Copy Koofr Share Link*. The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so Files stays as fast as it is; with Spola not running it does nothing. Files needs nautilus-python (Fedora: `nautilus-python`) and a restart (`nautilus -q`) after the switch.
+Preferences has a switch, *Show sync status in the file manager*. Spola sets up every file manager you have used (they leave their folders behind on the first start; one installed later is picked up the next time Spola starts), for your user only, and removes only what it wrote:
+
+| File manager | Emblems | Koofr menu | What Spola installs |
+|---|---|---|---|
+| Files (Nautilus) | yes | yes | a nautilus-python extension |
+| Nemo | yes | yes | the same extension, for nemo-python |
+| Caja | yes | yes | the same extension, for python3-caja |
+| Dolphin | with the plugin below | yes | a service menu |
+| Thunar | no (Thunar has no emblem API for extensions) | yes | three custom actions in `uca.xml` |
+
+The emblems are synced, syncing, changed here and waiting, error, conflict, left out. The menu gives *Sync Now with Koofr*, *Open on Koofr* and the share link (copied in Files, Nemo and Caja; shown by Spola with a Copy button in Dolphin and Thunar, whose menus can only run a command). The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so the file manager stays as fast as it is; with Spola not running it does nothing. The Python bindings must be installed (Fedora: `nautilus-python`, `nemo-python`, `python3-caja`), and the file manager restarted (`nautilus -q`, `nemo -q`, `caja -q`).
+
+Dolphin's overlay icons need a small KDE plugin built on your system: an app cannot install it for you. It takes three commands, see [extensions/dolphin](extensions/dolphin/README.md).
 
 <p align="center">
   <img src="data/screenshots/files-emblems.png" alt="Files in list view: synced files, an excluded lock file, the two copies of a conflict" width="700">
 </p>
 
-The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/daniel_g_carrasco/spola/Sync`) is also there for other file managers: states per folder, states per file, sync now, web link, share link, and signals when states change.
+The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/daniel_g_carrasco/spola/Sync`) is there for any other file manager: states per folder, states per file, sync now, web link, share link, signals when states change; the actions take a `file://` URI or a plain path.
 
 ### From source
 
@@ -101,6 +113,7 @@ spola repair spola-test          # after a critical error: preview, then asks
 ```bash
 python3 -m unittest discover -s tests     # all tests; the bisync ones need rclone
 tools/gui_smoke.sh /tmp/spola-gui          # the window on a Broadway display, screenshot in /tmp/spola-gui
+tools/file_managers_smoke.sh /tmp/spola-fm # Files, Nemo, Caja, Dolphin, Thunar for real, in a container
 python3 tools/make_icons.py                # regenerate the icons
 python3 tools/compile_po.py --update       # refresh po/spola.pot and po/*.po
 ```

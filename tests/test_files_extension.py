@@ -11,7 +11,7 @@ import _setup  # noqa: F401
 
 from gi.repository import GLib
 
-EXT = Path(__file__).resolve().parent.parent / "nautilus" / "spola-nautilus.py"
+EXT = Path(__file__).resolve().parent.parent / "extensions" / "spola-files.py"
 spec = importlib.util.spec_from_file_location("spola_nautilus", EXT)
 ext = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ext)
@@ -193,11 +193,20 @@ class ProviderTest(unittest.TestCase):
 
     def test_menus_only_inside_roots(self):
         self.assertEqual(self.provider._menu_items([FakeFile("/h/elsewhere/x")], False), [])
-        items = self.provider._menu_items([FakeFile("/h/data/work/a")], False) if ext.Nautilus else []
-        if ext.Nautilus:
+        items = self.provider._menu_items([FakeFile("/h/data/work/a")], False) if ext.FM else []
+        if ext.FM:
             self.assertEqual([i.props.name for i in items], ["Spola::SyncNow", "Spola::OpenOnKoofr", "Spola::ShareLink"])
             two = self.provider._menu_items([FakeFile("/h/data/work/a"), FakeFile("/h/data/work/b")], False)
             self.assertEqual([i.props.name for i in two], ["Spola::SyncNow"])
+
+    def test_menu_signatures_of_every_file_manager(self):
+        # Nautilus 4 passes (files) and (folder); Nemo and Caja (window, files) and (window, folder)
+        if not ext.FM:
+            self.skipTest("no file manager bindings here")
+        files = [FakeFile("/h/data/work/a")]
+        self.assertEqual(len(self.provider.get_file_items(files)), len(self.provider.get_file_items(None, files)))
+        self.assertEqual(len(self.provider.get_background_items(files[0])),
+                         len(self.provider.get_background_items(None, files[0])))
 
 
 if __name__ == "__main__":

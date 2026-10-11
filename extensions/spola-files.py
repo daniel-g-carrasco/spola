@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Spola in Files (Nautilus): sync emblems on files and folders, and a few
-context menu entries. Installed by Spola into
-~/.local/share/nautilus-python/extensions/ (the emblems next to it in
-~/.local/share/icons/hicolor/scalable/emblems/).
+"""Spola in Files (Nautilus), Nemo and Caja: sync emblems on files and
+folders, and a few context menu entries. The three share their extension
+API (Nemo and Caja are forks of Nautilus), so this one file serves them all:
+Spola installs a copy into each one's folder with FILE_MANAGER filled in
+(~/.local/share/{nautilus,nemo,caja}-python/extensions/), the emblems into
+~/.local/share/icons/hicolor/scalable/emblems/.
 
 It never waits: Files asks about one file at a time on its main thread, so
 every answer comes from a cache. On a miss the folder is queried once,
@@ -11,6 +13,7 @@ the answer lands. If Spola is not running, nothing is shown and nothing
 slows Files down.
 """
 
+import importlib
 import os
 
 import gi
@@ -20,16 +23,19 @@ gi.require_version("GLib", "2.0")
 gi.require_version("GObject", "2.0")
 from gi.repository import Gio, GLib, GObject  # noqa: E402
 
+FILE_MANAGER = "Nautilus"        # set by Spola in the copies for Nemo and Caja
+VERSIONS = {"Nautilus": ("4.1", "4.0"), "Nemo": ("3.0",), "Caja": ("2.0",)}
+
 try:
-    for version in ("4.1", "4.0"):
+    for version in VERSIONS[FILE_MANAGER]:
         try:
-            gi.require_version("Nautilus", version)
+            gi.require_version(FILE_MANAGER, version)
             break
         except ValueError:
             continue
-    from gi.repository import Nautilus
+    FM = importlib.import_module(f"gi.repository.{FILE_MANAGER}")
 except (ImportError, ValueError):
-    Nautilus = None
+    FM = None
 
 APP_ID = "io.github.daniel_g_carrasco.spola"
 OBJECT_PATH = "/io/github/daniel_g_carrasco/spola/Sync"
@@ -149,7 +155,16 @@ class StateCache:
         return gone
 
 
-class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProvider] if Nautilus else [])):
+def _providers():
+    if FM is None:
+        return []
+    found = [FM.InfoProvider, FM.MenuProvider]
+    if hasattr(FM, "NameAndDescProvider"):      # Nemo lists its extensions by name
+        found.append(FM.NameAndDescProvider)
+    return found
+
+
+class SpolaProvider(GObject.GObject, *_providers()):
     def __init__(self):
         super().__init__()
         self.cache = StateCache()
@@ -293,10 +308,10 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
 
     def _refresh(self, paths):
         """Ask Files to call update_file_info again, only for files it has."""
-        if Nautilus is None:
+        if FM is None:
             return
         for path in paths:
-            info = Nautilus.FileInfo.lookup_for_uri(uri_of(path))
+            info = FM.FileInfo.lookup_for_uri(uri_of(path))
             if info is not None:
                 info.invalidate_extension_info()
 
@@ -311,24 +326,28 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
         target = paths[0]
         prefix = "SpolaBackground" if background else "Spola"
         items = []
-        sync = Nautilus.MenuItem(name=f"{prefix}::SyncNow", label=_("Sync Now with Koofr"))
+        sync = FM.MenuItem(name=f"{prefix}::SyncNow", label=_("Sync Now with Koofr"))
         sync.connect("activate", lambda *_: self._call("SyncNow", GLib.Variant("(s)", (uri_of(target),)), lambda r: None))
         items.append(sync)
         if len(paths) == 1:
-            web = Nautilus.MenuItem(name=f"{prefix}::OpenOnKoofr", label=_("Open on Koofr"))
+            web = FM.MenuItem(name=f"{prefix}::OpenOnKoofr", label=_("Open on Koofr"))
             web.connect("activate", lambda *_: self._call("GetWebUrl", GLib.Variant("(s)", (uri_of(target),)), self._open_url))
             items.append(web)
-            link = Nautilus.MenuItem(name=f"{prefix}::ShareLink", label=_("Copy Koofr Share Link"))
+            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Copy Koofr Share Link"))
             link.connect("activate", lambda *_: self._call("CreateShareLink", GLib.Variant("(s)", (uri_of(target),)),
                                                            self._copy_url))
             items.append(link)
         return items
 
-    def get_file_items(self, files):
-        return self._menu_items(list(files), False)
+    # Nautilus 4: (files) and (folder); Nemo and Caja put the window first
+    def get_file_items(self, *args):
+        return self._menu_items(list(args[-1]), False)
 
-    def get_background_items(self, folder):
-        return self._menu_items([folder], True)
+    def get_background_items(self, *args):
+        return self._menu_items([args[-1]], True)
+
+    def get_name_and_desc(self):
+        return [f"Spola:::{_('Sync status of the folders synced with Koofr')}"]
 
     @staticmethod
     def _open_url(reply):
@@ -342,9 +361,15 @@ class SpolaProvider(GObject.GObject, *([Nautilus.InfoProvider, Nautilus.MenuProv
             return
         (url,) = reply.unpack()
         try:
-            gi.require_version("Gdk", "4.0")
-            from gi.repository import Gdk
-            Gdk.Display.get_default().get_clipboard().set(url)
+            if FILE_MANAGER == "Nautilus":          # GTK 4
+                gi.require_version("Gdk", "4.0")
+                from gi.repository import Gdk
+                Gdk.Display.get_default().get_clipboard().set(url)
+            else:                                   # Nemo and Caja are GTK 3
+                gi.require_version("Gtk", "3.0")
+                gi.require_version("Gdk", "3.0")
+                from gi.repository import Gdk, Gtk
+                Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(url, -1)
         except (ImportError, ValueError, AttributeError):
             pass
 

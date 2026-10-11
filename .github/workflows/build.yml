@@ -42,6 +42,24 @@ jobs:
             echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
           fi
 
+  dolphin-plugin:
+    # Dolphin's overlay plugin is built by its users, against their own KDE
+    # Frameworks (extensions/dolphin/README.md): this checks that it still
+    # builds and installs, against Fedora's
+    runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:44
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the KDE Frameworks headers
+        run: dnf -y install --setopt=install_weak_deps=False cmake extra-cmake-modules gcc-c++ kf6-kio-devel qt6-qtbase-devel
+      - name: Build and install for a user, as the README says
+        run: |
+          cmake -S extensions/dolphin -B build-dolphin -DCMAKE_INSTALL_PREFIX="$PWD/home/.local"
+          cmake --build build-dolphin
+          cmake --install build-dolphin
+          find home/.local -path "*/kf6/overlayicon/spolaoverlayplugin.so" | grep .
+
   flatpak:
     needs: test
     runs-on: ubuntu-latest

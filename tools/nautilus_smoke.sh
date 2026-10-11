@@ -47,7 +47,7 @@ dbus-run-session -- bash -c '
     set -e
     /usr/bin/python3 "$ROOT/bin/spola" add "$HOME/Sync" /Sync >/dev/null
     echo s | /usr/bin/python3 "$ROOT/bin/spola" align "$HOME/Sync" >/dev/null
-    /usr/bin/python3 -c "import sys; sys.path.insert(0, \"$ROOT/src\"); from spola import nautilus_integration as n; print(\"installed:\", len(n.install()), \"files\")"
+    /usr/bin/python3 -c "import sys; sys.path.insert(0, \"$ROOT/src\"); from spola import file_managers as n; print(\"installed:\", len(n.install()), \"files\")"
     if [ -n "${SPOLA_LATE:-}" ]; then
         # Files is open before Spola: the files it shows must get their emblems when Spola arrives
         NAUTILUS_PYTHON_DEBUG=misc timeout 40 nautilus --new-window "$HOME/Sync/Progetti" > "$OUT_NAUTILUS_LOG.early" 2>&1 &

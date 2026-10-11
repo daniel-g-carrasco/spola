@@ -60,11 +60,13 @@ def rect(x, y, w, h) -> str:
     return poly([(x, y), (x + w, y), (x + w, y + h), (x, y + h)])
 
 
-def symbolic(*paths: str, cls: str = "") -> str:
+def symbolic(*paths: str, cls: str = "", fill: str = FG) -> str:
     """`cls` is a GTK semantic colour class (success, warning, error): the
-    file manager colours the emblem accordingly."""
+    file manager colours the emblem accordingly. GTK and GNOME Shell recolour
+    every path from the theme and ignore `fill`; renderers that do not
+    (Dolphin, Qt trays) show `fill` as it is."""
     attr = f' class="{cls}"' if cls else ""
-    body = "".join(f'<path{attr} fill="{FG}" fill-rule="evenodd" d="{p}"/>' for p in paths)
+    body = "".join(f'<path{attr} fill="{fill}" fill-rule="evenodd" d="{p}"/>' for p in paths)
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
             f"{body}</svg>\n")
@@ -256,17 +258,20 @@ def emblem_icons() -> dict[str, str]:
     disk = circle(8, 8, 7.5)
     ring = disk + " " + circle(8, 8, 5)
     slash = poly([(3.4, 11.2), (11.2, 3.4), (12.6, 4.8), (4.8, 12.6)])
+    # the literal colours, for Dolphin: readable on light and dark views
+    grey = "#77767b"
     return {
         "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
-                           cls="success"),
-        "syncing": symbolic(disk + " " + emblem_sync_arrows()),
-        "pending": symbolic(ring + " " + clock_hands(7.3, 4.2, 1.4, 7.3, 11.1)),
-        "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error"),
+                           cls="success", fill=COLORS["synced"]),
+        "syncing": symbolic(disk + " " + emblem_sync_arrows(), fill=COLORS["syncing"]),
+        "pending": symbolic(ring + " " + clock_hands(7.3, 4.2, 1.4, 7.3, 11.1), fill=grey),
+        "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error",
+                          fill=COLORS["error"]),
         "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
-                             + " " + circle(8, 12.2, 1.05), cls="warning"),
+                             + " " + circle(8, 12.2, 1.05), cls="warning", fill=COLORS["attention"]),
         # two paths, not one: the bar's ends go into the ring, and with evenodd
         # in a single path the overlap would turn into a gap
-        "excluded": symbolic(ring, slash),
+        "excluded": symbolic(ring, slash, fill=grey),
     }
 
 

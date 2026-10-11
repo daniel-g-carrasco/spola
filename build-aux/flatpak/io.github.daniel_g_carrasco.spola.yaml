@@ -65,11 +65,11 @@ modules:
   - name: spola
     buildsystem: simple
     build-commands:
-      # the Python package, the Files extension and its emblems: the app
-      # installs the last two for the user from here (see nautilus_integration.py)
+      # the Python package, the file manager extensions and the emblems: the
+      # app installs the last two for the user from here (see file_managers.py)
       - install -d /app/share/spola
       - cp -r src/spola /app/share/spola/spola
-      - cp -r nautilus /app/share/spola/nautilus
+      - install -Dm644 extensions/spola-files.py -t /app/share/spola/extensions
       - install -Dm644 data/icons/hicolor/scalable/emblems/*.svg -t /app/share/spola/data/icons/hicolor/scalable/emblems
       - install -Dm755 bin/spola /app/bin/spola
       - python3 tools/compile_po.py --dest /app/share/locale
