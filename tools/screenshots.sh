@@ -101,12 +101,12 @@ if [ -z "${ONLY_FILES:-}" ]; then
   if [ -n "${ONLY_SCENE:-}" ]; then
     window_scene "$ONLY_SCENE" "${SCENE_DELAY:-16}" ${SCENE_ENV:-}
   else
-    WINDOW_HEIGHT=560 window_scene main-window 16
+    WINDOW_HEIGHT=600 window_scene main-window 16 SCENE_NO_CONFLICT=1
     window_scene folder 16 SPOLA_DEV_OPEN_PAIR=Photos
     WINDOW_HEIGHT=560 window_scene conflicts 20 SPOLA_DEV_OPEN_REVIEW=1
     window_scene add-folder 8 SPOLA_DEV_OPEN_ADD=Music
     window_scene koofr-folders 8 SPOLA_DEV_OPEN_ADD=Music SPOLA_DEV_OPEN_ADD_BROWSE=/
-    WINDOW_HEIGHT=1240 window_scene preferences 6 SPOLA_DEV_OPEN_PREFERENCES=1
+    # (no preferences: Broadway's screen is 768 px high and the dialog is taller)
   fi
   if [ -n "${NO_FILES:-}" ]; then
     [ -n "${KEEP:-}" ] || rm -rf "$WORK"

@@ -76,9 +76,9 @@
   </p>
 
   <figure>
-    <img src="screenshots/main-window.png" width="600" height="520"
-         alt="Spola's window with three folders: one up to date, one with a conflict to review, one syncing">
-    <figcaption>One row per folder: where it is, what the last sync did, and a button when it needs you.</figcaption>
+    <img src="screenshots/main-window.png" width="480" height="600"
+         alt="Spola's window: the overall status at the top, then the folders grouped by where they are, one of them syncing">
+    <figcaption>What is going on at the top, then your folders, grouped by where they live.</figcaption>
   </figure>
 
   <h2>How it works</h2>
@@ -87,6 +87,23 @@
     accept your main password from other apps), then you pick folders, each one paired with a folder on Koofr.
     Spola sits in the tray. Changes you make are picked up as they happen; changes made from your other devices
     show up within a minute, and once an hour Spola checks everything anyway.
+  </p>
+  <p>
+    When you add a folder, Spola looks on Koofr for its match: the same place as in your home folder, or a folder
+    with the same name. If that is not it, you browse your Koofr folders one level at a time, or make a new one.
+    Folders that are already synced are greyed out, so two pairs never fight over the same files.
+  </p>
+
+  <figure>
+    <img src="screenshots/add-folder.png" width="480" height="640"
+         alt="Adding a folder: Music on this computer, /Music and /Archive/Music suggested on Koofr, or another folder">
+    <figcaption>Adding a folder: the obvious match is already selected.</figcaption>
+  </figure>
+
+  <p>
+    The tray icon keeps quiet while everything is up to date: it turns blue while syncing, orange when something
+    needs you, red on errors. Its menu lists the files being transferred and the last ones synced; a click shows
+    the file in Files.
   </p>
   <p>
     I did not write a sync engine. Every sync is an <code>rclone bisync</code> run: <a href="https://rclone.org">rclone</a>
@@ -104,7 +121,7 @@
   </ul>
 
   <figure>
-    <img src="screenshots/conflicts.png" width="600" height="520"
+    <img src="screenshots/conflicts.png" width="480" height="560"
          alt="The conflicts window: the file, its two versions with size and date, and a Resolve menu">
     <figcaption>A conflict: both versions with size and date, a click to see them in Files, a menu to decide.</figcaption>
   </figure>
@@ -138,7 +155,7 @@
 
   <h2>Where it stands</h2>
   <p>
-    This is version 0.1. I use it every day on my own machine, with 16 folders and a few hundred gigabytes,
+    This is version 0.2. I use it every day on my own machine, with 16 folders and a few hundred gigabytes,
     and it replaced Koofr Desktop there. It is still young: if something looks wrong, please
     <a href="https://github.com/daniel-g-carrasco/spola/issues">open an issue</a>. It speaks English and Italian.
   </p>

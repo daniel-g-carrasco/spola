@@ -10,7 +10,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
 from . import account, autostart, conflicts, jobs, koofr_api, nautilus_integration, preflight, secrets  # noqa: E402
@@ -344,9 +344,11 @@ class OverallStatus(Gtk.Box):
         self.append(self.icon)
         self.texts = texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, valign=Gtk.Align.CENTER,
                                      hexpand=True, margin_top=14, margin_bottom=14)
-        self.title = Gtk.Label(xalign=0, wrap=True, css_classes=["title-3"])
-        self.detail = Gtk.Label(xalign=0, wrap=True, css_classes=["dim-label"])
-        self.progress = Gtk.ProgressBar(margin_top=6, visible=False)
+        # One line each and the bar's room always kept: the card keeps its
+        # height whatever the state, so the list below never jumps
+        self.title = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, css_classes=["title-3"])
+        self.detail = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END, css_classes=["dim-label"])
+        self.progress = Gtk.ProgressBar(margin_top=6, opacity=0, can_target=False)
         for widget in (self.title, self.detail, self.progress):
             texts.append(widget)
         self.append(texts)
@@ -363,8 +365,8 @@ class OverallStatus(Gtk.Box):
               suggested: bool = False) -> None:
         self.icon.set_from_icon_name(status_badge(status))
         self.title.set_label(title)
-        self.detail.set_label(detail)
-        self.detail.set_visible(bool(detail))
+        self.detail.set_label(detail or " ")
+        self.set_tooltip_text(f"{title}\n{detail}" if detail else title)
         self.action.set_visible(bool(action))
         self.texts.set_margin_end(0 if action else 18)      # the progress bar keeps off the edge
         self.action.set_label(action)
@@ -374,7 +376,7 @@ class OverallStatus(Gtk.Box):
     def update(self) -> None:
         engine, cfg = self.engine, self.engine.cfg
         pairs = [p for p in cfg.pairs if p.id in engine.runtime]
-        self.progress.set_visible(False)
+        self.progress.set_opacity(0)
         if not pairs or engine.creds is None:
             return
         waiting = sorted((engine.runtime[p.id].status, p.name.casefold(), p.id) for p in pairs
@@ -414,7 +416,7 @@ class OverallStatus(Gtk.Box):
             pair, rt = cfg.pair(task.pair_id), engine.runtime[task.pair_id]
             text, fraction = progress_text(rt.stats)
             self._show(Status.SYNCING, _("Syncing “{name}”").format(name=pair.name), text or _("Comparing the two sides…"))
-            self.progress.set_visible(True)
+            self.progress.set_opacity(1)
             if fraction is None:
                 self.progress.pulse()
             else:
@@ -712,7 +714,7 @@ class LeftOutDialog(Adw.Dialog):
             "Rename them and they are synced at the next run. Nothing is deleted."))
         for refused in (rt.refused if rt else []):
             row = Adw.ActionRow(title=GLib.markup_escape_text(refused.path), title_lines=2, activatable=True,
-                                subtitle=GLib.markup_escape_text(preflight.refused_reason(refused.code)),
+                                subtitle=GLib.markup_escape_text(preflight.refused_reason(refused.code, refused.other)),
                                 subtitle_lines=3, tooltip_text=_("Show in the file manager"))
             row.add_prefix(Gtk.Image(icon_name="folder-symbolic" if refused.is_dir else "action-unavailable-symbolic"))
             row.connect("activated", lambda _r, p=refused.path: reveal(window, os.path.join(pair.local, p)))
@@ -937,13 +939,18 @@ class PreviewDialog(Adw.Dialog):
         ]
         if plan.empty:
             group.add(Adw.ActionRow(title=_("Nothing to do: the two folders already match.")))
+        rt = self.engine.runtime.get(self.pair_id)
+        why = {r.path: preflight.refused_reason(r.code, r.other) for r in (rt.pending_refused if rt else [])}
         for paths, title, icon in rows:
             if not paths:
                 continue
             row = Adw.ExpanderRow(title=title, subtitle=ngettext("{n} file", "{n} files", len(paths)).format(n=len(paths)))
             row.add_prefix(Gtk.Image(icon_name=icon))
             for path in paths[:PREVIEW_LIMIT]:
-                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2))
+                # a left-out name says why: most of them look perfectly normal
+                reason = why.get(path, "") if paths is plan.refused else ""
+                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2,
+                                          subtitle=GLib.markup_escape_text(reason), subtitle_lines=3))
             if len(paths) > PREVIEW_LIMIT:
                 row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=len(paths) - PREVIEW_LIMIT)))
             group.add(row)

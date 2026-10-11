@@ -14,7 +14,7 @@ import _setup  # noqa: F401
 from spola.config import Config, Pair
 from spola.preflight import (
     check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
-    refused_paths, root_identity, scan_names,
+    refused_paths, refused_reason, root_identity, scan_names,
 )
 from spola.rclone import exclude_lines, filter_escape
 
@@ -176,6 +176,11 @@ class RefusedPathsTest(unittest.TestCase):
                                                  skip=lambda rel: rel.startswith("SyncTrash/"))}
             self.assertIn("Report.pdf", got)
             self.assertNotIn("report.PDF", got)
+            # the name that stays is told, so the user sees why a normal-looking name is left out
+            (left,) = [r for r in refused_paths(tmp, "/x", skip=lambda rel: rel.startswith("SyncTrash/"))
+                       if r.code == "case-collision"]
+            self.assertEqual(left.other, "Report.pdf")
+            self.assertIn("Report.pdf", refused_reason(left.code, left.other))
 
     def test_exclude_patterns_are_literal(self):
         self.assertEqual(filter_escape("a[1]*?{x}.txt"), "/a\\[1\\]\\*\\?\\{x\\}.txt")
