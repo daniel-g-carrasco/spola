@@ -79,7 +79,10 @@ class TrayTest(unittest.TestCase):
         self.tray = TrayIcon("io.example.App", "App", on_activate=lambda: self.clicked.append("activate"))
         self.tray.set_menu([MenuItem("Sync now", lambda: self.clicked.append("sync")),
                             MenuItem(separator=True),
-                            MenuItem("Status: ok")])
+                            MenuItem("Status: ok"),
+                            MenuItem("Recent", children=[
+                                MenuItem("my_report.odt", lambda: self.clicked.append("recent"),
+                                         icon="go-up-symbolic")])])
         self.tray.start(self.app_conn)
         spin_until(lambda: self.registered)
 
@@ -129,13 +132,50 @@ class TrayTest(unittest.TestCase):
                           GLib.Variant("(iias)", (0, -1, [])))
         _rev, (_id, _props, children) = reply.unpack()
         labels = [c[1].get("label") for c in children]
-        self.assertEqual(labels, ["Sync now", None, "Status: ok"])
+        self.assertEqual(labels, ["Sync now", None, "Status: ok", "Recent"])
         self.assertFalse(children[2][1]["enabled"])       # no action: shown as text
         self.call("/StatusNotifierItem/Menu", "com.canonical.dbusmenu", "Event",
                   GLib.Variant("(isvu)", (1, "clicked", GLib.Variant("s", ""), 0)))
         self.call(ITEM_PATH, "org.kde.StatusNotifierItem", "Activate", GLib.Variant("(ii)", (0, 0)))
         spin(0.3)
         self.assertEqual(self.clicked, ["sync", "activate"])
+
+    def test_submenu(self):
+        menu = "/StatusNotifierItem/Menu"
+        _rev, (_id, _props, children) = self.call(menu, "com.canonical.dbusmenu", "GetLayout",
+                                                  GLib.Variant("(iias)", (0, -1, []))).unpack()
+        recent_id, recent_props, recent_children = children[3]
+        self.assertEqual(recent_props["children-display"], "submenu")
+        self.assertTrue(recent_props["enabled"])
+        (file_id, file_props, _c), = recent_children
+        self.assertEqual(file_props["label"], "my__report.odt")     # "_" is a mnemonic in dbusmenu
+        self.assertEqual(file_props["icon-name"], "go-up-symbolic")
+        # a host may ask for one submenu only
+        _rev, (sub_id, _p, sub_children) = self.call(menu, "com.canonical.dbusmenu", "GetLayout",
+                                                     GLib.Variant("(iias)", (recent_id, 1, []))).unpack()
+        self.assertEqual((sub_id, [c[0] for c in sub_children]), (recent_id, [file_id]))
+        (props,) = self.call(menu, "com.canonical.dbusmenu", "GetGroupProperties",
+                             GLib.Variant("(aias)", ([file_id], []))).unpack()
+        self.assertEqual(props[0][1]["label"], "my__report.odt")
+        self.call(menu, "com.canonical.dbusmenu", "Event",
+                  GLib.Variant("(isvu)", (file_id, "clicked", GLib.Variant("s", ""), 0)))
+        spin(0.3)
+        self.assertEqual(self.clicked, ["recent"])
+
+    def test_menu_updates_are_throttled(self):
+        updates = []
+        self.host.signal_subscribe(None, "com.canonical.dbusmenu", "LayoutUpdated", "/StatusNotifierItem/Menu",
+                                   None, Gio.DBusSignalFlags.NONE, lambda *a: updates.append(1))
+        spin(2.2)
+        for i in range(20):
+            self.tray.set_menu([MenuItem(f"file-{i}.txt")])
+            spin(0.05)
+        spin(2.5)
+        self.assertGreaterEqual(len(updates), 1)
+        self.assertLessEqual(len(updates), 2)
+        _rev, (_id, _props, children) = self.call("/StatusNotifierItem/Menu", "com.canonical.dbusmenu", "GetLayout",
+                                                  GLib.Variant("(iias)", (0, -1, []))).unpack()
+        self.assertEqual([c[1]["label"] for c in children], ["file-19.txt"])
 
 
 if __name__ == "__main__":

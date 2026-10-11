@@ -1,9 +1,12 @@
-"""The few Koofr REST calls Spola makes itself, all read-only, with the
-same app password as rclone (HTTP Basic). Everything that changes files
-goes through rclone.
+"""The few Koofr REST calls Spola makes itself, with the same app password
+as rclone (HTTP Basic). Everything that changes files goes through rclone;
+the only write here is creating an empty folder, when the user asks for one
+while choosing where a new folder syncs to.
 
-  GET /api/v2/mounts                  the primary mount id (links to the web app)
-  GET /api/v2.1/user/activity         what changed on Koofr, and who changed it
+  GET  /api/v2/mounts                         the primary mount id (links to the web app)
+  GET  /api/v2.1/user/activity                what changed on Koofr, and who changed it
+  GET  /api/v2/mounts/{id}/files/list         the folders on Koofr, one level at a time
+  POST /api/v2/mounts/{id}/files/folder       a new empty folder
 
 The activity feed is not documented by Koofr (it is used by the web app and
 by third-party tools): Spola treats it as a doorbell only. When it fails,
@@ -53,6 +56,31 @@ def _get(user: str, password: str, path: str, params: dict | None = None) -> dic
         raise ApiError(f"HTTP {e.code} for {path}") from None
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
         raise ApiError(f"{path}: {e}") from None
+
+
+def _post(user: str, password: str, path: str, params: dict, body: dict) -> None:
+    url = KOOFR_WEB + path + "?" + urllib.parse.urlencode(params)
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "Authorization": f"Basic {token}", "Content-Type": "application/json",
+        "User-Agent": f"Spola/{__version__}"})
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT):
+            pass
+    except urllib.error.HTTPError as e:
+        raise ApiError(f"HTTP {e.code} for {path}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise ApiError(f"{path}: {e}") from None
+
+
+def list_folders(user: str, password: str, mount_id: str, path: str) -> list[str]:
+    """The names of the folders inside `path` on Koofr (one level)."""
+    data = _get(user, password, f"/api/v2/mounts/{mount_id}/files/list", {"path": path or "/"})
+    return sorted((f["name"] for f in data.get("files", []) if f.get("type") == "dir"), key=str.casefold)
+
+
+def create_folder(user: str, password: str, mount_id: str, parent: str, name: str) -> None:
+    _post(user, password, f"/api/v2/mounts/{mount_id}/files/folder", {"path": parent or "/"}, {"name": name})
 
 
 def primary_mount_id(user: str, password: str) -> str:

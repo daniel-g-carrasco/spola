@@ -18,7 +18,7 @@ from spola import engine as engine_mod
 from spola import koofr_api
 from spola.account import Credentials
 from spola.config import Config, Pair
-from spola.engine import Engine, Status, conflict_name_pattern, slept
+from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
 from spola.paths import Paths
 from spola.preflight import root_identity
 from spola.rclone import Mode, Result
@@ -161,6 +161,17 @@ class EngineTest(unittest.TestCase):
         spin_until(lambda: False, 2)
         self.assertEqual(self.remote_files(), [])
         self.assertIs(self.status(), Status.NEEDS_SETUP)
+        self.engine.set_paused("p1", True)                # on hold before its first alignment
+        self.assertIs(self.status(), Status.PAUSED)
+        self.assertIs(self.engine.overall(), Status.PAUSED)      # every pair is paused
+        other = Pair("p2", str(self.tmp), "/other", initialized=True)
+        self.engine.cfg.pairs.append(other)
+        self.engine.runtime["p2"] = PairRuntime(status=Status.OK)
+        self.assertIs(self.engine.overall(), Status.OK)          # one on hold says nothing about the rest
+        self.engine.cfg.pairs.remove(other)
+        del self.engine.runtime["p2"]
+        self.engine.set_paused("p1", False)
+        self.assertIs(self.status(), Status.NEEDS_SETUP)
 
     def test_full_cycle(self):
         self.align()
@@ -169,6 +180,8 @@ class EngineTest(unittest.TestCase):
         (self.local / "new.txt").write_text("hello")
         self.assertTrue(spin_until(lambda: "new.txt" in self.remote_files(), 30))
         self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
+        # the tray's recent files: this one, newest first, deletions never listed
+        self.assertEqual([(f.path, f.direction) for f in self.engine.recent.items][:1], [("new.txt", "up")])
 
         # a mass delete stops and waits for the user
         for i in range(10):
@@ -185,6 +198,7 @@ class EngineTest(unittest.TestCase):
         self.assertIs(results[0].result, Result.OK)
         self.assertEqual(len(self.remote_files()), 21)
         self.assertIs(self.status(), Status.OK)
+        self.assertNotIn("f00.txt", [f.path for f in self.engine.recent.items])
 
         # paused: changes wait
         self.engine.set_paused("p1", True)

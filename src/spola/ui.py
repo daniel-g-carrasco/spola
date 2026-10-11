@@ -1,0 +1,169 @@
+"""What the window, its pages and dialogs share: status names and icons,
+the one-line status of a pair, paths shown the GNOME way, threads."""
+
+from __future__ import annotations
+
+import os
+import threading
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+from gi.repository import Gio, GLib, Gtk  # noqa: E402
+
+from . import APP_ID, conflicts  # noqa: E402
+from .engine import Engine, Status  # noqa: E402
+from .i18n import _, ngettext  # noqa: E402
+from .rclone import Result, describe  # noqa: E402
+
+STATUS_ICONS = {
+    Status.OK: "-synced-symbolic",
+    Status.SYNCING: "-syncing-symbolic",
+    Status.PENDING: "-syncing-symbolic",
+    Status.PAUSED: "-paused-symbolic",
+    Status.NEEDS_SETUP: "-paused-symbolic",
+    Status.ERROR: "-error-symbolic",
+    Status.NEEDS_REPAIR: "-error-symbolic",
+    Status.NEEDS_CONFIRMATION: "-attention-symbolic",
+    Status.CONFLICTS: "-attention-symbolic",
+    Status.SKIPPED: "-attention-symbolic",
+}
+
+# what the user has to look at before the pair can go on (SKIPPED goes on:
+# only the files Koofr refuses are left out)
+NEEDS_LOOK = (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.NEEDS_SETUP, Status.CONFLICTS)
+ATTENTION = (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED)
+
+
+def status_icon(status: Status) -> str:
+    return APP_ID + STATUS_ICONS[status]
+
+
+def status_css(status: Status) -> list[str]:
+    """Colour only where something is wrong: a list of green ticks says less
+    than a quiet list with one orange icon."""
+    if status in (Status.ERROR, Status.NEEDS_REPAIR):
+        return ["error"]
+    if status in (Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED, Status.NEEDS_SETUP):
+        return ["warning"]
+    return ["dim-label"]
+
+
+def status_text(status: Status) -> str:
+    return {
+        Status.OK: _("Up to date"),
+        Status.SYNCING: _("Syncing"),
+        Status.PENDING: _("Changes waiting to be synced"),
+        Status.PAUSED: _("Paused"),
+        Status.NEEDS_SETUP: _("First alignment to confirm"),
+        Status.ERROR: _("Error"),
+        Status.NEEDS_REPAIR: _("Needs repair"),
+        Status.NEEDS_CONFIRMATION: _("Waiting for your confirmation"),
+        Status.CONFLICTS: _("Conflicts to check"),
+        Status.SKIPPED: _("Some files cannot be synced"),
+    }[status]
+
+
+def progress_text(stats: dict | None) -> tuple[str, float | None]:
+    """A short line for the row and the fraction for its bar (None while
+    the two sides are still being compared)."""
+    if not stats:
+        return "", None
+    total, done = stats.get("totalBytes") or 0, stats.get("bytes") or 0
+    files, total_files = stats.get("transfers") or 0, stats.get("totalTransfers") or 0
+    if not total_files and not total:
+        checks = stats.get("checks") or 0
+        return (_("Comparing files ({n} checked)").format(n=checks) if checks else ""), None
+    text = ngettext("{done} of {total} file", "{done} of {total} files", total_files).format(done=files, total=total_files)
+    speed = stats.get("speed") or 0
+    if speed:
+        text += " · " + _("{speed}/s").format(speed=GLib.format_size(int(speed)))
+    fraction = done / total if total else (files / total_files if total_files else 0.0)
+    return text, max(0.0, min(1.0, fraction))
+
+
+def when(timestamp: float) -> str:
+    """10:42 today, 9 Oct otherwise."""
+    moment = GLib.DateTime.new_from_unix_local(int(timestamp))
+    today = GLib.DateTime.new_now_local()
+    same_day = (moment.get_year(), moment.get_day_of_year()) == (today.get_year(), today.get_day_of_year())
+    return moment.format("%H:%M" if same_day else "%-d %b")
+
+
+def syncing_for_real(engine: Engine, pair_id: str) -> bool:
+    rt = engine.runtime.get(pair_id)
+    return bool(rt and rt.status is Status.SYNCING and not (rt.task and rt.task.dry_run))
+
+
+def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
+    """What goes after the status: the progress, how many conflicts, when
+    the last sync was. `short` is for the list (one line), else the pair page."""
+    rt = engine.runtime.get(pair_id)
+    if rt is None:
+        return ""
+    if rt.status is Status.SYNCING:
+        if syncing_for_real(engine, pair_id):
+            return progress_text(rt.stats)[0]
+        return rt.message
+    if rt.status is Status.CONFLICTS:
+        n = len(engine.conflicts(pair_id))           # conflicts, not copies
+        return ngettext("{n} file", "{n} files", n).format(n=n)
+    if rt.status is Status.SKIPPED:
+        n = len(rt.refused)
+        return ngettext("{n} file left out", "{n} files left out", n).format(n=n)
+    if rt.status is Status.OK and rt.last_sync:
+        if short:
+            return when(rt.last_sync)
+        line = _("Last sync: {time}").format(time=when(rt.last_sync))
+        summary = describe(rt.last_outcome.plan) if rt.last_outcome and rt.last_outcome.result is Result.OK else ""
+        return f"{line}: {summary}" if summary else line
+    if rt.message and rt.message != status_text(rt.status):
+        return rt.message
+    return ""
+
+
+def status_line(engine: Engine, pair_id: str) -> str:
+    rt = engine.runtime.get(pair_id)
+    if rt is None:
+        return ""
+    detail = status_detail(engine, pair_id, short=True)
+    return status_text(rt.status) + (" · " + detail if detail else "")
+
+
+def display_path(path: str) -> str:
+    home = str(Path.home())
+    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+
+
+def place_name(folder: str) -> str:
+    """Where a synced folder lives, for a group title: the home folder by
+    its name (a lone "~" says nothing), anything else as ~/path."""
+    homes = {str(Path.home()), os.path.realpath(Path.home())}
+    return _("Home Folder") if folder in homes else display_path(folder)
+
+
+def reveal(window, path: str) -> None:
+    """Show the file in the file manager, selected (the OpenURI portal's
+    OpenDirectory inside the sandbox)."""
+    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(window, None, None, None)
+
+
+def file_details(copy: conflicts.Copy) -> str:
+    moment = GLib.DateTime.new_from_unix_local(int(copy.mtime)).format("%d %b %H:%M")
+    return f"{GLib.format_size(copy.size)} · {moment}"
+
+
+def run_in_thread(work, done) -> None:
+    """work() in a thread, done(result, error) back on the main loop."""
+    def target():
+        try:
+            result, error = work(), None
+        except Exception as e:  # shown to the user, never swallowed
+            result, error = None, e
+        GLib.idle_add(lambda: done(result, error) and False)
+    threading.Thread(target=target, daemon=True).start()
+
+
+def escape(text: str) -> str:
+    return GLib.markup_escape_text(text)

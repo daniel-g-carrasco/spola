@@ -89,7 +89,8 @@ def check_overlap(local: str, remote: str, cfg: Config, ignore_id: str | None = 
         other_real = _real(other.local)
         if _is_within(real, other_real) or _is_within(other_real, real):
             problems.append(Problem("local-overlap", _("This folder overlaps with the folder of another pair."), other.local))
-        if _is_within(remote, other.remote) or _is_within(other.remote, remote):
+        theirs, ours = other.remote.casefold(), remote.casefold()     # Koofr ignores case
+        if _is_within(ours, theirs) or _is_within(theirs, ours):
             problems.append(Problem("remote-overlap", _("This Koofr folder overlaps with the Koofr folder of another pair."), other.remote))
     return problems
 

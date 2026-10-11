@@ -14,14 +14,15 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, autostart, config, nautilus_integration, portal, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, autostart, config, nautilus_integration, portal, recent, secrets  # noqa: E402
 from .account import Credentials  # noqa: E402
 from .dbus_service import SyncService  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .window import MainWindow, PreferencesDialog, about_dialog, status_icon, status_text  # noqa: E402
+from .ui import status_icon, status_text  # noqa: E402
+from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
 
@@ -132,6 +133,25 @@ class SpolaApp(Adw.Application):
                 self._window().review((waiting or self.engine.cfg.pairs)[0].id)
                 return False
             GLib.timeout_add(500, review_first)
+        pair_name = os.environ.get("SPOLA_DEV_OPEN_PAIR")
+        if pair_name:
+            def open_pair():
+                pair = next((p for p in self.engine.cfg.pairs if p.name == pair_name), None)
+                if pair:
+                    self._window().show_pair(pair.id)
+            GLib.timeout_add(500, lambda: open_pair() and False)
+        add_local = os.environ.get("SPOLA_DEV_OPEN_ADD")
+        if add_local is not None:
+            def open_add():
+                from .add_folder import AddFolderDialog
+                dialog = AddFolderDialog(self._window())
+                dialog.present(self._window())
+                if add_local:
+                    dialog.set_local(os.path.join(os.path.expanduser("~"), add_local))
+                browse = os.environ.get("SPOLA_DEV_OPEN_ADD_BROWSE")
+                if browse:
+                    GLib.timeout_add(1500, lambda: dialog.browse(browse) and False)
+            GLib.timeout_add(500, lambda: open_add() and False)
         shot = os.environ.get("SPOLA_SCREENSHOT")
         if shot:   # developer aid: save the window as PNG after a few seconds
             GLib.timeout_add(int(float(os.environ.get("SPOLA_SCREENSHOT_DELAY", "3")) * 1000),
@@ -174,8 +194,16 @@ class SpolaApp(Adw.Application):
             self._last_summary = summary
             portal.set_status(self.get_dbus_connection(), summary)
         paused = engine.cfg.paused_all
+        files = []
+        transferring = self._transferring()
+        if transferring:
+            files.append(MenuItem(_("Transferring Now"), children=transferring))
+        files.append(MenuItem(_("Recently Synced Files"), children=self._recent() or [
+            MenuItem(_("No recently synced files"))]))
         self.tray.set_menu([
             MenuItem(summary),
+            MenuItem(separator=True),
+            *files,
             MenuItem(separator=True),
             MenuItem(_("Sync Now"), (lambda: engine.sync_all("manual")) if engine.creds and not paused else None),
             MenuItem(_("Resume") if paused else _("Pause"), lambda: engine.set_paused_all(not paused)),
@@ -183,6 +211,45 @@ class SpolaApp(Adw.Application):
             MenuItem(separator=True),
             MenuItem(_("Quit"), self._quit),
         ])
+
+    def _transferring(self) -> list[MenuItem]:
+        """What rclone is copying right now (a few files at a time)."""
+        engine = self.engine
+        task = engine.active
+        rt = engine.runtime.get(task.pair_id) if task and not task.dry_run else None
+        pair = engine.cfg.pair(task.pair_id) if rt else None
+        if pair is None:
+            return []
+        items = []
+        for path, direction in recent.transferring(rt.transferring):
+            folder = os.path.join(pair.local, os.path.dirname(path))
+            items.append(MenuItem(os.path.basename(path), lambda p=folder: self._open_folder(p),
+                                  icon="go-up-symbolic" if direction == "up" else "go-down-symbolic"))
+        return items
+
+    def _recent(self) -> list[MenuItem]:
+        items = []
+        for f in self.engine.recent.items:
+            pair = self.engine.cfg.pair(f.pair_id)
+            if pair is not None:
+                path = os.path.join(pair.local, f.path)
+                items.append(MenuItem(os.path.basename(f.path), lambda p=path: self._reveal(p),
+                                      icon="go-up-symbolic" if f.direction == "up" else "go-down-symbolic"))
+        return items
+
+    def _reveal(self, path: str) -> None:
+        """The file selected in the file manager, as Koofr Desktop does; its
+        folder if the file is gone since."""
+        if os.path.exists(path):
+            Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(None, None, None, None)
+        else:
+            self._open_folder(os.path.dirname(path))
+
+    def _open_folder(self, path: str) -> None:
+        while path and not os.path.isdir(path):
+            path = os.path.dirname(path)
+        if path:
+            Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(None, None, None, None)
 
     def _review(self, pair_id: str) -> None:
         """From a notification: show the window on what needs attention."""
