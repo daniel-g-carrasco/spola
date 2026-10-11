@@ -76,7 +76,8 @@ modules:
       - install -Dm644 data/io.github.daniel_g_carrasco.spola.desktop -t /app/share/applications
       - install -Dm644 data/io.github.daniel_g_carrasco.spola.metainfo.xml -t /app/share/metainfo
       - install -Dm644 data/io.github.daniel_g_carrasco.spola.service -t /app/share/dbus-1/services
-      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.daniel_g_carrasco.spola.svg -t /app/share/icons/hicolor/scalable/apps
+      # the app icon and the status badges in colour (tray, top of the window)
+      - install -Dm644 data/icons/hicolor/scalable/apps/*.svg -t /app/share/icons/hicolor/scalable/apps
       # the app icon's symbolic version and the tray states, exported to the host by their name
       - install -Dm644 data/icons/hicolor/symbolic/apps/*.svg -t /app/share/icons/hicolor/symbolic/apps
       - install -Dm644 data/icons/hicolor/64x64/apps/io.github.daniel_g_carrasco.spola.png -t /app/share/icons/hicolor/64x64/apps

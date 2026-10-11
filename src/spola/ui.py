@@ -40,6 +40,25 @@ def status_icon(status: Status) -> str:
     return APP_ID + STATUS_ICONS[status]
 
 
+BADGES = {
+    Status.OK: "synced", Status.SYNCING: "syncing", Status.PENDING: "syncing", Status.PAUSED: "paused",
+    Status.NEEDS_SETUP: "attention", Status.NEEDS_CONFIRMATION: "attention", Status.CONFLICTS: "attention",
+    Status.SKIPPED: "attention", Status.ERROR: "error", Status.NEEDS_REPAIR: "error",
+}
+
+
+def status_badge(status: Status) -> str:
+    """The full-colour version: blue while syncing, orange to look at, red
+    for errors, green and grey for up to date and paused."""
+    return f"{APP_ID}-status-{BADGES[status]}"
+
+
+def tray_icon(status: Status) -> str:
+    """Quiet when there is no news: up to date and paused keep the panel's
+    own colour (symbolic icons); syncing, attention and errors get theirs."""
+    return status_icon(status) if status in (Status.OK, Status.PAUSED) else status_badge(status)
+
+
 def status_css(status: Status) -> list[str]:
     """Colour only where something is wrong: a list of green ticks says less
     than a quiet list with one orange icon."""

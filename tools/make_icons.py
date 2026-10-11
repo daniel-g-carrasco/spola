@@ -6,6 +6,9 @@
   symbolic/apps/<APP_ID>-symbolic.svg         its symbolic version
   symbolic/apps/<APP_ID>-<state>-symbolic.svg tray states: synced, syncing,
                                               paused, error, attention
+  scalable/apps/<APP_ID>-status-<state>.svg   the same states in colour: the
+                                              tray when there is news, the
+                                              status at the top of the window
   scalable/emblems/emblem-spola-<state>-symbolic.svg
                                               Files (Nautilus) emblems: synced,
                                               syncing, pending, error, conflict,
@@ -67,9 +70,10 @@ def symbolic(*paths: str, cls: str = "") -> str:
             f"{body}</svg>\n")
 
 
-def ring_arrow(cx, cy, r_out, r_in, start, end, tip_deg=32) -> str:
+def ring_arrow(cx, cy, r_out, r_in, start, end, tip_deg=32, head=0.9) -> str:
     """A ring segment from `start` to `end` degrees (clockwise, 0 = east)
-    with an arrow head at `end`, its tip `tip_deg` further on."""
+    with an arrow head at `end`, its tip `tip_deg` further on; the head is
+    wider than the ring by `head` times the ring's width on each side."""
     def pt(r, a):
         return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
     large = 1 if (end - start) % 360 > 180 else 0
@@ -78,10 +82,32 @@ def ring_arrow(cx, cy, r_out, r_in, start, end, tip_deg=32) -> str:
     mid = (r_out + r_in) / 2
     width = r_out - r_in
     tip = pt(mid, end + tip_deg)
-    head_out, head_in = pt(r_out + width * 0.9, end), pt(r_in - width * 0.9, end)
+    head_out, head_in = pt(r_out + width * head, end), pt(r_in - width * head, end)
     return (f"M{fmt(o1[0])},{fmt(o1[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large} 1 {fmt(o2[0])},{fmt(o2[1])} "
             f"L{fmt(head_out[0])},{fmt(head_out[1])} L{fmt(tip[0])},{fmt(tip[1])} "
             f"L{fmt(head_in[0])},{fmt(head_in[1])} L{fmt(i2[0])},{fmt(i2[1])} "
+            f"A{fmt(r_in)},{fmt(r_in)} 0 {large} 0 {fmt(i1[0])},{fmt(i1[1])} Z")
+
+
+def circular_arrow(cx, cy, mid, width, start, end, head_width, head_length) -> str:
+    """A ring segment `width` wide on the circle of radius `mid`, from `start`
+    to `end` degrees (clockwise, 0 = east, y down), ending in an isosceles
+    arrow head: its base is radial, centred on the ring, `head_width` long;
+    its tip lies on the tangent at the end, `head_length` from the base, so
+    both sides are equal (a tip on the ring's own circle would lean inwards)."""
+    def pt(r, a):
+        return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
+    r_out, r_in = mid + width / 2, mid - width / 2
+    large = 1 if (end - start) % 360 > 180 else 0
+    o1, o2 = pt(r_out, start), pt(r_out, end)
+    i1, i2 = pt(r_in, start), pt(r_in, end)
+    base_out, base_in = pt(mid + head_width / 2, end), pt(mid - head_width / 2, end)
+    a = math.radians(end)
+    mx, my = pt(mid, end)
+    tip = (mx - head_length * math.sin(a), my + head_length * math.cos(a))     # clockwise tangent
+    return (f"M{fmt(o1[0])},{fmt(o1[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large} 1 {fmt(o2[0])},{fmt(o2[1])} "
+            f"L{fmt(base_out[0])},{fmt(base_out[1])} L{fmt(tip[0])},{fmt(tip[1])} "
+            f"L{fmt(base_in[0])},{fmt(base_in[1])} L{fmt(i2[0])},{fmt(i2[1])} "
             f"A{fmt(r_in)},{fmt(r_in)} 0 {large} 0 {fmt(i1[0])},{fmt(i1[1])} Z")
 
 
@@ -115,6 +141,54 @@ def app_symbolic() -> str:
     return symbolic(circle(8, 8, 7.5) + " " + motif)
 
 
+def sync_arrows() -> str:
+    """The two arrows of "syncing", for the tray and the window: the app's
+    trails with arrow heads instead of its balls. Heads large enough to read
+    at 16 px (the first ones were lost in the tray): the ring sits closer to
+    the centre to leave them room inside the disk."""
+    return " ".join(circular_arrow(8, 8, 4.0, 1.9, start, end, head_width=4.7, head_length=3.3)
+                    for start, end in ((30, 138), (210, 318)))
+
+
+def emblem_sync_arrows() -> str:
+    """The same arrows for the Files emblem, thinner: Files draws it small."""
+    return " ".join(circular_arrow(8, 8, 4.25, 1.5, start, end, head_width=4.1, head_length=2.9)
+                    for start, end in ((36, 146), (216, 326)))
+
+
+GLYPHS = {
+    "check": poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
+    "pause": rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7),
+    "bang": rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15),
+    "triangle_bang": rect(7.1, 5.2, 1.8, 5) + " " + circle(8, 12.2, 1.05),
+}
+TRIANGLE = poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)])
+
+# GNOME palette: colour only for the states that are news
+COLORS = {"synced": "#26a269", "syncing": "#3584e4", "paused": "#77767b", "error": "#c01c28",
+          "attention": "#e66100"}
+
+
+def color_icon(shape: str, color: str, glyph: str) -> str:
+    """A full-colour status badge: the coloured shape with a white glyph on
+    top, readable on light and dark panels alike (no recolouring: the name
+    has no -symbolic suffix)."""
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
+            f'<path fill="{color}" d="{shape}"/><path fill="#ffffff" fill-rule="evenodd" d="{glyph}"/></svg>\n')
+
+
+def color_icons() -> dict[str, str]:
+    disk = circle(8, 8, 7.5)
+    return {
+        "synced": color_icon(disk, COLORS["synced"], GLYPHS["check"]),
+        "syncing": color_icon(disk, COLORS["syncing"], sync_arrows()),
+        "paused": color_icon(disk, COLORS["paused"], GLYPHS["pause"]),
+        "error": color_icon(disk, COLORS["error"], GLYPHS["bang"]),
+        "attention": color_icon(TRIANGLE, COLORS["attention"], GLYPHS["triangle_bang"]),
+    }
+
+
 def symbolic_icons() -> dict[str, str]:
     disk = circle(8, 8, 7.5)
     icons = {
@@ -123,8 +197,7 @@ def symbolic_icons() -> dict[str, str]:
         # the app's motif in motion: its two trails, arrow heads instead of the balls,
         # cut out of the same disk as the other states; arcs shortened so a tip
         # never touches the start of the other trail
-        "syncing": symbolic(disk + " " + " ".join(ring_arrow(8, 8, 5, 3.5, start, end, tip_deg=26)
-                                                  for start, end in ((40, 160), (220, 340)))),
+        "syncing": symbolic(disk + " " + sync_arrows()),
         "paused": symbolic(disk + " " + rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7)),
         "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15)),
         "attention": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
@@ -186,8 +259,7 @@ def emblem_icons() -> dict[str, str]:
     return {
         "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
                            cls="success"),
-        "syncing": symbolic(disk + " " + " ".join(ring_arrow(8, 8, 5, 3.5, start, end, tip_deg=26)
-                                                   for start, end in ((40, 160), (220, 340)))),
+        "syncing": symbolic(disk + " " + emblem_sync_arrows()),
         "pending": symbolic(ring + " " + clock_hands(7.3, 4.2, 1.4, 7.3, 11.1)),
         "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error"),
         "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
@@ -286,6 +358,8 @@ def main() -> None:
         (emblems / f"emblem-spola-{state}-symbolic.svg").write_text(svg, encoding="utf-8")
     apps = ROOT / "scalable" / "apps"
     apps.mkdir(parents=True, exist_ok=True)
+    for state, svg in color_icons().items():
+        (apps / f"{APP_ID}-status-{state}.svg").write_text(svg, encoding="utf-8")
     (apps / f"{APP_ID}.svg").write_text(clean_app_icon(SOURCE / "spola-darkbg.svg"), encoding="utf-8")
     write_pngs(apps / f"{APP_ID}.svg")
     print(f"icons written to {ROOT}")

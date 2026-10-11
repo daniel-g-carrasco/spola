@@ -84,6 +84,10 @@ class SyncService:
         self.connection = connection
         info = Gio.DBusNodeInfo.new_for_xml(XML).interfaces[0]
         self._reg = connection.register_object(OBJECT_PATH, info, self._call, None, None)
+        # The application owns its bus name a moment before this object
+        # exists: a Files extension that asked in that moment got an error.
+        # "Every root changed" makes it ask again, now that we answer.
+        GLib.idle_add(lambda: self._emit("RootChanged", GLib.Variant("(s)", ("",))) and False)
 
     def stop(self) -> None:
         for handler in self._handlers:

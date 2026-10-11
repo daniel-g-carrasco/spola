@@ -42,12 +42,15 @@ populate() {
     cp -rp "$home/Work/Invoices" "$remote/Accounting/"
 }
 
-changes() {
+changes() {   # SCENE_QUIET=1: no changes at all; SCENE_NO_CONFLICT=1: everything but the conflict
     local home="$1" remote="$2"
+    [ -z "${SCENE_QUIET:-}" ] || return 0
     head -c 3000 /dev/urandom > "$home/Documents/Invoices/2026-03.pdf"
     head -c 3000 /dev/urandom > "$home/Documents/offer.odt"
-    echo "edited on this computer" > "$home/Projects/report.odt"
-    echo "edited on another computer, through Koofr" > "$remote/Projects/report.odt"
+    if [ -z "${SCENE_NO_CONFLICT:-}" ]; then
+        echo "edited on this computer" > "$home/Projects/report.odt"
+        echo "edited on another computer, through Koofr" > "$remote/Projects/report.odt"
+    fi
     echo "lock" > "$home/Projects/~\$budget-2026.ods"
     head -c 6000000 /dev/urandom > "$home/Photos/2026/panorama.tif"
 }
