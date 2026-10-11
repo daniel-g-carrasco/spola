@@ -31,6 +31,8 @@
       <li xml:lang="it">I file sostituiti ed eliminati restano in un backup locale per 30 giorni</li>
       <li>Add a folder by browsing your Koofr folders, with suggestions</li>
       <li xml:lang="it">Aggiungi una cartella sfogliando quelle su Koofr, con dei suggerimenti</li>
+      <li>Sync status and a Koofr menu in Files, Nemo, Caja and Dolphin; the Koofr menu in Thunar</li>
+      <li xml:lang="it">Stato della sincronizzazione e menu Koofr in File, Nemo, Caja e Dolphin; il menu Koofr in Thunar</li>
       <li>Status icon in the tray, notifications only when something needs you</li>
       <li xml:lang="it">Icona di stato nel tray, notifiche solo quando serve</li>
     </ul>
@@ -99,9 +101,19 @@
       <caption xml:lang="it">Lo stato di ogni file in File</caption>
       <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/files-emblems.png</image>
     </screenshot>
+    <screenshot>
+      <caption>Sync status in Dolphin</caption>
+      <caption xml:lang="it">Lo stato della sincronizzazione in Dolphin</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.0/data/screenshots/dolphin.png</image>
+    </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.3.0" date="2026-10-12" type="development">
+      <description>
+        <p>Spola now works with the other common file managers: emblems and the Koofr menu in Nemo and Caja too, the Koofr menu in Dolphin and Thunar, and the overlay icons in Dolphin with a small plugin you build on your system. In Dolphin and Thunar the share link is shown by Spola with a Copy button. The emblems carry their colours for the file managers that do not recolour them, and the "left out" one no longer has a gap where the bar meets the ring.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-10-11" type="development">
       <description>
         <p>Fixed: a change in a folder while its preview was running could queue a normal sync behind it, on a folder that was waiting for a repair.</p>
