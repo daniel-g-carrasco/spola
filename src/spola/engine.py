@@ -391,7 +391,10 @@ class Engine(GObject.Object):
         if pair is None or not pair.initialized or pair.paused:
             return
         rt = self.runtime[pair_id]
-        if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+        # while a preview runs the status says "syncing": what counts is the
+        # status it will restore (a pair waiting for a repair keeps waiting)
+        waiting = rt.before_run[0] if rt.task and rt.task.dry_run else rt.status
+        if waiting in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             return      # waiting for the user
         if self.blocked_reason() and reason != "manual":
             if rt.run is None:

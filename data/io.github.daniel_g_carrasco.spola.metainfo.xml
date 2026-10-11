@@ -102,6 +102,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.2.1" date="2026-10-11" type="development">
+      <description>
+        <p>Fixed: a change in a folder while its preview was running could queue a normal sync behind it, on a folder that was waiting for a repair.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-11" type="development">
       <description>
         <p>A new window, after the GNOME guidelines: the folders grouped by where they are, the overall status at the top, a page for each folder. Adding a folder suggests the matching folder on Koofr and lets you browse your Koofr folders or create one. The tray icon stays quiet when everything is up to date, turns blue while syncing, orange or red when something needs you, and its menu lists the files being transferred and the last ones synced. Fixed: Files showed no emblems after Spola restarted, and the Flatpak installed the Files extension where Files does not look.</p>
