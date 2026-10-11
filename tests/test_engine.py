@@ -148,8 +148,13 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("shown.txt", self.remote_files())
         results = []
         self.engine.preview("p1", Mode.RESYNC, False, lambda out, err: results.append((out, err)))
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].task is not None, 10))
+        # a local change while the preview runs must not queue a normal run behind it
+        self.engine.request_sync("p1", "local")
+        self.assertFalse([t for t in self.engine.queue if t.pair_id == "p1"])
         self.assertTrue(spin_until(lambda: results, 30))
         self.assertEqual(results[0][0].plan.upload, ["shown.txt"])
+        spin_until(lambda: False, 0.5)
         self.assertIs(self.status(), Status.NEEDS_REPAIR)      # a preview decides nothing
         self.engine.confirm("p1", Mode.RESYNC, False)
         self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
