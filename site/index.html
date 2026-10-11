@@ -126,12 +126,19 @@
     <figcaption>A conflict: both versions with size and date, a click to see them in Files, a menu to decide.</figcaption>
   </figure>
 
-  <h2>In Files</h2>
+  <h2>In your file manager</h2>
   <p>
-    Turn it on in the preferences and Files (Nautilus) shows an emblem on every synced file and folder:
+    Turn it on in the preferences and your file manager shows an emblem on every synced file and folder:
     up to date, syncing, waiting, error, conflict, left out. Right-click gives you <em>Sync Now</em>,
-    <em>Open on Koofr</em> and <em>Copy Koofr Share Link</em>. The extension only reads from a cache, so Files
-    stays as fast as it was. It needs <code>nautilus-python</code> on your system (Margine OS has it).
+    <em>Open on Koofr</em> and the share link. The extension only reads from a cache, so the file manager
+    stays as fast as it was.
+  </p>
+  <p>
+    Files (Nautilus), Nemo and Caja get both, through their Python bindings (<code>nautilus-python</code>,
+    <code>nemo-python</code>, <code>python3-caja</code>; Margine OS has the first). Dolphin gets the Koofr menu
+    right away, and the emblems with a small plugin you build once on your system:
+    <a href="https://github.com/daniel-g-carrasco/spola/tree/main/extensions/dolphin">three commands</a>.
+    Thunar gets the menu only, because it has no way for an extension to draw emblems.
   </p>
 
   <figure>
@@ -143,6 +150,16 @@
     <img src="screenshots/files-emblems.png" width="980" height="520"
          alt="Files in list view inside Projects: synced files, an excluded lock file, the two copies of a conflict">
     <figcaption>Inside a folder: synced files, an Office lock file left out, the two copies of a conflict.</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/dolphin.png" width="760" height="466"
+         alt="Dolphin inside Projects: synced files, a lock file left out, the two copies of a conflict">
+    <figcaption>The same folder in Dolphin, with the plugin.</figcaption>
+  </figure>
+  <figure>
+    <img src="screenshots/nemo.png" width="800" height="550"
+         alt="Nemo inside Projects, with the same emblems">
+    <figcaption>And in Nemo.</figcaption>
   </figure>
 
   <h2>Coming from Koofr Desktop</h2>
