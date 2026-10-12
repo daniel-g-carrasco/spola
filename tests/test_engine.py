@@ -161,6 +161,79 @@ class EngineTest(unittest.TestCase):
         self.assertIn("shown.txt", self.remote_files())
         self.assertNotIn("secret.tmp", self.remote_files())
 
+    def slow_prepare(self, seconds):
+        """jobs.prepare taking its time, as on a folder with many files."""
+        real = engine_mod.jobs.prepare
+
+        def slow(*args, **kwargs):
+            time.sleep(seconds)
+            return real(*args, **kwargs)
+        engine_mod.jobs.prepare = slow
+        self.addCleanup(setattr, engine_mod.jobs, "prepare", real)
+
+    def test_preparing_a_run_leaves_the_main_loop_free(self):
+        self.align()
+        self.slow_prepare(1.5)
+        ticks = []
+        GLib.timeout_add(100, lambda: ticks.append(1) or len(ticks) < 50)
+        results = []
+        self.engine.preview("p1", Mode.SYNC, False, lambda out, err: results.append(out))
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].task is not None, 5))
+        self.assertIs(self.status(), Status.SYNCING)          # "Preparing…" at once
+        before = len(ticks)
+        spin_until(lambda: False, 1.0)
+        self.assertIsNone(self.engine.runtime["p1"].run)       # still preparing...
+        self.assertGreaterEqual(len(ticks) - before, 5)        # ...and the loop went on meanwhile
+        self.assertTrue(spin_until(lambda: results, 30))
+
+    def test_stop_while_preparing(self):
+        self.align()
+        self.slow_prepare(1.5)
+        logs_before = len(list(self.engine.paths.log_dir("p1").iterdir()))
+        (self.local / "new.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].task is not None, 5))
+        self.engine.stop("p1")
+        self.assertTrue(spin_until(lambda: self.engine.active is None and self.status() is not Status.SYNCING, 10))
+        spin_until(lambda: False, 0.5)
+        self.assertEqual(len(list(self.engine.paths.log_dir("p1").iterdir())), logs_before)   # never started
+        self.assertNotIn("new.txt", self.remote_files())
+
+    def test_a_metered_connection_stops_an_automatic_run(self):
+        self.align()
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "poll")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        spin_until(lambda: False, 1)
+        self.engine.blocked_reason = lambda: "Paused on a metered connection"
+        self.engine._on_conditions()
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is None, 120))
+        self.assertIs(self.status(), Status.PAUSED)
+        self.assertNotIn("big.bin", self.remote_files())
+
+    def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
+        self.align()
+        home = self.tmp / "home"
+        (home / ".koofr" / "log").mkdir(parents=True)
+        (home / ".koofr" / "config.json").write_text(
+            '{"users": {"u": {"syncs": [{"localPath": "%s", "remotePath": "/test"}]}}}' % self.local)
+        (home / ".koofr" / "log" / "sync_x.log").write_text("running")      # written just now
+        saved = os.environ["HOME"]
+        os.environ["HOME"] = str(home)
+        self.addCleanup(os.environ.__setitem__, "HOME", saved)
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
+        (self.local / "new.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 20))
+        self.assertIn("Koofr Desktop", self.engine.runtime["p1"].message)
+        self.assertNotIn("new.txt", self.remote_files())
+        self.engine.request_sync("p1", "poll")                 # the next attempt: same error, told once
+        spin_until(lambda: False, 2)
+        self.assertEqual([k for k, _m in told], ["error"])
+
     def test_never_runs_on_its_own_before_alignment(self):
         self.engine.sync_all("poll")
         spin_until(lambda: False, 2)

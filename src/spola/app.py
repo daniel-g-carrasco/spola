@@ -226,7 +226,7 @@ class SpolaApp(Adw.Application):
         for path, direction in recent.transferring(rt.transferring):
             folder = os.path.join(pair.local, os.path.dirname(path))
             items.append(MenuItem(os.path.basename(path), lambda p=folder: self._open_folder(p),
-                                  icon="go-up-symbolic" if direction == "up" else "go-down-symbolic"))
+                                  icon="send-to-symbolic" if direction == "up" else "folder-download-symbolic"))
         return items
 
     def _recent(self) -> list[MenuItem]:
@@ -236,7 +236,7 @@ class SpolaApp(Adw.Application):
             if pair is not None:
                 path = os.path.join(pair.local, f.path)
                 items.append(MenuItem(os.path.basename(f.path), lambda p=path: self._reveal(p),
-                                      icon="go-up-symbolic" if f.direction == "up" else "go-down-symbolic"))
+                                      icon="send-to-symbolic" if f.direction == "up" else "folder-download-symbolic"))
         return items
 
     def _reveal(self, path: str) -> None:

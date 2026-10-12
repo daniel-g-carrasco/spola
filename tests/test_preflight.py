@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -93,11 +94,60 @@ class KoofrDesktopTest(unittest.TestCase):
 
     def test_koofr_desktop_autostart_counts_as_active(self):
         from spola.preflight import koofr_desktop_active
+        entry = "[Desktop Entry]\nName=Koofr\nExec=/home/u/.koofr-dist/storagegui -silent\n"
         with tempfile.TemporaryDirectory() as tmp:
-            running = koofr_desktop_active(Path(tmp))        # depends on this machine
-            (Path(tmp) / "koofr.desktop").write_text("[Desktop Entry]\n")
-            self.assertTrue(koofr_desktop_active(Path(tmp)))
+            auto, logs = Path(tmp) / "autostart", Path(tmp) / "log"
+            auto.mkdir()
+            logs.mkdir()
+            running = koofr_desktop_active(auto, logs)       # its processes: depends on this machine
             self.assertIsInstance(running, bool)
+            if running:
+                self.skipTest("Koofr Desktop runs on this machine")
+            self.assertFalse(koofr_desktop_active(auto, logs))
+            (auto / "koofr.desktop").write_text(entry)
+            self.assertTrue(koofr_desktop_active(auto, logs))
+            # renamed in place: systemd's xdg-autostart generator still runs it
+            (auto / "koofr.desktop").rename(auto / "koofr.desktop.disabled-by-spola")
+            self.assertTrue(koofr_desktop_active(auto, logs))
+            # Hidden=true is how the specification turns an entry off
+            (auto / "koofr.desktop.disabled-by-spola").write_text(entry + "Hidden=true\n")
+            self.assertFalse(koofr_desktop_active(auto, logs))
+            (auto / "koofr.desktop.disabled-by-spola").unlink()
+            (auto / "kooky.desktop").write_text("[Desktop Entry]\nExec=kooky\n")
+            self.assertFalse(koofr_desktop_active(auto, logs))
+
+    def test_koofr_desktop_logs_written_lately_mean_it_runs(self):
+        # inside the Flatpak the host's processes are not visible: its logs are
+        from spola.preflight import KOOFR_DESKTOP_LOG_FRESH_S, koofr_desktop_active
+        with tempfile.TemporaryDirectory() as tmp:
+            auto, logs = Path(tmp) / "autostart", Path(tmp) / "log"
+            auto.mkdir()
+            logs.mkdir()
+            if koofr_desktop_active(auto, logs):
+                self.skipTest("Koofr Desktop runs on this machine")
+            log = logs / "sync_abc.log"
+            log.write_text("x")
+            self.assertTrue(koofr_desktop_active(auto, logs))
+            old = time.time() - KOOFR_DESKTOP_LOG_FRESH_S - 60
+            os.utime(log, (old, old))
+            self.assertFalse(koofr_desktop_active(auto, logs))
+
+    def test_host_config_dir_inside_the_flatpak(self):
+        from spola import preflight
+        saved = {k: os.environ.get(k) for k in ("FLATPAK_ID", "XDG_CONFIG_HOME", "HOST_XDG_CONFIG_HOME")}
+        try:
+            os.environ["FLATPAK_ID"] = "io.example"
+            os.environ["XDG_CONFIG_HOME"] = "/home/u/.var/app/io.example/config"
+            os.environ.pop("HOST_XDG_CONFIG_HOME", None)
+            self.assertEqual(preflight._host_config_dir(), Path.home() / ".config")
+            os.environ["HOST_XDG_CONFIG_HOME"] = "/home/u/cfg"
+            self.assertEqual(preflight._host_config_dir(), Path("/home/u/cfg"))
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 class RootIdentityTest(unittest.TestCase):

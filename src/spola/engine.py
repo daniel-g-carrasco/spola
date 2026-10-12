@@ -29,6 +29,7 @@ from . import config as config_mod
 from . import conflicts as conflicts_mod
 from . import jobs, koofr_api, listings
 from .recent import Recent
+from . import activity as activity_mod
 from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, every_translation, ngettext
@@ -90,6 +91,7 @@ class Task:
     force: bool = False
     reason: str = ""
     callback: Callable[[Outcome | None, str], None] | None = None   # (outcome, error)
+    cancelled: bool = False         # Stop while the run was still being prepared
 
 
 @dataclass
@@ -113,6 +115,7 @@ class PairRuntime:
     before_run: tuple = (None, "")          # (status, message) a preview must restore
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
+    activity: activity_mod.RunActivity = field(default_factory=activity_mod.RunActivity)
     watcher: TreeWatcher | None = None
 
 
@@ -156,6 +159,7 @@ class Engine(GObject.Object):
         self.active: Task | None = None
         self._poll_source = 0
         self._shutdown_cb: Callable[[], None] | None = None
+        self._closing = False
         self.inhibit: Callable[[str], int] = lambda reason: 0
         self.uninhibit: Callable[[int], None] = lambda cookie: None
         self._inhibit_cookie = 0
@@ -206,6 +210,7 @@ class Engine(GObject.Object):
 
     def shutdown(self, done: Callable[[], None]) -> None:
         """Stop gracefully: no new runs, SIGINT to the running one, then done()."""
+        self._closing = True            # a run still being prepared will not start
         self.queue.clear()
         for rt in self.runtime.values():
             if rt.watcher:
@@ -340,7 +345,7 @@ class Engine(GObject.Object):
     def _idle_status(self, pair: Pair, rt: PairRuntime) -> Status:
         if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION) and rt.run is None:
             return rt.status
-        if pair.paused:
+        if pair.paused or self.cfg.paused_all:
             # the user's own pause comes first: a pair put on hold before its
             # first alignment waits quietly, and asks for it once resumed
             return Status.PAUSED
@@ -423,6 +428,8 @@ class Engine(GObject.Object):
         rt = self.runtime.get(pair_id)
         if rt and rt.run and rt.run.running:
             rt.run.cancel()
+        elif rt and rt.task is not None and rt.run is None:
+            rt.task.cancelled = True        # still preparing: it will not start
 
     def set_filters(self, pair_id: str, text: str) -> bool:
         """Store the pair's exclusions. If they changed and the pair is
@@ -512,17 +519,76 @@ class Engine(GObject.Object):
             self._set_status(pair, rt, Status.PAUSED)
             GLib.idle_add(self._next)
             return False
-        try:
-            override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
-            if override:
-                os.makedirs(override, exist_ok=True)
-            job = jobs.prepare(self.cfg, pair, self.paths, task.mode, task.dry_run, task.force,
-                               path2_override=override)
-            argv = bisync_args(self.rclone, job.request)
-        except jobs.NotReady as e:
-            return fail(e.problems[0].message)
-        except OSError as e:
-            return fail(str(e))
+        # Preparing a run walks the whole folder (the names Koofr refuses) and
+        # can take seconds on a large one: off the main loop, so the window, a
+        # preview dialog and the tray never freeze. The slot is taken meanwhile.
+        self.active = task
+        rt.task = task
+        rt.before_run = (rt.status, rt.message)
+        self._set_status(pair, rt, Status.SYNCING,
+                         _("Preparing the preview…") if task.dry_run else _("Preparing…"))
+        override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
+        cfg, paths, rclone = self.cfg, self.paths, self.rclone
+
+        def work():
+            try:
+                if override:
+                    os.makedirs(override, exist_ok=True)
+                job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override)
+                result = (job, bisync_args(rclone, job.request), "")
+            except jobs.NotReady as e:
+                result = (None, None, e.problems[0].message)
+            except OSError as e:
+                result = (None, None, str(e))
+            GLib.idle_add(self._start_prepared, task, *result)
+
+        threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
+        return False
+
+    def _start_prepared(self, task: Task, job, argv, error: str) -> bool:
+        """The run prepared in a thread: start it, unless things changed
+        meanwhile (shutdown, pair removed or paused, Stop pressed)."""
+        self.active = None
+        if self._closing:
+            return False
+        pair = self.cfg.pair(task.pair_id)
+        rt = self.runtime.get(task.pair_id)
+        if pair is None or rt is None:
+            GLib.idle_add(self._next)
+            return False
+        rt.task = None
+
+        def restore() -> None:
+            status, message = rt.before_run
+            if status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+                self._set_status(pair, rt, status, message)
+            else:
+                self._set_status(pair, rt, self._idle_status(pair, rt))
+
+        def fail(message: str, status: Status = Status.ERROR) -> bool:
+            if task.callback:
+                task.callback(None, message)
+            if task.dry_run:
+                restore()
+            else:
+                if rt.before_run != (status, message):
+                    # a run that cannot start says so once, not at every poll
+                    self.emit("attention", pair.id, "error", message)
+                self._set_status(pair, rt, status, message)
+            GLib.idle_add(self._next)
+            return False
+
+        if task.cancelled or (not task.dry_run and task.reason not in ("confirmed", "manual")
+                              and (pair.paused or self.blocked_reason())):
+            if task.callback:
+                task.callback(None, _("Stopped."))
+            restore()
+            GLib.idle_add(self._next)
+            return False
+        if error:
+            return fail(error)
+        if self.creds is None:
+            return fail(_("Sign in to Koofr first."))
         run = BisyncRun(argv, koofr_env(self.creds.user, self.creds.obscured),
                         self.paths.lock_file(pair.id), self.paths.log_dir(pair.id),
                         job.path1, job.path2,
@@ -540,8 +606,8 @@ class Engine(GObject.Object):
         rt.run_roots = (job.path1, job.path2)
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
-        rt.before_run = (rt.status, rt.message)
         if not task.dry_run:
+            rt.activity = activity_mod.RunActivity()
             self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
         message = _("Preparing the preview…") if task.dry_run else _("Syncing…")
         self._set_status(pair, rt, Status.SYNCING, message)
@@ -552,6 +618,10 @@ class Engine(GObject.Object):
         pair = self.cfg.pair(pair_id)
         if rt is None or pair is None:
             return False
+        real = not (rt.task and rt.task.dry_run)
+        roots = list(rt.run_roots)
+        if real:
+            self._track(rt.activity, ev, lambda p: relative_path(p, roots))
         if ev.kind is Kind.STATS and ev.stats:
             rt.stats = ev.stats
             rt.transferring = list(ev.stats.get("transferring") or [])
@@ -566,6 +636,26 @@ class Engine(GObject.Object):
             self.emit("paths-changed", pair_id, ancestors_and_self(rel))
         return False
 
+    @staticmethod
+    def _track(act: activity_mod.RunActivity, ev: Event, rel) -> None:
+        """The file-by-file activity of a real run, for the window."""
+        if ev.kind is Kind.QUEUE and ev.path:
+            kind = activity_mod.kind_of_queue(ev.side, ev.action)
+            if kind:
+                act.queued(rel(ev.path), kind)
+        elif ev.kind is Kind.CONFLICT and ev.path:
+            act.conflict(rel(ev.path))
+        elif ev.kind is Kind.STATS and ev.stats:
+            act.transferring(list(ev.stats.get("transferring") or []), rel)
+        elif ev.kind is Kind.COPIED and ev.path:
+            act.copied(rel(ev.path), to_koofr=ev.side == "Path2")
+        elif ev.kind is Kind.DELETED and ev.path:
+            act.deleted(rel(ev.path), here=ev.side == "Path1")
+        elif ev.kind is Kind.BACKUP and ev.path:
+            act.backed_up(rel(ev.path))
+        elif ev.kind is Kind.ERROR and ev.path:
+            act.failed(rel(ev.path))
+
     def _on_exit(self, task: Task, outcome: Outcome) -> bool:
         self.active = None
         if self._inhibit_cookie:
@@ -576,6 +666,8 @@ class Engine(GObject.Object):
         if pair is not None and rt is not None:
             rt.run, rt.task = None, None
             rt.transferring = []
+            if not task.dry_run:
+                rt.activity.run_ended(outcome.result is Result.OK)
             self._handle_outcome(pair, rt, task, outcome)
             if not task.dry_run:
                 self.emit("run-finished", pair.id, task.reason)
@@ -792,6 +884,13 @@ class Engine(GObject.Object):
     def _on_conditions(self, *_args) -> None:
         if not self.blocked_reason():
             self.sync_all("conditions")
+        else:
+            # a metered connection or power saver mode, just now: an automatic
+            # run stops (bisync saves its state and goes on later); one the user
+            # asked for, or a preview, goes on
+            task = self.active
+            if task is not None and not task.dry_run and task.reason not in ("manual", "confirmed"):
+                self.stop(task.pair_id)
         for pair in self.cfg.pairs:
             rt = self.runtime[pair.id]
             if rt.run is None:
