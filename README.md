@@ -17,7 +17,7 @@ Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) id
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
 <p align="center">
-  <img src="data/screenshots/main-window.png" alt="Spola's window: the overall status at the top, then the folders grouped by where they are, one of them syncing" width="480">
+  <img src="data/screenshots/main-window.png" alt="Spola's window: a banner for a folder with conflicts, the status with another folder syncing, then the folders grouped by where they are" width="480">
 </p>
 
 The design document (in Italian) is [docs/progetto.md](docs/progetto.md). Spola is not affiliated with Koofr.
@@ -51,7 +51,7 @@ Spola never writes its own sync engine: rclone bisync does the work, and Spola p
 
 ## In the window
 
-At the top, the state of everything: up to date, syncing (with the folder and its progress), paused, or the folders waiting for you, with a Review button. While a folder syncs, its files are listed under the status, each with what is happening to it (download, upload, deletion here or on Koofr, conflict) and its progress. Below, the folders grouped by the folder they live in (`~/data`, `~/data/media`...), one row each with its status; the Koofr path is shown only when it is not the same as the one in your home folder. Each folder has its own page: its status and the action it needs, where it is on both sides, Keep in Sync, a preview of the next sync, its exclusions (rclone filter syntax, seeded with sensible defaults), conflicts and files Koofr refuses, and removal. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names, one by one or all together with a rule; the discarded one goes to the wastebasket. In every preview and list a click on a file shows it in the file manager, or its folder on Koofr when it is only there.
+At the top, what Spola is doing: syncing (with the folder and its progress), up to date, or paused. What waits for you (a first alignment, a confirmation, conflicts, an error) is in a banner above it with a Review button, so a folder waiting for you never hides the others syncing. While a folder syncs, its files are listed under the status, each with what is happening to it (download, upload, deletion here or on Koofr, conflict) and its progress. Below, the folders grouped by the folder they live in (`~/data`, `~/data/media`...), one row each with its status; the Koofr path is shown only when it is not the same as the one in your home folder. Each folder has its own page: its status and the action it needs, where it is on both sides, Keep in Sync, a preview of the next sync, its exclusions (rclone filter syntax, seeded with sensible defaults), conflicts and files Koofr refuses, and removal. Conflicts are resolved from there: keep this computer's version, Koofr's, or both under readable names, one by one or all together with a rule; the discarded one goes to the wastebasket. In every preview and list a click on a file shows it in the file manager, or its folder on Koofr when it is only there.
 
 Adding a folder: choose it on this computer, then the folder on Koofr. Spola suggests the one in the same place (`~/data/work` and `/data/work`) or with the same name, and lets you browse your Koofr folders one level at a time, or make a new one; folders already synced cannot be chosen. The first alignment is shown as a preview before anything is copied.
 
