@@ -212,6 +212,12 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is None, 120))
         self.assertIs(self.status(), Status.PAUSED)
         self.assertNotIn("big.bin", self.remote_files())
+        # back on a normal network: the sync starts again on its own and finishes
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.engine.blocked_reason = lambda: ""
+        self.engine._on_conditions()
+        self.assertTrue(spin_until(lambda: "big.bin" in self.remote_files(), 120))
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
 
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()
