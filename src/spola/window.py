@@ -593,6 +593,15 @@ class PairPage(Adw.NavigationPage):
                                   subtitle=_("When off, nothing is copied either way until you turn it on"))
         self.keep.connect("notify::active", lambda r, _p: self.engine.set_paused(self.pair_id, not r.get_active()))
         group.add(self.keep)
+        rules = [("", _("As in Preferences")), (conflicts.ASK, _("Ask Me")),
+                 (conflicts.NEWER, _("Keep the Newer Version")), (conflicts.BOTH, _("Keep Both Versions")),
+                 (conflicts.LOCAL, _("Keep This Computer's Version")), (conflicts.KOOFR, _("Keep Koofr's Version"))]
+        rule = Adw.ComboRow(title=_("When a File Changes on Both Sides"))
+        rule.set_model(Gtk.StringList.new([label for _code, label in rules]))
+        rule.set_selected(next((i for i, (code, _l) in enumerate(rules) if code == pair.conflict_rule), 0))
+        rule.connect("notify::selected",
+                     lambda r, _p: self.engine.set_conflict_rule(self.pair_id, rules[r.get_selected()][0]))
+        group.add(rule)
         self.conflicts_row = self._link_row(group, _("Conflicts"),
                                             lambda: ConflictsDialog(self.window, self.pair_id).present(self.window))
         self.left_out_row = self._link_row(group, _("Files Not Synced"),
@@ -724,7 +733,12 @@ class ConflictsDialog(Adw.Dialog):
         super().__init__(title=_("Conflicts"), content_width=560, content_height=520)
         self.window, self.engine, self.pair_id = window, window.engine, pair_id
         view = Adw.ToolbarView()
-        view.add_top_bar(Adw.HeaderBar())
+        header = Adw.HeaderBar()
+        self.resolve_all = Gtk.Button(label=_("Resolve All…"))
+        self.resolve_all.connect("clicked", lambda *_: ResolveAllDialog(self.window, self.pair_id,
+                                                                        self._resolved).present(self))
+        header.pack_start(self.resolve_all)
+        view.add_top_bar(header)
         self.page = Adw.PreferencesPage()
         view.set_content(self.page)
         self.toasts = Adw.ToastOverlay(child=view)
@@ -745,6 +759,7 @@ class ConflictsDialog(Adw.Dialog):
             "here and to Koofr's trash."))
         if not items:
             self.group.add(Adw.ActionRow(title=_("No conflicts left.")))
+        self.resolve_all.set_visible(bool(items))
         for conflict in items:
             row = Adw.ActionRow(title=GLib.markup_escape_text(conflict.original), title_lines=2,
                                 activatable=True, tooltip_text=_("Show in the file manager"))
@@ -777,7 +792,101 @@ class ConflictsDialog(Adw.Dialog):
         try:
             self.engine.resolve_conflict(self.pair_id, conflict, choice)
         except (conflicts.ResolveError, OSError) as e:
-            self.toasts.add_toast(Adw.Toast(title=str(e), timeout=6))
+            self.toasts.add_toast(Adw.Toast(title=escape(str(e)), timeout=6))
+
+    def _resolved(self, done: int, errors: list[str]) -> None:
+        self._fill()
+        tell(self.toasts, ngettext("{n} conflict resolved", "{n} conflicts resolved", done).format(n=done) if done else "",
+             errors)
+
+
+def tell(toasts: Adw.ToastOverlay, done: str, errors: list[str]) -> None:
+    """The outcome of an action on many files: what was done, the first
+    problem and how many more."""
+    if done:
+        toasts.add_toast(Adw.Toast(title=escape(done), timeout=4))
+    if errors:
+        more = len(errors) - 1
+        text = errors[0] if not more else ngettext("{error} (and {n} more)", "{error} (and {n} more)", more).format(
+            error=errors[0], n=more)
+        toasts.add_toast(Adw.Toast(title=escape(text), timeout=8))
+
+
+class ResolveAllDialog(Adw.Dialog):
+    """Every conflict of a folder with one rule. What happens to each file is
+    listed before anything is done; what the rule cannot decide is left to
+    the user."""
+
+    ICONS = {conflicts.LOCAL: "computer-symbolic", conflicts.KOOFR: "folder-remote-symbolic",
+             conflicts.BOTH: "edit-copy-symbolic", None: "dialog-question-symbolic"}
+
+    def __init__(self, window: MainWindow, pair_id: str, on_done):
+        super().__init__(title=_("Resolve All Conflicts"), content_width=560, content_height=620)
+        self.engine, self.pair_id, self.on_done = window.engine, pair_id, on_done
+        self.decisions: list[conflicts.Decision] = []
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
+        cancel = Gtk.Button(label=_("Cancel"))
+        cancel.connect("clicked", lambda *_: self.close())
+        header.pack_start(cancel)
+        self.confirm = Gtk.Button(label=_("Resolve"))
+        self.confirm.connect("clicked", lambda *_: self._resolve())
+        header.pack_end(self.confirm)
+        view.add_top_bar(header)
+
+        self.page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(title=_("Which Version to Keep"), description=_(
+            "A version that is not kept goes to the wastebasket here and to Koofr's trash, "
+            "where you can get it back."))
+        first = None
+        for rule, title, subtitle in ((conflicts.NEWER, _("The Newer One"), _("By modification date")),
+                                      (conflicts.LOCAL, _("This Computer's"), ""),
+                                      (conflicts.KOOFR, _("Koofr's"), ""),
+                                      (conflicts.BOTH, _("Both, Renamed"), _("Nothing goes to the wastebasket"))):
+            check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
+            first = first or check
+            row = Adw.ActionRow(title=title, subtitle=subtitle, activatable_widget=check)
+            row.add_prefix(check)
+            check.connect("toggled", lambda c, r=rule: self._show(r) if c.get_active() else None)
+            group.add(row)
+        self.page.add(group)
+        self.list_group: Adw.PreferencesGroup | None = None
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
+        self.set_child(view)
+        first.set_active(True)
+
+    def _show(self, rule: str) -> None:
+        self.decisions = [conflicts.decide(c, rule) for c in self.engine.conflicts(self.pair_id)]
+        if self.list_group is not None:
+            self.page.remove(self.list_group)
+        decided = sum(1 for d in self.decisions if d.choice)
+        left = len(self.decisions) - decided
+        self.list_group = Adw.PreferencesGroup(title=_("What Happens"))
+        if left:
+            self.list_group.set_description(ngettext(
+                "{n} file is left to you: the rule cannot decide it.",
+                "{n} files are left to you: the rule cannot decide them.", left).format(n=left))
+        for decision in self.decisions[:PREVIEW_LIMIT]:
+            row = Adw.ActionRow(title=escape(decision.conflict.original), title_lines=2,
+                                subtitle=escape(decision.reason), subtitle_lines=2)
+            row.add_prefix(Gtk.Image(icon_name=self.ICONS[decision.choice]))
+            self.list_group.add(row)
+        if len(self.decisions) > PREVIEW_LIMIT:
+            self.list_group.add(Adw.ActionRow(title=_("…and {n} more").format(n=len(self.decisions) - PREVIEW_LIMIT)))
+        self.page.add(self.list_group)
+        self.confirm.set_sensitive(decided > 0)
+        drops = any(d.choice in (conflicts.LOCAL, conflicts.KOOFR) for d in self.decisions)
+        self.confirm.set_css_classes(["destructive-action" if drops else "suggested-action"])
+
+    def _resolve(self) -> None:
+        try:
+            done, errors = self.engine.resolve_conflicts(self.pair_id, self.decisions)
+        except conflicts.ResolveError as e:
+            self.toasts.add_toast(Adw.Toast(title=escape(str(e)), timeout=6))
+            return
+        self.close()
+        self.on_done(done, errors)
 
 
 class LeftOutDialog(Adw.Dialog):
@@ -785,24 +894,105 @@ class LeftOutDialog(Adw.Dialog):
 
     def __init__(self, window: MainWindow, pair_id: str):
         super().__init__(title=_("Files Not Synced"), content_width=560, content_height=480)
-        engine = window.engine
-        pair, rt = engine.cfg.pair(pair_id), engine.runtime.get(pair_id)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
         view = Adw.ToolbarView()
-        view.add_top_bar(Adw.HeaderBar())
-        page = Adw.PreferencesPage()
-        group = Adw.PreferencesGroup(description=_(
+        header = Adw.HeaderBar()
+        self.rename_all = Gtk.Button(label=_("Rename All…"))
+        self.rename_all.connect("clicked", lambda *_: self._rename_all())
+        header.pack_start(self.rename_all)
+        view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        self.group: Adw.PreferencesGroup | None = None
+        self.shown: tuple | None = None
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
+        self.set_child(view)
+        self._handler = self.engine.connect("pair-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self._fill()
+
+    def _fill(self) -> None:
+        pair, rt = self.engine.cfg.pair(self.pair_id), self.engine.runtime.get(self.pair_id)
+        if pair is None:
+            return
+        items = list(rt.refused) if rt else []
+        if tuple(items) == self.shown:        # (the pair changes every second while it syncs)
+            return
+        self.shown = tuple(items)
+        if self.group is not None:
+            self.page.remove(self.group)
+        self.group = Adw.PreferencesGroup(description=_(
             "Koofr does not accept these names, so Spola leaves them out and syncs the rest. "
             "Rename them and they are synced at the next run. Nothing is deleted."))
-        for refused in (rt.refused if rt else []):
+        if not items:
+            self.group.add(Adw.ActionRow(title=_("Every name is accepted now.")))
+        for refused in items:
             row = Adw.ActionRow(title=GLib.markup_escape_text(refused.path), title_lines=2, activatable=True,
                                 subtitle=GLib.markup_escape_text(preflight.refused_reason(refused.code, refused.other)),
                                 subtitle_lines=3, tooltip_text=_("Show in the file manager"))
             row.add_prefix(Gtk.Image(icon_name="folder-symbolic" if refused.is_dir else "action-unavailable-symbolic"))
-            row.connect("activated", lambda _r, p=refused.path: reveal(window, os.path.join(pair.local, p)))
+            row.connect("activated", lambda _r, p=refused.path: reveal(self.window, os.path.join(pair.local, p)))
+            self.group.add(row)
+        self.page.add(self.group)
+        self.rename_all.set_visible(any(new for _item, new in preflight.rename_plan(pair.local, items, pair.remote)))
+
+    def _rename_all(self) -> None:
+        RenameDialog(self.window, self.pair_id, list(self.shown or ()), self._renamed).present(self)
+
+    def _renamed(self, done: int, errors: list[str]) -> None:
+        self.shown = None
+        self._fill()
+        tell(self.toasts, ngettext("{n} file renamed", "{n} files renamed", done).format(n=done) if done else "",
+             errors)
+
+
+class RenameDialog(Adw.Dialog):
+    """Names Koofr accepts for the files it refuses: listed first, renamed on
+    this computer once confirmed, synced at the next run."""
+
+    def __init__(self, window: MainWindow, pair_id: str, refused: list, on_done):
+        super().__init__(title=_("Rename Files"), content_width=560, content_height=560)
+        self.engine, self.pair_id, self.on_done = window.engine, pair_id, on_done
+        pair = self.engine.cfg.pair(pair_id)
+        self.plan = preflight.rename_plan(pair.local, refused, pair.remote)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
+        cancel = Gtk.Button(label=_("Cancel"))
+        cancel.connect("clicked", lambda *_: self.close())
+        header.pack_start(cancel)
+        confirm = Gtk.Button(label=_("Rename"), css_classes=["suggested-action"],
+                             sensitive=any(new for _item, new in self.plan))
+        confirm.connect("clicked", lambda *_: self._rename())
+        header.pack_end(confirm)
+        view.add_top_bar(header)
+        page = Adw.PreferencesPage()
+        group = Adw.PreferencesGroup(description=_(
+            "Spola renames them on this computer so that Koofr accepts them, then syncs them. Nothing is deleted."))
+        for item, new in self.plan[:PREVIEW_LIMIT]:
+            if new:
+                subtitle, icon = _("New name: “{name}”").format(name=os.path.basename(new)), "document-edit-symbolic"
+            elif item.code == "long-path":
+                subtitle, icon = _("No name to suggest: the path is too long, shorten it yourself."), "dialog-question-symbolic"
+            else:
+                subtitle, icon = _("No name to suggest: rename it yourself."), "dialog-question-symbolic"
+            row = Adw.ActionRow(title=escape(item.path), title_lines=2, subtitle=escape(subtitle), subtitle_lines=2)
+            row.add_prefix(Gtk.Image(icon_name=icon))
             group.add(row)
+        if len(self.plan) > PREVIEW_LIMIT:
+            group.add(Adw.ActionRow(title=_("…and {n} more").format(n=len(self.plan) - PREVIEW_LIMIT)))
         page.add(group)
-        view.set_content(page)
+        self.toasts = Adw.ToastOverlay(child=page)
+        view.set_content(self.toasts)
         self.set_child(view)
+
+    def _rename(self) -> None:
+        try:
+            done, errors = self.engine.rename_refused(self.pair_id, [(item.path, new) for item, new in self.plan if new])
+        except conflicts.ResolveError as e:
+            self.toasts.add_toast(Adw.Toast(title=escape(str(e)), timeout=6))
+            return
+        self.close()
+        self.on_done(done, errors)
 
 
 class ExclusionsDialog(Adw.Dialog):
@@ -911,6 +1101,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Conflicts"))
+        rules = [(conflicts.ASK, _("Ask Me")), (conflicts.NEWER, _("Keep the Newer Version")),
+                 (conflicts.BOTH, _("Keep Both Versions"))]
+        rule = Adw.ComboRow(title=_("When a file changes on both sides"),
+                            subtitle=_("Applied to new conflicts after each sync; a folder can have its own rule. "
+                                       "A version that is not kept goes to the wastebasket."))
+        rule.set_model(Gtk.StringList.new([label for _code, label in rules]))
+        rule.set_selected(next((i for i, (code, _l) in enumerate(rules) if code == cfg.conflict_rule), 0))
+        rule.connect("notify::selected", lambda r, _p: self._set("conflict_rule", rules[r.get_selected()][0]))
+        group.add(rule)
         languages = [("", _("Desktop language")), ("en", "English"), ("it", "Italiano")]
         combo = Adw.ComboRow(title=_("Language of the conflict copies’ names"),
                              subtitle=_("For example report.conflict-local-2026-10-10-1.odt"))
@@ -990,13 +1189,15 @@ class PreviewDialog(Adw.Dialog):
         spinner_row.add_prefix(Adw.Spinner())
         self.spinner_group.add(spinner_row)
         self.page.add(self.spinner_group)
-        view.set_content(self.page)
+        self.result_group: Adw.PreferencesGroup | None = None
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
         self.set_child(view)
         self.engine.preview(pair_id, mode, force, self._done)
 
     def _done(self, outcome: Outcome | None, error: str) -> None:
         self.page.remove(self.spinner_group)
-        group = Adw.PreferencesGroup()
+        group = self.result_group = Adw.PreferencesGroup()
         self.page.add(group)
         if outcome is None:
             group.add(Adw.ActionRow(title=_("The preview failed"), subtitle=GLib.markup_escape_text(error)))
@@ -1040,10 +1241,31 @@ class PreviewDialog(Adw.Dialog):
             if len(paths) > PREVIEW_LIMIT:
                 row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=len(paths) - PREVIEW_LIMIT)))
             group.add(row)
+        pair = self.engine.cfg.pair(self.pair_id)
+        if plan.refused and rt is not None and pair is not None and any(
+                new for _item, new in preflight.rename_plan(pair.local, rt.pending_refused, pair.remote)):
+            rename = Adw.ButtonRow(title=_("Rename Them…"))
+            refused = list(rt.pending_refused)
+            rename.connect("activated", lambda *_: RenameDialog(self.window, self.pair_id, refused,
+                                                                self._renamed).present(self))
+            group.add(rename)
         if self.confirm is not None:
             self.confirm.set_sensitive(True)
             if plan.delete_remote or plan.delete_local:
                 self.confirm.set_css_classes(["destructive-action"])
+
+    def _renamed(self, done: int, errors: list[str]) -> None:
+        """The names changed: what the run would do changed too."""
+        tell(self.toasts, ngettext("{n} file renamed", "{n} files renamed", done).format(n=done) if done else "",
+             errors)
+        if self.result_group is not None:
+            self.page.remove(self.result_group)
+            self.result_group = None
+        self.page.add(self.spinner_group)
+        if self.confirm is not None:
+            self.confirm.set_sensitive(False)
+            self.confirm.set_css_classes(["suggested-action"])
+        self.engine.preview(self.pair_id, self.mode, self.force, self._done)
 
     def _show(self, path: str, on_koofr: bool) -> None:
         pair = self.engine.cfg.pair(self.pair_id)

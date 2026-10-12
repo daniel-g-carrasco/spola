@@ -339,6 +339,65 @@ def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = fro
     return refused
 
 
+# what is left of an emoji once the emoji itself is gone: the joiner, the
+# variation selectors, the keycap
+_EMOJI_GLUE = {"\u200d", "\ufe0e", "\ufe0f", "\u20e3"}
+
+
+def _name_key(name: str) -> str:
+    return unicodedata.normalize("NFC", name).casefold()
+
+
+def _clean(text: str) -> str:
+    return " ".join("".join(ch for ch in text if ord(ch) <= 0xFFFF and ch not in _EMOJI_GLUE).split())
+
+
+def _without_emoji(name: str, is_dir: bool) -> str:
+    stem, ext = (name, "") if is_dir else os.path.splitext(name)
+    stem, ext = _clean(stem), _clean(ext)
+    return (stem or _("Untitled")) + ("" if ext == "." else ext)
+
+
+def _unique(name: str, is_dir: bool, taken: set[str]) -> str:
+    """`name`, or "name (2).ext", "name (3).ext"... if a name in the same
+    folder already matches it, upper and lower case aside (as on Koofr)."""
+    stem, ext = (name, "") if is_dir else os.path.splitext(name)
+    candidate, n = name, 2
+    while _name_key(candidate) in taken:
+        candidate, n = f"{stem} ({n}){ext}", n + 1
+    taken.add(_name_key(candidate))
+    return candidate
+
+
+def rename_plan(root: str, refused: list[Refused], remote_root: str = "/") -> list[tuple[Refused, str | None]]:
+    """A name Koofr accepts for each file or folder it refuses, as a path
+    relative to `root`, or None when there is none to suggest: a path too
+    long is for the user to shorten. Emoji are taken out of the name; of two
+    names that differ only in case, the one left out becomes "name (2)"."""
+    prefix = len(normalize_remote(remote_root).rstrip("/"))
+    taken: dict[str, set[str] | None] = {}
+    plan: list[tuple[Refused, str | None]] = []
+    for item in refused:
+        directory, name = os.path.split(item.path)
+        if item.code not in ("emoji", "case-collision"):
+            plan.append((item, None))
+            continue
+        if directory not in taken:
+            try:
+                taken[directory] = {_name_key(n) for n in os.listdir(os.path.join(root, directory))}
+            except OSError:
+                taken[directory] = None
+        if taken[directory] is None:
+            plan.append((item, None))
+            continue
+        new = _without_emoji(name, item.is_dir) if item.code == "emoji" else name
+        new = _unique(new, item.is_dir, taken[directory])
+        rel = os.path.join(directory, new)
+        fits = len(new) <= KOOFR_MAX_NAME and prefix + 1 + len(rel) <= KOOFR_MAX_PATH
+        plan.append((item, rel if fits else None))
+    return plan
+
+
 def refused_reason(code: str, other: str = "") -> str:
     if code == "case-collision" and other:
         return _("Koofr does not tell upper and lower case apart: “{other}” is synced in its place.").format(other=other)

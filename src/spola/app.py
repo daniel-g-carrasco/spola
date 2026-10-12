@@ -135,6 +135,23 @@ class SpolaApp(Adw.Application):
                 self._window().review((waiting or self.engine.cfg.pairs)[0].id)
                 return False
             GLib.timeout_add(500, review_first)
+        dialog = os.environ.get("SPOLA_DEV_OPEN_DIALOG")      # resolve-all, rename
+        if dialog in ("resolve-all", "rename"):
+            waited = [0]
+
+            def open_dialog():           # waits for a pair with something to show, then opens the dialog
+                from .window import RenameDialog, ResolveAllDialog
+                for pair in self.engine.cfg.pairs:
+                    rt = self.engine.runtime[pair.id]
+                    if rt.run is None and dialog == "resolve-all" and rt.conflicts:
+                        ResolveAllDialog(self._window(), pair.id, lambda *_: None).present(self._window())
+                        return False
+                    if rt.run is None and dialog == "rename" and rt.refused:
+                        RenameDialog(self._window(), pair.id, list(rt.refused), lambda *_: None).present(self._window())
+                        return False
+                waited[0] += 1
+                return waited[0] < 80
+            GLib.timeout_add(500, open_dialog)
         pair_name = os.environ.get("SPOLA_DEV_OPEN_PAIR")
         if pair_name:
             def open_pair():
@@ -299,6 +316,7 @@ class SpolaApp(Adw.Application):
         name = pair.name if pair else APP_NAME
         titles = {
             "conflicts": _("Conflicts in “{name}”"),
+            "resolved": _("Conflicts resolved in “{name}”"),
             "confirm": _("“{name}” is waiting for your confirmation"),
             "repair": _("“{name}” needs a repair"),
             "error": _("“{name}” cannot be synced"),

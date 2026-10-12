@@ -42,9 +42,20 @@ populate() {
     cp -rp "$home/Work/Invoices" "$remote/Accounting/"
 }
 
-changes() {   # SCENE_QUIET=1: no changes at all; SCENE_NO_CONFLICT=1: everything but the conflict
+changes() {   # SCENE_QUIET=1: no changes at all; SCENE_NO_CONFLICT=1: everything but the conflict;
+              # SCENE_MORE=1: two more conflicts (one newer on each side) and names Koofr refuses
     local home="$1" remote="$2"
     [ -z "${SCENE_QUIET:-}" ] || return 0
+    if [ -n "${SCENE_MORE:-}" ]; then
+        for f in budget-2026.ods notes.md; do
+            echo "edited on this computer" > "$home/Projects/$f"
+            echo "edited on another computer, through Koofr" > "$remote/Projects/$f"
+        done
+        touch -d '2 hours ago' "$remote/Projects/notes.md"
+        touch -d '25 minutes ago' "$home/Projects/budget-2026.ods"
+        echo "a draft" > "$home/Documents/Contract.odt"
+        echo "the party" > "$home/Documents/Party "$'\U0001F389'".odt"
+    fi
     head -c 3000 /dev/urandom > "$home/Documents/Invoices/2026-03.pdf"
     head -c 3000 /dev/urandom > "$home/Documents/offer.odt"
     if [ -z "${SCENE_NO_CONFLICT:-}" ]; then

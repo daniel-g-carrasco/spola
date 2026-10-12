@@ -147,6 +147,7 @@ class Engine(GObject.Object):
         # of the app can be tried without an account. Never set in the Flatpak.
         self.dev_remote = os.environ.get("SPOLA_DEV_REMOTE") or None
         self._conflict_name = conflict_name_pattern()
+        self.trash = conflicts_mod.move_to_trash      # where a version not kept goes (tests replace it)
         # Koofr's activity feed as a doorbell: None = not tried yet
         self.feed_ok: bool | None = None
         self.feed_enabled = self.dev_remote is None
@@ -297,6 +298,13 @@ class Engine(GObject.Object):
             self._start_watcher(pair, rt)
             self.request_sync(pair_id, "resume")
         self._set_status(pair, rt, self._idle_status(pair, rt) if not rt.run else rt.status)
+
+    def set_conflict_rule(self, pair_id: str, rule: str) -> None:
+        """The folder's own rule for new conflicts ("" = the general one)."""
+        pair = self.cfg.pair(pair_id)
+        if pair is not None and pair.conflict_rule != rule:
+            pair.conflict_rule = rule
+            self.save_config()
 
     def set_paused_all(self, paused: bool) -> None:
         self.cfg.paused_all = paused
@@ -463,16 +471,114 @@ class Engine(GObject.Object):
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None:
             return
+        self._check_not_syncing(rt)
+        conflicts_mod.resolve(pair.local, conflict, choice, trash=self.trash)
+        self._forget_conflicts(pair, rt, {c.path for c in conflict.copies})
+        self.request_sync(pair_id, "conflict-resolved")
+
+    def resolve_conflicts(self, pair_id: str, decisions: list[conflicts_mod.Decision]) -> tuple[int, list[str]]:
+        """Many at once (Resolve All): the decided ones, then one sync for
+        them all. Returns how many were resolved, and why the others were not."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return 0, []
+        self._check_not_syncing(rt)
+        done, errors = self._resolve_decided(pair, rt, decisions)
+        if done:
+            self.request_sync(pair_id, "conflict-resolved")
+        return done, errors
+
+    def conflict_rule(self, pair: Pair) -> str:
+        """The folder's own rule for new conflicts, or the general one."""
+        rule = pair.conflict_rule or self.cfg.conflict_rule
+        return rule if rule in conflicts_mod.RULES else conflicts_mod.ASK
+
+    def rename_refused(self, pair_id: str, renames: list[tuple[str, str]]) -> tuple[int, list[str]]:
+        """Give the files Koofr refuses a name it accepts (local renames, as
+        planned by preflight.rename_plan): the next run syncs them. Returns how
+        many were renamed, and why the others were not."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return 0, []
+        self._check_not_syncing(rt)
+        done: set[str] = set()
+        errors: list[str] = []
+        for old, new in renames:
+            src, dst = os.path.join(pair.local, old), os.path.join(pair.local, new)
+            if not os.path.lexists(src):
+                errors.append(_("“{name}” is no longer there.").format(name=old))
+            elif os.path.lexists(dst):
+                errors.append(_("A file named “{name}” exists now: rename it first.").format(name=new))
+            else:
+                try:
+                    os.rename(src, dst)
+                    done.add(old)
+                except OSError as e:
+                    errors.append(f"{old}: {e.strerror or e}")
+        if done:
+            rt.refused = [r for r in rt.refused if r.path not in done]
+            rt.pending_refused = [r for r in rt.pending_refused if r.path not in done]
+            rt.states.refused = {r.path for r in rt.refused}
+            self.emit("root-changed", pair_id)
+            if rt.run is None:
+                self._set_status(pair, rt, self._idle_status(pair, rt))
+            if pair.initialized:
+                self.request_sync(pair_id, "renamed")
+        return len(done), errors
+
+    def _check_not_syncing(self, rt: PairRuntime) -> None:
         if rt.run is not None and not (rt.task and rt.task.dry_run):
             raise conflicts_mod.ResolveError(_("Wait for the current sync to finish."))
-        conflicts_mod.resolve(pair.local, conflict, choice)
-        gone = {c.path for c in conflict.copies}
+
+    def _resolve_decided(self, pair: Pair, rt: PairRuntime,
+                         decisions: list[conflicts_mod.Decision]) -> tuple[int, list[str]]:
+        done, errors, gone = 0, [], set()
+        for decision in decisions:
+            if decision.choice is None:
+                continue
+            try:
+                conflicts_mod.resolve(pair.local, decision.conflict, decision.choice, trash=self.trash)
+            except (conflicts_mod.ResolveError, OSError) as e:
+                errors.append(f"{decision.conflict.original}: {e}")
+                continue
+            done += 1
+            gone |= {c.path for c in decision.conflict.copies}
+        if gone:
+            self._forget_conflicts(pair, rt, gone)
+        return done, errors
+
+    def _forget_conflicts(self, pair: Pair, rt: PairRuntime, gone: set[str]) -> None:
         rt.conflicts = [p for p in rt.conflicts if p not in gone]
         rt.states.conflicts = set(rt.conflicts)
-        self.emit("root-changed", pair_id)
+        self.emit("root-changed", pair.id)
         if rt.run is None:
             self._set_status(pair, rt, self._idle_status(pair, rt))
-        self.request_sync(pair_id, "conflict-resolved")
+
+    def _new_conflicts(self, pair: Pair, rt: PairRuntime, originals: list[str]) -> None:
+        """Conflicts a run just found: the folder's rule, if any, resolves
+        what it can (the latest conflict of each file only), the user hears
+        about what is left."""
+        new, done = set(originals), 0
+        rule = self.conflict_rule(pair)
+        if rule != conflicts_mod.ASK:
+            latest = {c.original: c for c in self.conflicts(pair.id) if c.original in new}
+            done, _errors = self._resolve_decided(pair, rt, [conflicts_mod.decide(c, rule) for c in latest.values()])
+            if done:
+                self.emit("attention", pair.id, "resolved",
+                          ngettext("{n} conflict resolved: both versions are kept, renamed.",
+                                   "{n} conflicts resolved: both versions are kept, renamed.", done).format(n=done)
+                          if rule == conflicts_mod.BOTH else
+                          ngettext("{n} conflict resolved by the folder's rule: the version not kept is in the "
+                                   "wastebasket.",
+                                   "{n} conflicts resolved by the folder's rule: the versions not kept are in the "
+                                   "wastebasket.", done).format(n=done))
+                self.request_sync(pair.id, "conflict-resolved")
+        left = len(new) - done
+        if left > 0:
+            self.emit("attention", pair.id, "conflicts",
+                      ngettext("{n} file was changed both here and on Koofr: both versions are kept.",
+                               "{n} files were changed both here and on Koofr: both versions are kept.",
+                               left).format(n=left))
 
     def _enqueue(self, task: Task, front: bool = False) -> None:
         duplicate = any(t.pair_id == task.pair_id and t.mode == task.mode and not t.dry_run and not task.dry_run
@@ -726,10 +832,7 @@ class Engine(GObject.Object):
             rt.states.run_finished(listed, touched, outcome.plan.error_paths, rt.conflicts, foreign)
             self.emit("root-changed", pair.id)
             if outcome.plan.conflicts:
-                self.emit("attention", pair.id, "conflicts",
-                          ngettext("{n} file was changed both here and on Koofr: both versions are kept.",
-                                   "{n} files were changed both here and on Koofr: both versions are kept.",
-                                   len(outcome.plan.conflicts)).format(n=len(outcome.plan.conflicts)))
+                self._new_conflicts(pair, rt, outcome.plan.conflicts)
             self._set_status(pair, rt, self._idle_status(pair, rt))
         elif result is Result.NEEDS_CONFIRMATION:
             self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
