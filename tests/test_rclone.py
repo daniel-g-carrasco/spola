@@ -33,6 +33,7 @@ class ArgsTest(unittest.TestCase):
         self.assertEqual(args[args.index("--config") + 1], "/s/no.conf")
         for flag in ("--resync", "--force", "--dry-run", "--check-sync"):
             self.assertNotIn(flag, args)
+        self.assertIn("--track-renames", args)
         self.assertFalse(set(args) & FORBIDDEN_FLAGS)
 
     def test_resync_force_dryrun_only_when_asked(self):
@@ -42,8 +43,10 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("--dry-run", args)
         self.assertNotIn("--force", args)
         self.assertIn("--force", bisync_args("rclone", request(force=True)))
+        self.assertNotIn("--track-renames", args)
         args = bisync_args("rclone", request(mode=Mode.CHECK))
         self.assertEqual(args[args.index("--check-sync") + 1], "only")
+        self.assertNotIn("--track-renames", args)
 
     def test_forbidden_flags_are_refused(self):
         for flag in ("--delete-excluded", "--inplace", "--copy-links", "-L"):

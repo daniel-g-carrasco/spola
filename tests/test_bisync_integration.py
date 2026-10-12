@@ -176,6 +176,24 @@ class BisyncScenarios(unittest.TestCase):
         self.assertIs(out.result, Result.OK)
         self.assertEqual(len(self.files(self.remote)), 30)
 
+    def test_renames_are_moves_on_the_other_side(self):
+        for i in range(40):
+            self.write(self.local, f"PXL_{i:02}.jpg", f"photo {i}", age=600)
+        self.align()
+        (self.local / "2026").mkdir()
+        for i in range(10):                      # 25% renamed: still a confirmation
+            (self.local / f"PXL_{i:02}.jpg").rename(self.local / "2026" / f"2026-05-{i + 1:02}.jpg")
+        out = self.bisync()
+        self.assertIs(out.result, Result.NEEDS_CONFIRMATION)
+        self.assertEqual(len(self.files(self.remote)), 40)
+        preview = self.bisync(dry_run=True, force=True)
+        out = self.bisync(force=True)
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual(self.files(self.remote), self.files(self.local))
+        self.assertIn("2026/2026-05-01.jpg", self.files(self.remote))
+        self.assertEqual(self.backups(), [])    # nothing replaced, nothing lost
+        self.assertEqual((self.remote / "2026" / "2026-05-01.jpg").read_text(), "photo 0")
+
     def test_replaced_root_never_reaches_rclone(self):
         self.write(self.local, "a.txt", "x")
         self.align()
