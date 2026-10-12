@@ -36,6 +36,13 @@ class ArgsTest(unittest.TestCase):
         self.assertIn("--track-renames", args)
         self.assertFalse(set(args) & FORBIDDEN_FLAGS)
 
+    def test_times_within_a_millisecond_are_the_same(self):
+        # Koofr keeps times to the millisecond: in every mode, or a file moved
+        # here would look changed and go up again at the next run
+        for mode in Mode:
+            args = bisync_args("rclone", request(mode=mode))
+            self.assertEqual(args[args.index("--modify-window") + 1], "1ms", mode)
+
     def test_resync_force_dryrun_only_when_asked(self):
         args = bisync_args("rclone", request(mode=Mode.RESYNC, dry_run=True))
         self.assertIn("--resync", args)
@@ -130,6 +137,39 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(sorted(out.plan.download), ["comune.txt", "dal-cloud.txt"])
         self.assertEqual(out.plan.replace_local, ["comune.txt"])
 
+    def test_renames_recorded_on_koofr(self):
+        # recorded on Koofr: two files renamed here (one into a new folder), a
+        # new file, a deleted one and a conflict, whose two copies bisync renames
+        # with the same "Moved ... to" line as a rename; then a rename on Koofr.
+        # The preview and the run say the same.
+        roots = ("/home/user/renames/", "koofr:renames")
+        for name in ("koofr-renames-dry-run.jsonl", "koofr-renames.jsonl"):
+            plan = summarize(0, events(name), *roots).plan
+            self.assertEqual(sorted(plan.moved_remote),
+                             [("IMG_00.jpg", "2026/holiday-00.jpg"), ("IMG_01.jpg", "renamed-01.jpg")], name)
+            self.assertEqual(plan.moved_local, [], name)
+            # what a move replaces is neither an upload nor a delete; the rest is
+            self.assertEqual(sorted(plan.upload), ["2026", "IMG_05.conflict-local-2026-10-13-1.jpg", "new.txt"], name)
+            self.assertEqual(plan.download, ["IMG_05.conflict-koofr-2026-10-13-1.jpg"], name)
+            self.assertEqual(plan.delete_remote, ["old.txt"], name)
+            self.assertEqual(plan.conflicts, ["IMG_05.jpg"], name)
+            self.assertIn("2 moved", describe(plan), name)
+        for name in ("koofr-renamed-there-dry-run.jsonl", "koofr-renamed-there.jsonl"):
+            plan = summarize(0, events(name), *roots).plan
+            self.assertEqual(plan.moved_local, [("IMG_02.jpg", "from-windows-02.jpg")], name)
+            self.assertEqual(plan.upload + plan.download + plan.delete_local + plan.delete_remote, [], name)
+            self.assertFalse(plan.empty, name)
+
+    def test_a_move_without_its_confirmation_is_not_a_rename(self):
+        evs = [parse_line(text) for text in (
+            '{"level":"info","msg":"- Path1 Do queued copies to - Path2"}',
+            '{"level":"info","msg":"Moved (server-side) to: a.conflict-local-2026-10-13-1.txt","object":"a.txt"}',
+            '{"level":"info","msg":"Moved (server-side) to: b.txt","object":"c.txt"}',
+            '{"level":"info","msg":"Renamed from \\"x.txt\\"","object":"y.txt"}')]
+        self.assertEqual([e.kind for e in evs[1:]], [Kind.MOVED, Kind.MOVED, Kind.RENAMED])
+        self.assertEqual((evs[1].path, evs[1].target), ("a.txt", "a.conflict-local-2026-10-13-1.txt"))
+        self.assertEqual(summarize(0, evs, "/h/x/", "koofr:x").plan.moved_remote, [])
+
     def test_root_remote(self):
         out = summarize(0, [parse_line('{"level":"info","msg":"- Path1 Queue copy to Path2 - koofr{ab12}:a/b.txt"}')],
                         "/h/x/", "koofr:")
@@ -181,6 +221,7 @@ class DefaultsTest(unittest.TestCase):
         plan = Plan(upload=["a", "b", "c"], download=["d"], replace_local=["d"], delete_remote=["e"],
                     delete_local=["f"], conflicts=["g"])
         self.assertEqual(describe(plan), "3 files to Koofr, 1 file from Koofr, 2 deleted, 1 conflict")
+        self.assertEqual(describe(Plan(moved_remote=[("a", "b")], moved_local=[("c", "d")])), "2 moved")
 
     def test_network_failure_is_a_retry_not_a_repair(self):
         net = Event(Kind.ERROR, "Failed to copy: Post https://app.koofr.net/...: dial tcp: lookup app.koofr.net: no such host", "error")

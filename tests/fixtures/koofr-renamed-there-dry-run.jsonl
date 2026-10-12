@@ -1,0 +1,24 @@
+{"time":"2026-10-13T00:38:22.451619794+02:00","level":"notice","msg":"Config file \"/home/user/scratch/spola-probe-run/state/no-rclone.conf\" not found - using defaults","source":"config/config.go:374"}
+{"time":"2026-10-13T00:38:22.704743607+02:00","level":"info","msg":"Slow hash detected on Path1. Will ignore checksum due to slow-hash settings","source":"bisync/compare.go:170"}
+{"time":"2026-10-13T00:38:22.704901264+02:00","level":"notice","msg":"will use md5 for same-side diffs on Path2 only","object":"koofr:MOUNTID:renames","objectType":"*koofr.Fs","source":"bisync/compare.go:184"}
+{"time":"2026-10-13T00:38:22.705126939+02:00","level":"info","msg":"Bisyncing with Comparison Settings: \n{\n\t\"Modtime\": true,\n\t\"Size\": true,\n\t\"Checksum\": true,\n\t\"HashType1\": 0,\n\t\"HashType2\": 1,\n\t\"NoSlowHash\": false,\n\t\"SlowHashSyncOnly\": true,\n\t\"SlowHashDetected\": true,\n\t\"DownloadHash\": false\n}\n","source":"bisync/compare.go:108"}
+{"time":"2026-10-13T00:38:22.705367312+02:00","level":"info","msg":"Synching Path1 \"local{HK82T}:/home/user/renames/\" with Path2 \"koofr{UXppf}:renames/\"","source":"bisync/operations.go:238"}
+{"time":"2026-10-13T00:38:22.705783206+02:00","level":"info","msg":"Using filters file /home/user/scratch/spola-probe-run/state/filters/probe.txt","source":"bisync/cmd.go:240"}
+{"time":"2026-10-13T00:38:22.70678814+02:00","level":"info","msg":"Building Path1 and Path2 listings","source":"bisync/operations.go:310"}
+{"time":"2026-10-13T00:38:22.841399524+02:00","level":"info","msg":"Path1 checking for diffs","source":"bisync/operations.go:320"}
+{"time":"2026-10-13T00:38:22.841527105+02:00","level":"info","msg":"Path2 checking for diffs","source":"bisync/operations.go:328"}
+{"time":"2026-10-13T00:38:22.84165728+02:00","level":"notice","msg":"- Path2             File was deleted                            - IMG_02.jpg","source":"bisync/deltas.go:188"}
+{"time":"2026-10-13T00:38:22.841713326+02:00","level":"notice","msg":"- Path2             File is new                                 - from-windows-02.jpg","source":"bisync/deltas.go:259"}
+{"time":"2026-10-13T00:38:22.841739295+02:00","level":"info","msg":"Path2:    2 changes:    1 new,    0 modified,    1 deleted","source":"bisync/deltas.go:126"}
+{"time":"2026-10-13T00:38:22.841759262+02:00","level":"info","msg":"Applying changes","source":"bisync/operations.go:381"}
+{"time":"2026-10-13T00:38:22.842038148+02:00","level":"notice","msg":"- Path1             Queue delete                                - local{HK82T}:/home/user/renames/IMG_02.jpg","source":"bisync/deltas.go:479"}
+{"time":"2026-10-13T00:38:22.842079266+02:00","level":"notice","msg":"- Path2             Queue copy to Path1                         - local{HK82T}:/home/user/renames/from-windows-02.jpg","source":"bisync/deltas.go:475"}
+{"time":"2026-10-13T00:38:22.842105435+02:00","level":"notice","msg":"- Path2             Do queued copies to                         - Path1","source":"bisync/deltas.go:487"}
+{"time":"2026-10-13T00:38:22.912006214+02:00","level":"info","msg":"Making map for --track-renames","object":"Local file system at /home/user/renames","objectType":"*local.Fs","source":"sync/sync.go:856"}
+{"time":"2026-10-13T00:38:22.912214035+02:00","level":"info","msg":"Finished making map for --track-renames","object":"Local file system at /home/user/renames","objectType":"*local.Fs","source":"sync/sync.go:891"}
+{"time":"2026-10-13T00:38:22.912289428+02:00","level":"notice","msg":"Skipped move to from-windows-02.jpg as --dry-run is set (size 19.533Ki)","skipped":"move to from-windows-02.jpg","size":20002,"object":"IMG_02.jpg","objectType":"*local.Object","source":"operations/operations.go:2672"}
+{"time":"2026-10-13T00:38:22.912326437+02:00","level":"info","msg":"Renamed from \"IMG_02.jpg\"","object":"from-windows-02.jpg","objectType":"*koofr.Object","source":"sync/sync.go:925"}
+{"time":"2026-10-13T00:38:22.912366102+02:00","level":"info","msg":"There was nothing to transfer","source":"sync/sync.go:1033"}
+{"time":"2026-10-13T00:38:22.912548756+02:00","level":"info","msg":"Updating listings","source":"bisync/operations.go:395"}
+{"time":"2026-10-13T00:38:22.983420195+02:00","level":"info","msg":"Bisync successful","source":"bisync/operations.go:218"}
+{"time":"2026-10-13T00:38:22.983620462+02:00","level":"notice","msg":"\nTransferred:   \t   19.533 KiB / 19.533 KiB, 100%, 0 B/s, ETA -\nChecks:                32 / 32, 100%, Listed 47\nRenamed:                1\nElapsed time:         0.2s\n\n","stats":{"bytes":20002,"checks":32,"deletedDirs":0,"deletes":0,"elapsedTime":0.276708428,"errors":0,"eta":null,"fatalError":false,"listed":47,"renames":1,"retryError":false,"serverSideCopies":0,"serverSideCopyBytes":0,"serverSideMoveBytes":0,"serverSideMoves":0,"speed":0,"totalBytes":20002,"totalChecks":32,"totalTransfers":0,"transferTime":0.000220275,"transfers":0},"source":"accounting/stats.go:549"}

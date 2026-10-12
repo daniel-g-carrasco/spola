@@ -458,7 +458,8 @@ class ActivityList(Adw.PreferencesGroup):
     # go-down are chevrons, which read as "expand", not as a transfer)
     ICONS = {activity.DOWNLOAD: "folder-download-symbolic", activity.UPLOAD: "send-to-symbolic",
              activity.DELETE_HERE: "user-trash-symbolic", activity.DELETE_KOOFR: "user-trash-symbolic",
-             activity.CONFLICT: "dialog-warning-symbolic"}
+             activity.CONFLICT: "dialog-warning-symbolic",
+             activity.MOVE_KOOFR: "go-jump-symbolic", activity.MOVE_HERE: "go-jump-symbolic"}
 
     def __init__(self, engine: Engine, pair_id_of):
         super().__init__(title=pgettext("activity", "Now Syncing"), visible=False)
@@ -496,6 +497,8 @@ class ActivityList(Adw.PreferencesGroup):
             (activity.DELETE_KOOFR, activity.WAITING): _("Deleted here: to Koofr's trash"),
             (activity.DELETE_KOOFR, activity.DONE): _("Deleted here: moved to Koofr's trash"),
             (activity.DELETE_KOOFR, activity.FAILED): _("Not deleted on Koofr"),
+            (activity.MOVE_KOOFR, activity.DONE): _("Moved here: moved on Koofr too"),
+            (activity.MOVE_HERE, activity.DONE): _("Moved on Koofr: moved here too"),
         }
         if op.kind == activity.CONFLICT:
             return _("Changed on both sides: both versions kept")
@@ -513,7 +516,7 @@ class ActivityList(Adw.PreferencesGroup):
                 continue
             row.set_title(escape(os.path.basename(op.path) or op.path))
             row.set_subtitle(escape(self.describe(op)))
-            row.set_tooltip_text(op.path)
+            row.set_tooltip_text(f"{op.origin} → {op.path}" if op.origin else op.path)
             icon.set_from_icon_name(self.ICONS.get(op.kind, "text-x-generic-symbolic"))
             icon.set_css_classes(["error"] if op.state == activity.FAILED else
                                  ["warning"] if op.kind == activity.CONFLICT else
@@ -1209,10 +1212,13 @@ class PreviewDialog(Adw.Dialog):
             group.add(Adw.ActionRow(title=_("The preview stopped"),
                                     subtitle=GLib.markup_escape_text(outcome.message or ""), subtitle_lines=4))
             return
-        # the last field: the file is only on Koofr for now, so a click opens its folder there
+        # the last field: the file is only on Koofr for now, so a click opens its folder there.
+        # Moves are (from, to) pairs.
         rows = [
             (plan.upload, _("Copied to Koofr"), "go-up-symbolic", False),
             (plan.download, _("Copied to this computer"), "go-down-symbolic", True),
+            (plan.moved_remote, _("Moved or renamed here: moved the same way on Koofr"), "go-jump-symbolic", False),
+            (plan.moved_local, _("Moved or renamed on Koofr: moved the same way here"), "go-jump-symbolic", False),
             (plan.replace_local, _("Replaced here by the newer Koofr version (the old one goes to the backup)"),
              "document-revert-symbolic", False),
             (plan.delete_local, _("Deleted here (moved to Spola's backup)"), "user-trash-symbolic", False),
@@ -1223,6 +1229,9 @@ class PreviewDialog(Adw.Dialog):
         ]
         if plan.empty:
             group.add(Adw.ActionRow(title=_("Nothing to do: the two folders already match.")))
+        elif self.force and (plan.moved_remote or plan.moved_local) and not group.get_description():
+            group.set_description(_("Moved and renamed files count as deletions for the safety check, "
+                                    "but they are moved the same way on the other side, not deleted."))
         rt = self.engine.runtime.get(self.pair_id)
         why = {r.path: preflight.refused_reason(r.code, r.other) for r in (rt.pending_refused if rt else [])}
         for paths, title, icon, on_koofr in rows:
@@ -1230,13 +1239,21 @@ class PreviewDialog(Adw.Dialog):
                 continue
             row = Adw.ExpanderRow(title=title, subtitle=ngettext("{n} file", "{n} files", len(paths)).format(n=len(paths)))
             row.add_prefix(Gtk.Image(icon_name=icon))
-            for path in paths[:PREVIEW_LIMIT]:
-                # a left-out name says why: most of them look perfectly normal
-                reason = why.get(path, "") if paths is plan.refused else ""
+            for entry in paths[:PREVIEW_LIMIT]:
+                if isinstance(entry, tuple):
+                    # a move: the new name, where it was; here the file is still
+                    # where it was if Koofr moved it, already moved if this computer did
+                    old, path = entry
+                    here = path if paths is plan.moved_remote else old
+                    reason = _("From “{path}”").format(path=old)
+                else:
+                    path = here = entry
+                    # a left-out name says why: most of them look perfectly normal
+                    reason = why.get(path, "") if paths is plan.refused else ""
                 item = Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2,
                                      subtitle=GLib.markup_escape_text(reason), subtitle_lines=3, activatable=True,
                                      tooltip_text=_("Open on Koofr") if on_koofr else _("Show in the file manager"))
-                item.connect("activated", lambda _r, p=path, k=on_koofr: self._show(p, k))
+                item.connect("activated", lambda _r, p=here, k=on_koofr: self._show(p, k))
                 row.add_row(item)
             if len(paths) > PREVIEW_LIMIT:
                 row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=len(paths) - PREVIEW_LIMIT)))

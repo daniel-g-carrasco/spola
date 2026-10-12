@@ -29,6 +29,26 @@ class ActivityTest(unittest.TestCase):
             self.now[0] += 1
             Engine._track(self.a, parse_line(text), lambda p: relative_path(p, ROOTS))
 
+    def test_a_move_is_one_row_not_a_delete_and_a_copy(self):
+        # renamed here, moved on Koofr; renamed on Koofr, moved here; and a
+        # conflict copy, renamed by bisync with the same line but never confirmed
+        self.feed(line("- Path1    Queue copy to Path2    - koofr{ab}:data/work/2026/trip.jpg"),
+                  line("- Path2    Queue delete           - koofr{ab}:data/work/IMG_1.jpg"),
+                  line("- Path1    Queue delete           - local{cd}:/home/u/work/IMG_2.jpg"),
+                  line("- Path2    Queue copy to Path1    - local{cd}:/home/u/work/from-there.jpg"),
+                  line("Moved (server-side) to: both.conflict-local-2026-10-13-1.md", object="both.md"),
+                  line("- Path1    Do queued copies to    - Path2"),
+                  line("Moved (server-side) to: 2026/trip.jpg", object="IMG_1.jpg"),
+                  line('Renamed from "IMG_1.jpg"', object="2026/trip.jpg"),
+                  line("- Path2    Do queued copies to    - Path1"),
+                  line("Moved (server-side) to: from-there.jpg", object="IMG_2.jpg"),
+                  line('Renamed from "IMG_2.jpg"', object="from-there.jpg"))
+        ops = {o.path: o for o in self.a.ops.values()}
+        self.assertEqual(sorted(ops), ["2026/trip.jpg", "from-there.jpg"])      # the deletes are gone
+        self.assertEqual((ops["2026/trip.jpg"].kind, ops["2026/trip.jpg"].origin), (act.MOVE_KOOFR, "IMG_1.jpg"))
+        self.assertEqual((ops["from-there.jpg"].kind, ops["from-there.jpg"].origin), (act.MOVE_HERE, "IMG_2.jpg"))
+        self.assertTrue(all(o.state == act.DONE for o in ops.values()))
+
     def test_queue_lines_say_what_and_which_way(self):
         self.feed(line("- Path2    Queue copy to Path1    - koofr{ab}:data/work/a/new.pdf"),
                   line("- Path1    Queue copy to Path2    - local{cd}:/home/u/work/b.odt"),
