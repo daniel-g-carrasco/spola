@@ -67,7 +67,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
-        engine.connect("status-changed", lambda _e: self.overall.update())
+        engine.connect("status-changed", lambda _e: self.update_overall())
         engine.connect("run-finished", self._on_run_finished)
         self.nav.connect("popped", lambda _n, page: page.detach() if isinstance(page, PairPage) else None)
         self._rebuild_rows()
@@ -80,7 +80,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.set_visible_child_name("list" if signed_in and self.engine.cfg.pairs
                                           else "empty" if signed_in else "login")
         self.add_button.set_visible(signed_in)
-        self.overall.update()
+        self.update_overall()
 
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=text, timeout=5))
@@ -140,6 +140,8 @@ class MainWindow(Adw.ApplicationWindow):
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
                                        tooltip_text=_("Main Menu"), primary=True))
         view.add_top_bar(header)
+        self.banner = AttentionBanner(self)
+        view.add_top_bar(self.banner.widget)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self._login_page(), "login")
@@ -161,6 +163,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.add_named(self.list_page, "list")
         view.set_content(self.stack)
         return Adw.NavigationPage(title=APP_NAME, tag="folders", child=view)
+
+    def update_overall(self) -> None:
+        self.overall.update()
+        self.banner.update()
 
     def add_folder(self) -> None:
         from .add_folder import AddFolderDialog
@@ -189,7 +195,7 @@ class MainWindow(Adw.ApplicationWindow):
         row = self.rows.get(pair_id)
         if row:
             row.update()
-        self.overall.update()
+        self.update_overall()
         self.activity.update()
 
     def show_pair(self, pair_id: str) -> None:
@@ -331,14 +337,68 @@ class MainWindow(Adw.ApplicationWindow):
                           _("Confirm")).present(self)
 
 
-class OverallStatus(Gtk.Box):
-    """Everything at a glance, at the top of the list: a coloured icon, what
-    is going on, one line of detail, the progress while syncing and the one
-    action that matters now. The folders that wait for the user come first,
-    the most serious one is opened by Review."""
+# what makes a folder wait for the user, the most serious first
+LOOK = (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.ERROR, Status.CONFLICTS,
+        Status.SKIPPED, Status.NEEDS_SETUP)
 
-    LOOK = (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.ERROR, Status.CONFLICTS,
-            Status.SKIPPED, Status.NEEDS_SETUP)
+
+def waiting_for_user(engine: Engine) -> list[str]:
+    """The folders that wait for the user (not paused ones), the most
+    serious first."""
+    found = [(LOOK.index(engine.runtime[p.id].status), p.name.casefold(), p.id) for p in engine.cfg.pairs
+             if p.id in engine.runtime and not p.paused and engine.runtime[p.id].status in LOOK]
+    return [pair_id for _rank, _name, pair_id in sorted(found)]
+
+
+class AttentionBanner:
+    """What waits for the user, under the header bar: the folder, or how
+    many, and the one button that deals with it. A banner of its own, so
+    that the status card keeps saying what Spola is doing (a folder waiting
+    for its alignment must not hide the others syncing), and so that it stays
+    in view while the list scrolls. (Adw.Banner cannot be subclassed.)"""
+
+    def __init__(self, window: MainWindow):
+        self.window, self.engine = window, window.engine
+        self.widget = Adw.Banner(revealed=False)
+        if hasattr(self.widget, "set_button_style"):           # libadwaita 1.7
+            self.widget.set_button_style(Adw.BannerButtonStyle.SUGGESTED)
+        self._do = None
+        self.widget.connect("button-clicked", lambda *_: self._do() if self._do else None)
+
+    def update(self) -> None:
+        engine = self.engine
+        waiting = waiting_for_user(engine) if engine.creds is not None else []
+        self.widget.set_revealed(bool(waiting))
+        if not waiting:
+            return
+        pair_id = waiting[0]
+        pair, status = engine.cfg.pair(pair_id), engine.runtime[pair_id].status
+        if len(waiting) > 1:
+            title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
+                             len(waiting)).format(n=len(waiting))
+        else:
+            title = {
+                Status.NEEDS_REPAIR: _("“{name}” needs a repair"),
+                Status.NEEDS_CONFIRMATION: _("“{name}” is waiting for your confirmation"),
+                Status.NEEDS_SETUP: _("“{name}” is waiting for its first alignment"),
+                Status.CONFLICTS: _("Conflicts in “{name}”"),
+                Status.SKIPPED: _("Some files in “{name}” are not synced"),
+                Status.ERROR: _("“{name}” cannot be synced"),
+            }[status].format(name=pair.name)
+        self.widget.set_title(escape(title))
+        if status is Status.ERROR and len(waiting) == 1:
+            self.widget.set_button_label(_("Try Again"))
+            self._do = lambda: engine.request_sync(pair_id, "manual")
+        else:
+            # the most serious first; the next one after it
+            self.widget.set_button_label(_("Review"))
+            self._do = lambda: self.window.review(pair_id)
+
+
+class OverallStatus(Gtk.Box):
+    """What Spola is doing, at the top of the list: a coloured icon, the
+    state, one line of detail, the progress while syncing and, when it
+    matters, one action. What waits for the user is in the banner above."""
 
     def __init__(self, window: MainWindow):
         super().__init__(spacing=16, css_classes=["card"])
@@ -383,38 +443,6 @@ class OverallStatus(Gtk.Box):
         self.progress.set_opacity(0)
         if not pairs or engine.creds is None:
             return
-        waiting = sorted((engine.runtime[p.id].status, p.name.casefold(), p.id) for p in pairs
-                         if not p.paused and engine.runtime[p.id].status in self.LOOK)
-        if waiting:
-            status, _name, pair_id = waiting[0]
-            pair, rt = cfg.pair(pair_id), engine.runtime[pair_id]
-            if len(waiting) > 1:
-                names = [cfg.pair(pid).name for _s, _n, pid in waiting]
-                title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
-                                 len(waiting)).format(n=len(waiting))
-                detail = ", ".join(names[:3]) + (" \u2026" if len(names) > 3 else "")
-            else:
-                title = {
-                    Status.NEEDS_REPAIR: _("“{name}” needs a repair"),
-                    Status.NEEDS_CONFIRMATION: _("“{name}” is waiting for your confirmation"),
-                    Status.NEEDS_SETUP: _("“{name}” is waiting for its first alignment"),
-                    Status.CONFLICTS: _("Conflicts in “{name}”"),
-                    Status.SKIPPED: _("Some files in “{name}” are not synced"),
-                    Status.ERROR: _("“{name}” cannot be synced"),
-                }[status].format(name=pair.name)
-                n = len(engine.conflicts(pair_id)) if status is Status.CONFLICTS else len(rt.refused)
-                detail = {
-                    Status.CONFLICTS: ngettext("{n} file changed on both sides",
-                                               "{n} files changed on both sides", n).format(n=n),
-                    Status.SKIPPED: ngettext("{n} name Koofr does not accept",
-                                             "{n} names Koofr does not accept", n).format(n=n),
-                }.get(status, rt.message)
-            if status is Status.ERROR:
-                self._show(status, title, detail, _("Try Again"),
-                           lambda: engine.request_sync(pair_id, "manual"))
-            else:
-                self._show(status, title, detail, _("Review"), lambda: self.window.review(pair_id), suggested=True)
-            return
         task = engine.active
         if task is not None and not task.dry_run and cfg.pair(task.pair_id):
             pair, rt = cfg.pair(task.pair_id), engine.runtime[task.pair_id]
@@ -437,14 +465,22 @@ class OverallStatus(Gtk.Box):
         if any(engine.runtime[p.id].status in (Status.PENDING, Status.SYNCING) for p in active):
             self._show(Status.PENDING, status_text(Status.PENDING))
             return
-        synced = [engine.runtime[p.id].last_sync for p in active if engine.runtime[p.id].last_sync]
-        detail = ngettext("{n} folder", "{n} folders", len(active)).format(n=len(active))
+        waiting = waiting_for_user(engine)
+        others = [p for p in active if p.id not in waiting]
+        if not others:
+            # every folder waits for the user: the banner says what to do
+            names = [cfg.pair(pid).name for pid in waiting]
+            self._show(engine.runtime[waiting[0]].status, _("Waiting for You"),
+                       ", ".join(names[:3]) + (" \u2026" if len(names) > 3 else ""))
+            return
+        synced = [engine.runtime[p.id].last_sync for p in others if engine.runtime[p.id].last_sync]
+        detail = ngettext("{n} folder", "{n} folders", len(others)).format(n=len(others))
         if synced:
             detail += " · " + _("last sync {time}").format(time=when(max(synced)))
         paused = len(pairs) - len(active)
         if paused:
             detail += " · " + ngettext("{n} paused", "{n} paused", paused).format(n=paused)
-        self._show(Status.OK, _("Everything Is Up to Date"), detail)
+        self._show(Status.OK, _("Everything Else Is Up to Date") if waiting else _("Everything Is Up to Date"), detail)
 
 
 class ActivityList(Adw.PreferencesGroup):
