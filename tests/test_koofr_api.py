@@ -8,7 +8,7 @@ import unittest
 import _setup  # noqa: F401
 
 from spola.config import Pair
-from spola.koofr_api import ACTIVITY_LIMIT, Activity, touched_pairs, user_agent, web_url
+from spola.koofr_api import ACTIVITY_LIMIT, Activity, folder_url, touched_pairs, user_agent, web_url
 
 PAIRS = [Pair("work", "/h/data/work", "/data/work"), Pair("photos", "/h/p", "/data/media/photos"),
          Pair("test", "/h/s/t", "/spola-test")]
@@ -48,6 +48,12 @@ class TouchedPairsTest(unittest.TestCase):
 
     def test_web_url(self):
         self.assertEqual(web_url("m-1", "/spola-test/a b"), "https://app.koofr.net/app/storage/m-1?path=%2Fspola-test%2Fa+b")
+
+    def test_folder_url_is_the_folder_holding_the_file(self):
+        base = "https://app.koofr.net/app/storage/m-1?path="
+        self.assertEqual(folder_url("m-1", "/data/imports", "Foto/2025/a.jpg"), base + "%2Fdata%2Fimports%2FFoto%2F2025")
+        self.assertEqual(folder_url("m-1", "/data/imports", "a.jpg"), base + "%2Fdata%2Fimports")
+        self.assertEqual(folder_url("m-1", "/", "a.jpg"), base + "%2F")
         self.assertEqual(web_url("", "/x"), "https://app.koofr.net/app/storage")
 
 

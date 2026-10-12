@@ -15,6 +15,7 @@ from gi.repository import Gio, GLib, Gtk  # noqa: E402
 from . import APP_ID, conflicts  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
+from .paths import nearest_folder  # noqa: E402
 from .rclone import Result, describe  # noqa: E402
 
 STATUS_ICONS = {
@@ -181,8 +182,12 @@ def place_name(folder: str) -> str:
 
 def reveal(window, path: str) -> None:
     """Show the file in the file manager, selected (the OpenURI portal's
-    OpenDirectory inside the sandbox)."""
-    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(window, None, None, None)
+    OpenDirectory inside the sandbox); a file that is not there any more
+    opens the nearest folder that is."""
+    if os.path.lexists(path):
+        Gtk.FileLauncher.new(Gio.File.new_for_path(path)).open_containing_folder(window, None, None, None)
+        return
+    Gtk.FileLauncher.new(Gio.File.new_for_path(nearest_folder(path))).launch(window, None, None, None)
 
 
 def file_details(copy: conflicts.Copy) -> str:

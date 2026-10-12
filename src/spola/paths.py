@@ -65,5 +65,13 @@ class Paths:
         return self.data / "backup" / pair_id
 
 
+def nearest_folder(path: str) -> str:
+    """The closest folder above `path` that exists, for a file that is gone."""
+    folder = os.path.dirname(path)
+    while not os.path.isdir(folder) and folder != os.path.dirname(folder):
+        folder = os.path.dirname(folder)
+    return folder
+
+
 def in_flatpak() -> bool:
     return os.path.exists("/.flatpak-info")
