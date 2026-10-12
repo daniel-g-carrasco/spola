@@ -67,14 +67,14 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>Your folders, grouped by where they are, and what is going on at the top</caption>
-      <caption xml:lang="it">Le tue cartelle, raggruppate per dove si trovano, e in cima cosa sta succedendo</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/main-window.png</image>
+      <caption>What is going on at the top, the files being synced, then your folders, grouped by where they are</caption>
+      <caption xml:lang="it">In cima cosa sta succedendo, i file in sincronizzazione, poi le tue cartelle, raggruppate per dove si trovano</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.1/data/screenshots/main-window.png</image>
     </screenshot>
     <screenshot>
       <caption>A folder's page: status, both locations, pause, exclusions</caption>
       <caption xml:lang="it">La pagina di una cartella: stato, le due posizioni, pausa, esclusioni</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/folder.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.1/data/screenshots/folder.png</image>
     </screenshot>
     <screenshot>
       <caption>Adding a folder: the matching Koofr folder is suggested</caption>
@@ -109,6 +109,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.1" date="2026-10-12" type="development">
+      <description>
+        <p>Spola no longer syncs while Koofr Desktop runs on the same computer or is set to start at login: on one laptop the two engines on the same folders deleted a file on Koofr. Koofr Desktop on your other computers is fine.</p>
+        <p>Under the status at the top of the window, the files being synced, each with what is happening to it (download, upload, deletion on either side, conflict) and its progress. The tray icon shows the progress when you hover it and at the top of its menu. A sync started on its own stops when the network becomes metered, if Spola pauses there, and starts again when it no longer is. Align and Review no longer leave the window frozen for a few seconds on large folders, and the Flatpak follows the GTK 4 colours set by the desktop (Noctalia, for one).</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-12" type="development">
       <description>
         <p>Spola now works with the other common file managers: emblems and the Koofr menu in Nemo and Caja too, the Koofr menu in Dolphin and Thunar, and the overlay icons in Dolphin with a small plugin you build on your system. In Dolphin and Thunar the share link is shown by Spola with a Copy button. The emblems carry their colours for the file managers that do not recolour them, and the "left out" one no longer has a gap where the bar meets the ring.</p>

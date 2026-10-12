@@ -77,8 +77,8 @@
 
   <figure>
     <img src="screenshots/main-window.png" width="480" height="600"
-         alt="Spola's window: the overall status at the top, then the folders grouped by where they are, one of them syncing">
-    <figcaption>What is going on at the top, then your folders, grouped by where they live.</figcaption>
+         alt="Spola's window: the overall status at the top, the file being uploaded with its progress, then the folders grouped by where they are">
+    <figcaption>What is going on at the top, the files on their way, then your folders, grouped by where they live.</figcaption>
   </figure>
 
   <h2>How it works</h2>
@@ -102,8 +102,8 @@
 
   <p>
     The tray icon keeps quiet while everything is up to date: it turns blue while syncing, orange when something
-    needs you, red on errors. Its menu lists the files being transferred and the last ones synced; a click shows
-    the file in Files.
+    needs you, red on errors. Hover it to see what is syncing and how far along it is; its menu starts with the
+    same line, then lists the files being transferred and the last ones synced, and a click shows the file in Files.
   </p>
   <p>
     I did not write a sync engine. Every sync is an <code>rclone bisync</code> run: <a href="https://rclone.org">rclone</a>
@@ -165,14 +165,15 @@
   <h2>Coming from Koofr Desktop</h2>
   <p>
     Spola can take your Koofr Desktop folders over: <code>spola import-koofr-desktop</code>, or
-    <code>ujust install-spola migrate</code> on Margine OS. Stop Koofr Desktop first: two sync engines on the
-    same folders is the quickest way to lose files. In my case the folders were already identical on both sides
+    <code>ujust install-spola migrate</code> on Margine OS. Spola does not sync while Koofr Desktop runs on the
+    same computer or is set to start at login: two sync engines on the same folders is the quickest way to lose
+    files, and I learned it the hard way. Koofr Desktop on your other computers is fine. In my case the folders were already identical on both sides
     and the first sync of each moved nothing, but you see that in the preview before anything happens.
   </p>
 
   <h2>Where it stands</h2>
   <p>
-    This is version 0.2. I use it every day on my own machine, with 16 folders and a few hundred gigabytes,
+    This is version 0.3. I use it every day on my own machine, with 16 folders and a few hundred gigabytes,
     and it replaced Koofr Desktop there. It is still young: if something looks wrong, please
     <a href="https://github.com/daniel-g-carrasco/spola/issues">open an issue</a>. It speaks English and Italian.
   </p>
