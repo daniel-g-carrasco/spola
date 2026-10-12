@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.3" date="2026-10-13" type="development">
+      <description>
+        <p>A move stays a move: a file renamed or moved to another folder on one side is moved the same way on the other, on Koofr's server, instead of being deleted and copied again. A big reorganisation still stops for a confirmation, and its preview lists the moves as moves, not as deletions. Fixed along the way: after a file was renamed on Koofr, the next sync uploaded it again, because Koofr keeps modification times to the millisecond.</p>
+      </description>
+    </release>
     <release version="0.3.2" date="2026-10-12" type="development">
       <description>
         <p>Many conflicts at once: Resolve All keeps the newer version, this computer's, Koofr's or both, after showing what happens to each file and leaving to you what the rule cannot decide. A rule can also resolve new conflicts on its own after each sync, for all folders in Preferences or for one folder on its page; the default is still to ask. The version not kept goes to the wastebasket here and to Koofr's trash.</p>

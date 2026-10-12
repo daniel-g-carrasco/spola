@@ -180,19 +180,41 @@ class BisyncScenarios(unittest.TestCase):
         for i in range(40):
             self.write(self.local, f"PXL_{i:02}.jpg", f"photo {i}", age=600)
         self.align()
+        moved_inode = (self.remote / "PXL_00.jpg").stat().st_ino
         (self.local / "2026").mkdir()
-        for i in range(10):                      # 25% renamed: still a confirmation
+        for i in range(10):                      # 25% renamed: a move counts as a delete, so it asks first
             (self.local / f"PXL_{i:02}.jpg").rename(self.local / "2026" / f"2026-05-{i + 1:02}.jpg")
         out = self.bisync()
         self.assertIs(out.result, Result.NEEDS_CONFIRMATION)
         self.assertEqual(len(self.files(self.remote)), 40)
+        # what the user confirms: ten moves and a new folder, nothing deleted
         preview = self.bisync(dry_run=True, force=True)
+        self.assertEqual(len(preview.plan.moved_remote), 10)
+        self.assertIn(("PXL_00.jpg", "2026/2026-05-01.jpg"), preview.plan.moved_remote)
+        self.assertEqual((preview.plan.upload, preview.plan.delete_remote), (["2026"], []))
         out = self.bisync(force=True)
         self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual(sorted(out.plan.moved_remote), sorted(preview.plan.moved_remote))
         self.assertEqual(self.files(self.remote), self.files(self.local))
-        self.assertIn("2026/2026-05-01.jpg", self.files(self.remote))
-        self.assertEqual(self.backups(), [])    # nothing replaced, nothing lost
+        # the same file, moved: not deleted and copied again
+        self.assertEqual((self.remote / "2026" / "2026-05-01.jpg").stat().st_ino, moved_inode)
         self.assertEqual((self.remote / "2026" / "2026-05-01.jpg").read_text(), "photo 0")
+        self.assertEqual(self.backups(), [])    # nothing replaced, nothing lost
+        self.assertTrue(self.bisync().plan.empty)
+
+    def test_renames_on_koofr_are_moves_here(self):
+        for i in range(20):
+            self.write(self.local, f"PXL_{i:02}.jpg", f"photo {i}", age=600)
+        self.align()
+        moved_inode = (self.local / "PXL_03.jpg").stat().st_ino
+        (self.remote / "PXL_03.jpg").rename(self.remote / "from-the-other-laptop.jpg")
+        out = self.bisync()
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual(out.plan.moved_local, [("PXL_03.jpg", "from-the-other-laptop.jpg")])
+        self.assertEqual(out.plan.download + out.plan.delete_local, [])
+        self.assertEqual((self.local / "from-the-other-laptop.jpg").stat().st_ino, moved_inode)
+        self.assertEqual(self.backups(), [])    # moved, so nothing to keep in the backup
+        self.assertTrue(self.bisync().plan.empty)
 
     def test_replaced_root_never_reaches_rclone(self):
         self.write(self.local, "a.txt", "x")

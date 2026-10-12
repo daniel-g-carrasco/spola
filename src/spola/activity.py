@@ -6,7 +6,9 @@ bisync announces each operation when it decides it ("Queue copy to Path1",
 "Queue delete" on a side), rclone reports the files being copied every second
 and logs each one when it is done ("Copied", "Deleted", "Moved" into the
 backup folder). A first alignment queues nothing: its copies are known from
-the stats and the "Copied" lines alone.
+the stats and the "Copied" lines alone. A file moved on one side is queued as
+a delete plus a copy; when rclone moves it instead (--track-renames: "Moved
+... to", then "Renamed from") the two become one move.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import time
 from dataclasses import dataclass
 
 DOWNLOAD, UPLOAD, DELETE_HERE, DELETE_KOOFR, CONFLICT = "download", "upload", "delete-here", "delete-koofr", "conflict"
+MOVE_KOOFR, MOVE_HERE = "move-koofr", "move-here"     # moved here and then on Koofr, or the other way
 WAITING, ACTIVE, DONE, FAILED = "waiting", "active", "done", "failed"
 MAX_OPS = 5000            # a huge run keeps its first ones: the list shows four at a time
 
@@ -27,6 +30,7 @@ class Op:
     size: int = 0
     bytes: int = 0
     changed: float = 0.0      # when the state last changed, for the order of the list
+    origin: str = ""          # a move: where the file was
 
     @property
     def fraction(self) -> float | None:
@@ -50,6 +54,8 @@ class RunActivity:
     def __init__(self, clock=time.monotonic):
         self.ops: dict[str, Op] = {}
         self.clock = clock
+        self.into = ""                        # the side the current copies go to (bisync's phases)
+        self.moving: dict[str, str] = {}      # new name -> old, until rclone confirms the move
 
     def _op(self, path: str, kind: str) -> Op | None:
         op = self.ops.get(path)
@@ -93,6 +99,28 @@ class RunActivity:
         one is downloaded, and that download is not done yet."""
         op = self.ops.get(path)
         if op is not None and op.kind == (DELETE_HERE if here else DELETE_KOOFR):
+            self._finish(op)
+
+    def phase(self, into: str) -> None:
+        self.into = into
+
+    def move_seen(self, old: str, new: str) -> None:
+        """A "Moved ... to" line: a rename if rclone confirms it, or bisync's
+        own rename of a conflict copy if not."""
+        if old and new:
+            self.moving[new] = old
+
+    def renamed(self, new: str) -> None:
+        """--track-renames moved `new` from where it was: the delete and the
+        copy queued for it are one move, done."""
+        old = self.moving.pop(new, None)
+        if old is None or not self.into:
+            return
+        kind = MOVE_KOOFR if self.into == "Path2" else MOVE_HERE
+        self.ops.pop(old, None)
+        op = self._op(new, kind)
+        if op is not None:          # (the copy queued for it: now a move, with nothing to transfer)
+            op.kind, op.origin, op.size, op.bytes = kind, old, 0, 0
             self._finish(op)
 
     def backed_up(self, path: str) -> None:

@@ -293,6 +293,23 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: {"a (2).txt", "foto.txt"} <= set(self.remote_files()), 60))
         self.assertEqual((self.remote / "a (2).txt").read_text(), "lower")
 
+    def test_a_move_from_koofr_is_not_taken_for_a_change_here(self):
+        self.align()
+        # the alignment's sealing run first
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        runs = []
+        self.engine.connect("run-finished", lambda _e, pid, reason: runs.append(reason))
+        inode = (self.local / "f05.txt").stat().st_ino
+        (self.remote / "f05.txt").rename(self.remote / "renamed-there.txt")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: runs, 60))
+        self.assertEqual((self.local / "renamed-there.txt").stat().st_ino, inode)      # moved, not downloaded
+        self.assertEqual(self.engine.runtime["p1"].last_outcome.plan.moved_local, [("f05.txt", "renamed-there.txt")])
+        # the watcher saw rclone move the file here: that is no change to sync back
+        spin_until(lambda: False, engine_mod.DEBOUNCE_S + 3)
+        self.assertEqual(runs, ["manual"])
+        self.assertIn("renamed-there.txt", [f.path for f in self.engine.recent.items])    # in the tray's list
+
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()
         home = self.tmp / "home"

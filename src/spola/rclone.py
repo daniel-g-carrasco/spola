@@ -201,6 +201,12 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         "--suffix-keep-extension",
         "--compare", "size,modtime,checksum",
         "--slow-hash-sync-only",
+        # Koofr keeps modification times to the millisecond, this computer to
+        # the nanosecond. A file moved here (--track-renames) keeps its own
+        # time while bisync records Koofr's, and the next run would take the
+        # difference for a change and upload the file again: under 1 ms, two
+        # times are the same.
+        "--modify-window", "1ms",
         "--create-empty-src-dirs",
         "--resilient", "--recover",
         "--max-lock", "2m",
@@ -223,11 +229,12 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
     if req.bwlimit:
         args += ["--bwlimit", req.bwlimit]
     if req.mode is Mode.SYNC:
-        # a file moved or renamed locally becomes a server-side move on Koofr
-        # instead of a delete plus a new upload (matched by MD5, which both
-        # sides have). Not on --resync: rclone ignores it there with an ERROR
-        # line. Renames still count as deletes for --max-delete, so a big
-        # reorganisation stops for a confirmation as before.
+        # A file moved or renamed on one side is moved on the other, instead
+        # of deleted there and copied again (matched by size and MD5, which
+        # both sides have; Koofr moves on the server). Not on --resync, which
+        # never deletes: rclone ignores it there with an ERROR line. A move
+        # still counts as a delete for --max-delete, so a big reorganisation
+        # stops for a confirmation as before, with the moves in its preview.
         args.append("--track-renames")
     if req.mode is Mode.RESYNC:
         args += ["--resync", "--resync-mode", req.resync_mode]
@@ -258,6 +265,8 @@ class Kind(enum.Enum):
     COPIED = "copied"
     DELETED = "deleted"          # a file deleted, side = where (from its object type)
     BACKUP = "backup"            # a file moved into the backup folder
+    MOVED = "moved"              # a file moved (path = from, target = to): a rename, a conflict copy
+    RENAMED = "renamed"          # --track-renames moved a file (path = its new name), after its MOVED
     SKIPPED = "skipped"          # dry-run: what would have been done
     SAFETY_ABORT = "safety-abort"
     CRITICAL = "critical"
@@ -274,6 +283,7 @@ class Event:
     side: str = ""               # "Path1" (local) or "Path2" (Koofr)
     action: str = ""             # e.g. "File is new", "Queue copy to Path2"
     path: str = ""
+    target: str = ""             # where a file is moved to (MOVED, a dry run's SKIPPED move)
     stats: dict | None = None
 
 
@@ -282,6 +292,12 @@ _QUEUE = re.compile(r"^- (Path[12])\s+(Queue (?:copy to Path[12]|delete))\s+- (.
 _CONFLICT = re.compile(r"^- WARNING\s+New or changed in both paths\s+- (.*)$", re.S)
 _RENAME = re.compile(r"^- (Path[12])\s+Renaming Path[12] copy\s+- (.*)$", re.S)
 _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued copies to)\s+- (Path[12])$")
+# a move by name: "Moved (server-side) to: <new>" (a rename, or bisync's own
+# rename of a conflict copy), and in a dry run "skipped": "move to <new>"; the
+# object is the old name. --track-renames confirms each of its moves with
+# "Renamed from \"<old>\"", whose object is the new name.
+_MOVED_TO = re.compile(r"^Moved \(server-side\) to: (.+)$", re.S)
+_RENAMED_FROM = re.compile(r'^Renamed from "', re.S)
 
 
 def _side_of(d: dict) -> str:
@@ -324,7 +340,13 @@ def parse_line(line: str) -> Event | None:
     if msg == "Bisync successful":
         return Event(Kind.SUCCESS, msg, level)
     if d.get("skipped"):
-        return Event(Kind.SKIPPED, msg, level, action=str(d["skipped"]), path=str(d.get("object", "")))
+        skipped = str(d["skipped"])
+        target = skipped[len("move to "):] if skipped.startswith("move to ") else ""
+        return Event(Kind.SKIPPED, msg, level, action=skipped, path=str(d.get("object", "")), target=target)
+    if (m := _MOVED_TO.match(msg)) and d.get("object"):
+        return Event(Kind.MOVED, msg, level, path=str(d["object"]), target=m[1])
+    if _RENAMED_FROM.match(msg) and d.get("object"):
+        return Event(Kind.RENAMED, msg, level, path=str(d["object"]))
     # a move into --backup-dir: "Moved (server-side)" without " to: <new name>"
     # (that form is a conflict rename), then on some backends "Moved into backup dir"
     if (msg == "Moved (server-side)" or msg.startswith("Moved into backup dir")) and d.get("object"):
@@ -364,11 +386,15 @@ class Plan:
     error_paths: list[str] = field(default_factory=list)      # files rclone reported an error for
     conflicts: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    # (from, to): moved or renamed on one side, moved the same way on the
+    # other, instead of a delete plus an upload or a download
+    moved_remote: list[tuple[str, str]] = field(default_factory=list)   # moved here, then on Koofr
+    moved_local: list[tuple[str, str]] = field(default_factory=list)    # moved on Koofr, then here
 
     @property
     def empty(self) -> bool:
         return not (self.upload or self.download or self.delete_local or self.delete_remote
-                    or self.replace_local or self.conflicts)
+                    or self.replace_local or self.conflicts or self.moved_remote or self.moved_local)
 
 
 def describe(plan: Plan) -> str:
@@ -379,6 +405,9 @@ def describe(plan: Plan) -> str:
     if plan.download or plan.replace_local:
         n = len(set(plan.download) | set(plan.replace_local))
         parts.append(ngettext("{n} file from Koofr", "{n} files from Koofr", n).format(n=n))
+    moved = len(plan.moved_remote) + len(plan.moved_local)
+    if moved:
+        parts.append(ngettext("{n} moved", "{n} moved", moved).format(n=moved))
     deleted = len(plan.delete_local) + len(plan.delete_remote)
     if deleted:
         parts.append(ngettext("{n} deleted", "{n} deleted", deleted).format(n=deleted))
@@ -432,6 +461,7 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
     first_error = ""
     resync = any(ev.kind is Kind.PHASE and "Resync" in ev.message for ev in events)
     into = ""          # side the current copy phase writes to
+    moving: dict[str, str] = {}      # new name -> old, until --track-renames confirms the move
     for ev in events:
         if ev.kind is Kind.STATS:
             stats = ev.stats
@@ -447,6 +477,12 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
                 (plan.download if into == "Path1" else plan.upload).append(ev.path)
         elif resync and ev.kind is Kind.BACKUP and into == "Path1":
             plan.replace_local.append(ev.path)
+        elif ev.kind in (Kind.MOVED, Kind.SKIPPED) and ev.target:
+            moving[relative_path(ev.target, roots)] = relative_path(ev.path, roots)
+        elif ev.kind is Kind.RENAMED and into:
+            new = relative_path(ev.path, roots)
+            if new in moving:
+                (plan.moved_remote if into == "Path2" else plan.moved_local).append((moving.pop(new), new))
         elif ev.kind is Kind.QUEUE:
             rel = relative_path(ev.path, roots)
             if ev.action == "Queue copy to Path2":
@@ -462,6 +498,14 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             first_error = first_error or ev.message
             if ev.kind is Kind.ERROR and ev.path:
                 plan.error_paths.append(relative_path(ev.path, roots))
+
+    # a move was queued as a delete plus a copy: it is neither
+    for moves, copies, deletes in ((plan.moved_remote, plan.upload, plan.delete_remote),
+                                   (plan.moved_local, plan.download, plan.delete_local)):
+        if moves:
+            olds, news = {old for old, _new in moves}, {new for _old, new in moves}
+            copies[:] = [p for p in copies if p not in news]
+            deletes[:] = [p for p in deletes if p not in olds]
 
     kinds = {ev.kind for ev in events}
     if cancelled:

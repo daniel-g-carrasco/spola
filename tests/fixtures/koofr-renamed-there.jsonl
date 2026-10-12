@@ -1,0 +1,26 @@
+{"time":"2026-10-13T00:38:23.018963612+02:00","level":"notice","msg":"Config file \"/home/user/scratch/spola-probe-run/state/no-rclone.conf\" not found - using defaults","source":"config/config.go:374"}
+{"time":"2026-10-13T00:38:23.361474534+02:00","level":"info","msg":"Slow hash detected on Path1. Will ignore checksum due to slow-hash settings","source":"bisync/compare.go:170"}
+{"time":"2026-10-13T00:38:23.361537793+02:00","level":"notice","msg":"will use md5 for same-side diffs on Path2 only","object":"koofr:MOUNTID:renames","objectType":"*koofr.Fs","source":"bisync/compare.go:184"}
+{"time":"2026-10-13T00:38:23.361744272+02:00","level":"info","msg":"Bisyncing with Comparison Settings: \n{\n\t\"Modtime\": true,\n\t\"Size\": true,\n\t\"Checksum\": true,\n\t\"HashType1\": 0,\n\t\"HashType2\": 1,\n\t\"NoSlowHash\": false,\n\t\"SlowHashSyncOnly\": true,\n\t\"SlowHashDetected\": true,\n\t\"DownloadHash\": false\n}\n","source":"bisync/compare.go:108"}
+{"time":"2026-10-13T00:38:23.362033728+02:00","level":"info","msg":"lock file renewed for 2m0s. New expiration: 2026-10-13 00:40:23.361929351 +0200 CEST m=+120.367274581","source":"bisync/lockfile.go:91"}
+{"time":"2026-10-13T00:38:23.362128587+02:00","level":"info","msg":"Synching Path1 \"local{HK82T}:/home/user/renames/\" with Path2 \"koofr{UXppf}:renames/\"","source":"bisync/operations.go:238"}
+{"time":"2026-10-13T00:38:23.362161889+02:00","level":"info","msg":"Using filters file /home/user/scratch/spola-probe-run/state/filters/probe.txt","source":"bisync/cmd.go:240"}
+{"time":"2026-10-13T00:38:23.363602835+02:00","level":"info","msg":"Building Path1 and Path2 listings","source":"bisync/operations.go:310"}
+{"time":"2026-10-13T00:38:23.777988847+02:00","level":"info","msg":"Path1 checking for diffs","source":"bisync/operations.go:320"}
+{"time":"2026-10-13T00:38:23.778161302+02:00","level":"info","msg":"Path2 checking for diffs","source":"bisync/operations.go:328"}
+{"time":"2026-10-13T00:38:23.778265589+02:00","level":"info","msg":"- Path2             File was deleted                            - IMG_02.jpg","source":"bisync/deltas.go:188"}
+{"time":"2026-10-13T00:38:23.778296738+02:00","level":"info","msg":"- Path2             File is new                                 - from-windows-02.jpg","source":"bisync/deltas.go:259"}
+{"time":"2026-10-13T00:38:23.778318509+02:00","level":"info","msg":"Path2:    2 changes:    1 new,    0 modified,    1 deleted","source":"bisync/deltas.go:126"}
+{"time":"2026-10-13T00:38:23.778335631+02:00","level":"info","msg":"Applying changes","source":"bisync/operations.go:381"}
+{"time":"2026-10-13T00:38:23.778575012+02:00","level":"info","msg":"- Path1             Queue delete                                - local{HK82T}:/home/user/renames/IMG_02.jpg","source":"bisync/deltas.go:479"}
+{"time":"2026-10-13T00:38:23.778609868+02:00","level":"info","msg":"- Path2             Queue copy to Path1                         - local{HK82T}:/home/user/renames/from-windows-02.jpg","source":"bisync/deltas.go:475"}
+{"time":"2026-10-13T00:38:23.77863207+02:00","level":"info","msg":"- Path2             Do queued copies to                         - Path1","source":"bisync/deltas.go:487"}
+{"time":"2026-10-13T00:38:24.003714486+02:00","level":"info","msg":"Making map for --track-renames","object":"Local file system at /home/user/renames","objectType":"*local.Fs","source":"sync/sync.go:856"}
+{"time":"2026-10-13T00:38:24.003890237+02:00","level":"info","msg":"Finished making map for --track-renames","object":"Local file system at /home/user/renames","objectType":"*local.Fs","source":"sync/sync.go:891"}
+{"time":"2026-10-13T00:38:24.004019812+02:00","level":"info","msg":"Moved (server-side) to: from-windows-02.jpg","object":"IMG_02.jpg","objectType":"*local.Object","source":"operations/operations.go:493"}
+{"time":"2026-10-13T00:38:24.004065327+02:00","level":"info","msg":"Renamed from \"IMG_02.jpg\"","object":"from-windows-02.jpg","objectType":"*koofr.Object","source":"sync/sync.go:925"}
+{"time":"2026-10-13T00:38:24.004099191+02:00","level":"info","msg":"There was nothing to transfer","source":"sync/sync.go:1033"}
+{"time":"2026-10-13T00:38:24.004255726+02:00","level":"info","msg":"Updating listings","source":"bisync/operations.go:395"}
+{"time":"2026-10-13T00:38:24.005261182+02:00","level":"info","msg":"Validating listings for Path1 \"local{HK82T}:/home/user/renames/\" vs Path2 \"koofr{UXppf}:renames/\"","source":"bisync/operations.go:434"}
+{"time":"2026-10-13T00:38:24.005425471+02:00","level":"info","msg":"Bisync successful","source":"bisync/operations.go:218"}
+{"time":"2026-10-13T00:38:24.005494241+02:00","level":"notice","msg":"\nTransferred:   \t          0 B / 0 B, -, 0 B/s, ETA -\nChecks:                32 / 32, 100%, Listed 46\nRenamed:                1\nServer Side Moves:      1 @ 19.533 KiB\nElapsed time:         0.6s\n\n","stats":{"bytes":0,"checks":32,"deletedDirs":0,"deletes":0,"elapsedTime":0.641801315,"errors":0,"eta":null,"fatalError":false,"listed":46,"renames":1,"retryError":false,"serverSideCopies":0,"serverSideCopyBytes":0,"serverSideMoveBytes":20002,"serverSideMoves":1,"speed":0,"totalBytes":0,"totalChecks":32,"totalTransfers":0,"transferTime":0.000270153,"transfers":0},"source":"accounting/stats.go:549"}

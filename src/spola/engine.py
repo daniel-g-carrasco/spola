@@ -749,6 +749,12 @@ class Engine(GObject.Object):
             kind = activity_mod.kind_of_queue(ev.side, ev.action)
             if kind:
                 act.queued(rel(ev.path), kind)
+        elif ev.kind is Kind.PHASE:
+            act.phase(ev.side)
+        elif ev.kind is Kind.MOVED and ev.path:
+            act.move_seen(rel(ev.path), rel(ev.target))
+        elif ev.kind is Kind.RENAMED and ev.path:
+            act.renamed(rel(ev.path))
         elif ev.kind is Kind.CONFLICT and ev.path:
             act.conflict(rel(ev.path))
         elif ev.kind is Kind.STATS and ev.stats:
@@ -823,16 +829,18 @@ class Engine(GObject.Object):
                 # right away, with nothing to do, writes it.
                 self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
             rt.status = Status.OK
-            self.recent.record(pair.id, pair.local, outcome.plan.upload,
-                               outcome.plan.download + outcome.plan.replace_local)
+            plan = outcome.plan
+            self.recent.record(pair.id, pair.local, plan.upload + [new for _old, new in plan.moved_remote],
+                               plan.download + plan.replace_local + [new for _old, new in plan.moved_local])
             listed = self._update_conflicts(pair, rt)
             foreign = self._follow_up(pair, rt, outcome)
-            touched = set(outcome.plan.upload) | set(outcome.plan.download) | set(outcome.plan.delete_local) \
-                | set(outcome.plan.replace_local) | set(outcome.plan.conflicts)
-            rt.states.run_finished(listed, touched, outcome.plan.error_paths, rt.conflicts, foreign)
+            touched = set(plan.upload) | set(plan.download) | set(plan.delete_local) \
+                | set(plan.replace_local) | set(plan.conflicts) \
+                | {p for move in plan.moved_remote + plan.moved_local for p in move}
+            rt.states.run_finished(listed, touched, plan.error_paths, rt.conflicts, foreign)
             self.emit("root-changed", pair.id)
-            if outcome.plan.conflicts:
-                self._new_conflicts(pair, rt, outcome.plan.conflicts)
+            if plan.conflicts:
+                self._new_conflicts(pair, rt, plan.conflicts)
             self._set_status(pair, rt, self._idle_status(pair, rt))
         elif result is Result.NEEDS_CONFIRMATION:
             self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
@@ -879,6 +887,8 @@ class Engine(GObject.Object):
         touched = set(outcome.plan.download) | set(outcome.plan.delete_local) | set(outcome.plan.replace_local)
         for name in outcome.plan.conflicts:
             touched.add(name)
+        for old, new in outcome.plan.moved_local:       # rclone moved these here itself
+            touched |= {old, new}
         parents = {os.path.dirname(p) for p in touched}
         foreign = {rel for rel in rt.changed_during_run
                    if rel not in touched and rel not in parents and not self._conflict_name.search(rel)}
