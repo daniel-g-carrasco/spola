@@ -222,6 +222,13 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         args += ["--backup-dir2", req.backup_dir2]
     if req.bwlimit:
         args += ["--bwlimit", req.bwlimit]
+    if req.mode is Mode.SYNC:
+        # a file moved or renamed locally becomes a server-side move on Koofr
+        # instead of a delete plus a new upload (matched by MD5, which both
+        # sides have). Not on --resync: rclone ignores it there with an ERROR
+        # line. Renames still count as deletes for --max-delete, so a big
+        # reorganisation stops for a confirmation as before.
+        args.append("--track-renames")
     if req.mode is Mode.RESYNC:
         args += ["--resync", "--resync-mode", req.resync_mode]
     elif req.mode is Mode.CHECK:
