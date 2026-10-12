@@ -34,6 +34,10 @@ finish-args:
   # real bind mount of the home folder is the only thing that works, as in
   # every other sync client on Flathub. Removable drives for pairs there.
   - --filesystem=home
+  # The user's GTK 4 style (accent colours from Noctalia, matugen and the
+  # like live in ~/.config/gtk-4.0/gtk.css): GTK looks for it in the app's
+  # own config folder, where Flatpak puts it only with this. Read-only.
+  - --filesystem=xdg-config/gtk-4.0:ro
   - --filesystem=/run/media
   - --filesystem=/media
 

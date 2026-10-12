@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -113,9 +114,45 @@ def koofr_desktop_syncs(config_path: Path) -> list[dict]:
 KOOFR_DESKTOP_PROCESSES = ("storagegui", "storagesync")
 
 
-def koofr_desktop_active(autostart_dir: Path | None = None) -> bool:
+KOOFR_DESKTOP_LOG_FRESH_S = 15 * 60      # Koofr Desktop writes its sync logs all the time while it runs
+
+
+def _host_config_dir() -> Path:
+    """The host's ~/.config: inside the Flatpak XDG_CONFIG_HOME is the
+    sandbox's own folder."""
+    if os.environ.get("FLATPAK_ID"):
+        base = os.environ.get("HOST_XDG_CONFIG_HOME")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME")
+    return Path(base) if base and os.path.isabs(base) else Path.home() / ".config"
+
+
+def _autostart_starts_koofr(autostart_dir: Path) -> bool:
+    """An autostart entry of Koofr Desktop, under any name: systemd's
+    xdg-autostart generator (niri and the other sessions without
+    gnome-session) runs every file in the folder, also a renamed one.
+    Hidden=true is the way the specification turns one off."""
+    try:
+        entries = list(autostart_dir.iterdir())
+    except OSError:
+        return False
+    for entry in entries:
+        if not entry.name.lower().startswith("koofr") or not entry.is_file():
+            continue
+        try:
+            text = entry.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "storagegui" in text and "\nHidden=true" not in "\n" + text.replace("\r", ""):
+            return True
+    return False
+
+
+def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | None = None,
+                         now: float | None = None) -> bool:
     """Is Koofr Desktop running, or set to start at the next login? Either
-    way it would sync its folders again."""
+    way it would sync its folders again. Inside the Flatpak the host's
+    processes cannot be seen: its logs, written while it runs, tell."""
     try:
         for entry in os.scandir("/proc"):
             if entry.name.isdigit():
@@ -127,8 +164,16 @@ def koofr_desktop_active(autostart_dir: Path | None = None) -> bool:
                     continue
     except OSError:
         pass
-    autostart_dir = autostart_dir or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "autostart"
-    return (autostart_dir / "koofr.desktop").exists()
+    if _autostart_starts_koofr(autostart_dir or _host_config_dir() / "autostart"):
+        return True
+    now = time.time() if now is None else now
+    try:
+        for entry in os.scandir(koofr_dir or Path.home() / ".koofr" / "log"):
+            if entry.name.endswith(".log") and now - entry.stat().st_mtime < KOOFR_DESKTOP_LOG_FRESH_S:
+                return True
+    except OSError:
+        pass
+    return False
 
 
 def check_koofr_desktop(local: str, config_path: Path, active: bool | None = None) -> list[Problem]:
@@ -148,7 +193,9 @@ def check_koofr_desktop(local: str, config_path: Path, active: bool | None = Non
         if _is_within(real, theirs) or _is_within(theirs, real):
             problems.append(Problem(
                 "koofr-desktop",
-                _("Koofr Desktop is syncing this folder. Pause or remove that sync in Koofr Desktop first."),
+                _("Koofr Desktop is syncing this folder too: two sync engines on the same files lose files. "
+                  "Quit Koofr Desktop and remove it from the programs started at login, or remove this "
+                  "folder from it."),
                 s["localPath"]))
     return problems
 

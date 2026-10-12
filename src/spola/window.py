@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
-from . import account, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
+from . import account, activity, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, ngettext, pgettext  # noqa: E402
@@ -155,6 +155,9 @@ class MainWindow(Adw.ApplicationWindow):
         group = Adw.PreferencesGroup()
         group.add(self.overall)
         self.list_page.add(group)
+        # the files of the folder that syncs now, under its status
+        self.activity = ActivityList(self.engine, lambda: self.engine.active.pair_id if self.engine.active else None)
+        self.list_page.add(self.activity)
         self.stack.add_named(self.list_page, "list")
         view.set_content(self.stack)
         return Adw.NavigationPage(title=APP_NAME, tag="folders", child=view)
@@ -187,6 +190,7 @@ class MainWindow(Adw.ApplicationWindow):
         if row:
             row.update()
         self.overall.update()
+        self.activity.update()
 
     def show_pair(self, pair_id: str) -> None:
         page = self.nav.get_visible_page()
@@ -443,6 +447,80 @@ class OverallStatus(Gtk.Box):
         self._show(Status.OK, _("Everything Is Up to Date"), detail)
 
 
+class ActivityList(Adw.PreferencesGroup):
+    """The files of the run in progress, four rows at a time: the copies
+    going on (with their progress), the latest done, the next waiting. The
+    rows are always the same four, so the page below does not jump while
+    files come and go; the group shows only while a folder really syncs."""
+
+    ROWS = 4
+    # the theme's own: they follow the user's icon theme (Adwaita's go-up and
+    # go-down are chevrons, which read as "expand", not as a transfer)
+    ICONS = {activity.DOWNLOAD: "folder-download-symbolic", activity.UPLOAD: "send-to-symbolic",
+             activity.DELETE_HERE: "user-trash-symbolic", activity.DELETE_KOOFR: "user-trash-symbolic",
+             activity.CONFLICT: "dialog-warning-symbolic"}
+
+    def __init__(self, engine: Engine, pair_id_of):
+        super().__init__(title=pgettext("activity", "Now Syncing"), visible=False)
+        self.engine, self.pair_id_of = engine, pair_id_of
+        self.slots = []
+        for _i in range(self.ROWS):
+            row = Adw.ActionRow(title_lines=1, subtitle_lines=1)
+            icon = Gtk.Image(accessible_role=Gtk.AccessibleRole.PRESENTATION)
+            row.add_prefix(icon)
+            done = Gtk.Image(icon_name="object-select-symbolic", css_classes=["dim-label"],
+                             accessible_role=Gtk.AccessibleRole.PRESENTATION)
+            row.add_suffix(done)
+            self.add(row)
+            self.slots.append((row, icon, done))
+
+    @staticmethod
+    def describe(op: activity.Op) -> str:
+        size = GLib.format_size(op.size) if op.size else ""
+        if op.state == activity.ACTIVE and op.kind in (activity.DOWNLOAD, activity.UPLOAD):
+            fraction = op.fraction
+            doing = _("Downloading") if op.kind == activity.DOWNLOAD else _("Uploading")
+            if fraction is None:
+                return doing
+            return _("{doing} · {percent}% of {size}").format(doing=doing, percent=int(fraction * 100), size=size)
+        texts = {
+            (activity.DOWNLOAD, activity.WAITING): _("Waiting to download"),
+            (activity.DOWNLOAD, activity.DONE): _("Downloaded"),
+            (activity.DOWNLOAD, activity.FAILED): _("Not downloaded"),
+            (activity.UPLOAD, activity.WAITING): _("Waiting to upload"),
+            (activity.UPLOAD, activity.DONE): _("Uploaded"),
+            (activity.UPLOAD, activity.FAILED): _("Not uploaded"),
+            (activity.DELETE_HERE, activity.WAITING): _("Deleted on Koofr: to Spola's backup"),
+            (activity.DELETE_HERE, activity.DONE): _("Deleted on Koofr: moved to Spola's backup"),
+            (activity.DELETE_HERE, activity.FAILED): _("Could not be moved to Spola's backup"),
+            (activity.DELETE_KOOFR, activity.WAITING): _("Deleted here: to Koofr's trash"),
+            (activity.DELETE_KOOFR, activity.DONE): _("Deleted here: moved to Koofr's trash"),
+            (activity.DELETE_KOOFR, activity.FAILED): _("Not deleted on Koofr"),
+        }
+        if op.kind == activity.CONFLICT:
+            return _("Changed on both sides: both versions kept")
+        return texts.get((op.kind, op.state), "")
+
+    def update(self) -> None:
+        pair_id = self.pair_id_of()
+        rt = self.engine.runtime.get(pair_id) if pair_id else None
+        ops = rt.activity.rows(self.ROWS) if rt is not None and syncing_for_real(self.engine, pair_id) else []
+        self.set_visible(bool(ops))
+        for i, (row, icon, done) in enumerate(self.slots):
+            op = ops[i] if i < len(ops) else None
+            row.set_visible(op is not None)
+            if op is None:
+                continue
+            row.set_title(escape(os.path.basename(op.path) or op.path))
+            row.set_subtitle(escape(self.describe(op)))
+            row.set_tooltip_text(op.path)
+            icon.set_from_icon_name(self.ICONS.get(op.kind, "text-x-generic-symbolic"))
+            icon.set_css_classes(["error"] if op.state == activity.FAILED else
+                                 ["warning"] if op.kind == activity.CONFLICT else
+                                 ["dim-label"] if op.state in (activity.DONE, activity.WAITING) else [])
+            done.set_visible(op.state == activity.DONE)
+
+
 class PairRow(Adw.ActionRow):
     """One synced folder in the list: its status icon, its name relative to
     the group, one line of status; the page of the folder opens on click."""
@@ -494,6 +572,8 @@ class PairPage(Adw.NavigationPage):
         self.progress_row = Adw.PreferencesRow(child=self.progress, activatable=False, focusable=False)
         group.add(self.progress_row)
         page.add(group)
+        self.activity = ActivityList(self.engine, lambda: self.pair_id)
+        page.add(self.activity)
 
         group = Adw.PreferencesGroup(title=_("Location"))
         here = Adw.ActionRow(title=_("This Computer"), subtitle=escape(display_path(pair.local)), activatable=True,
@@ -558,6 +638,7 @@ class PairPage(Adw.NavigationPage):
             return
         self.status_row.set_title(escape(status_text(rt.status)))
         self.status_row.set_subtitle(escape(status_detail(self.engine, self.pair_id, short=False)))
+        self.activity.update()
         self.icon.show(rt.status)
         syncing = syncing_for_real(self.engine, self.pair_id)
         self.progress_row.set_visible(syncing)

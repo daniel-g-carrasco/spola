@@ -249,6 +249,7 @@ class Kind(enum.Enum):
     CONFLICT_RENAME = "conflict-rename"
     PHASE = "phase"              # "Path2 ... copying files to Path1": direction of what follows
     COPIED = "copied"
+    DELETED = "deleted"          # a file deleted, side = where (from its object type)
     BACKUP = "backup"            # a file moved into the backup folder
     SKIPPED = "skipped"          # dry-run: what would have been done
     SAFETY_ABORT = "safety-abort"
@@ -274,6 +275,13 @@ _QUEUE = re.compile(r"^- (Path[12])\s+(Queue (?:copy to Path[12]|delete))\s+- (.
 _CONFLICT = re.compile(r"^- WARNING\s+New or changed in both paths\s+- (.*)$", re.S)
 _RENAME = re.compile(r"^- (Path[12])\s+Renaming Path[12] copy\s+- (.*)$", re.S)
 _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued copies to)\s+- (Path[12])$")
+
+
+def _side_of(d: dict) -> str:
+    """Where a copied or deleted file is: "Path1" for this computer, "Path2"
+    for Koofr, from rclone's object type ("*local.Object", "*koofr.Object")."""
+    kind = str(d.get("objectType") or "")
+    return "Path1" if "local." in kind else ("Path2" if kind else "")
 
 
 def parse_line(line: str) -> Event | None:
@@ -315,7 +323,9 @@ def parse_line(line: str) -> Event | None:
     if (msg == "Moved (server-side)" or msg.startswith("Moved into backup dir")) and d.get("object"):
         return Event(Kind.BACKUP, msg, level, path=str(d["object"]))
     if msg.startswith("Copied") and d.get("object"):
-        return Event(Kind.COPIED, msg, level, path=str(d["object"]))
+        return Event(Kind.COPIED, msg, level, side=_side_of(d), path=str(d["object"]))
+    if msg == "Deleted" and d.get("object"):
+        return Event(Kind.DELETED, msg, level, side=_side_of(d), path=str(d["object"]))
     if level in ("error", "critical"):
         obj = d.get("object")
         return Event(Kind.ERROR, msg, level, path=str(obj) if obj and d.get("objectType") != "string" else "")

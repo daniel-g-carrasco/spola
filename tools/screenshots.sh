@@ -62,6 +62,13 @@ pairs() {   # quick ones first, the slow one (Photos) last
         /usr/bin/python3 "$bin" add "$home/${pair%%:*}" "${pair#*:}" >/dev/null
         echo s | /usr/bin/python3 "$bin" align "$home/${pair%%:*}" >/dev/null
     done
+    # the pictures must not depend on the network of the machine taking them
+    # (a phone hotspot is a metered connection: Spola would pause)
+    /usr/bin/python3 -c "
+import sys; sys.path.insert(0, '$(dirname "$(dirname "$bin")")/src')
+from spola import config; from spola.paths import Paths
+p = Paths.from_env(); c = config.load(p.config_file)
+c.pause_on_metered = c.pause_on_power_saver = False; config.save(c, p.config_file)"
 }
 
 # --- Spola's windows, through tools/gui_smoke.sh --------------------------------
