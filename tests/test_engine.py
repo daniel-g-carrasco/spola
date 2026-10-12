@@ -18,9 +18,10 @@ from spola import engine as engine_mod
 from spola import koofr_api
 from spola.account import Credentials
 from spola.config import Config, Pair
+from spola.conflicts import decide
 from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
 from spola.paths import Paths
-from spola.preflight import root_identity
+from spola.preflight import rename_plan, root_identity
 from spola.rclone import Mode, Result
 
 RCLONE = rclone_binary()
@@ -218,6 +219,79 @@ class EngineTest(unittest.TestCase):
         self.engine._on_conditions()
         self.assertTrue(spin_until(lambda: "big.bin" in self.remote_files(), 120))
         self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30))
+
+    def changed_on_both_sides(self, name, here, there, here_newer):
+        """A conflict for the next run: `name` rewritten on both sides, one an
+        hour older than the other."""
+        now = time.time()
+        (self.remote / name).write_text(there)
+        os.utime(self.remote / name, (now, now - (3600 if here_newer else 0)))
+        (self.local / name).write_text(here)
+        os.utime(self.local / name, (now, now - (0 if here_newer else 3600)))
+
+    def trash_here(self):
+        trash = self.tmp / "trash"
+        trash.mkdir()
+        self.engine.trash = lambda path: shutil.move(path, trash / os.path.basename(path))
+        return trash
+
+    def no_conflict_copies(self):
+        return not [n for n in self.remote_files() + os.listdir(self.local) if n.count(".") > 1]
+
+    def test_the_folder_rule_resolves_new_conflicts(self):
+        self.align()
+        trash = self.trash_here()
+        self.engine.set_conflict_rule("p1", "newer")
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        self.changed_on_both_sides("f00.txt", "new here", "old on Koofr", here_newer=True)
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "resolved" in told, 60))
+        # the next run takes the outcome to Koofr: one file, the newer version
+        self.assertTrue(spin_until(lambda: (self.remote / "f00.txt").exists() and self.no_conflict_copies()
+                                   and (self.remote / "f00.txt").read_text() == "new here", 60))
+        self.assertEqual((self.local / "f00.txt").read_text(), "new here")
+        (gone,) = os.listdir(trash)                     # Koofr's version, in the wastebasket
+        self.assertEqual((trash / gone).read_text(), "old on Koofr")
+        self.assertNotIn("conflicts", told)
+        self.assertEqual(self.engine.conflicts("p1"), [])
+
+    def test_conflicts_wait_for_the_user_then_resolve_all(self):
+        self.align()
+        self.trash_here()
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        self.changed_on_both_sides("f00.txt", "new here", "old on Koofr", here_newer=True)
+        self.changed_on_both_sides("f01.txt", "old here", "new on Koofr", here_newer=False)
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "conflicts" in told, 60))
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is None, 30))
+        items = self.engine.conflicts("p1")
+        self.assertEqual([c.original for c in items], ["f00.txt", "f01.txt"])      # the rule is "ask"
+        done, errors = self.engine.resolve_conflicts("p1", [decide(c, "newer") for c in items])
+        self.assertEqual((done, errors), (2, []))
+        self.assertTrue(spin_until(lambda: self.no_conflict_copies()
+                                   and (self.remote / "f00.txt").exists() and (self.remote / "f01.txt").exists(), 60))
+        self.assertEqual((self.remote / "f00.txt").read_text(), "new here")
+        self.assertEqual((self.remote / "f01.txt").read_text(), "new on Koofr")
+        self.assertEqual((self.local / "f01.txt").read_text(), "new on Koofr")
+        self.assertNotIn("resolved", told)
+
+    def test_left_out_names_renamed_then_synced(self):
+        self.align()
+        (self.local / "A.txt").write_text("upper")
+        (self.local / "a.txt").write_text("lower")
+        (self.local / "foto \U0001F600.txt").write_text("smile")
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: len(rt.refused) == 2 and rt.run is None, 60))
+        self.assertTrue(spin_until(lambda: "A.txt" in self.remote_files(), 30))
+        plan = rename_plan(str(self.local), rt.refused, "/test")
+        done, errors = self.engine.rename_refused("p1", [(item.path, new) for item, new in plan if new])
+        self.assertEqual((done, errors), (2, []))
+        self.assertEqual(rt.refused, [])
+        self.assertTrue(spin_until(lambda: {"a (2).txt", "foto.txt"} <= set(self.remote_files()), 60))
+        self.assertEqual((self.remote / "a (2).txt").read_text(), "lower")
 
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()

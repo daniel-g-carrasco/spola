@@ -35,6 +35,9 @@ class Pair:
     root_dev: int | None = None
     root_ino: int | None = None
     max_delete_percent: int = DEFAULT_MAX_DELETE_PERCENT
+    # what to do with a file changed on both sides: "" follows the general
+    # setting, else "ask", "newer", "both", "local", "koofr" (conflicts.py)
+    conflict_rule: str = ""
 
     @staticmethod
     def new_id() -> str:
@@ -60,6 +63,7 @@ class Config:
     nautilus_integration: bool = False
     autostart: bool = True               # start at login, in the background
     conflict_language: str = ""          # "" = desktop language; "en", "it"
+    conflict_rule: str = "ask"           # for new conflicts: "ask", "newer", "both"
     upload_limit_kb: int = 0             # KiB/s to Koofr, 0 = no limit
     download_limit_kb: int = 0           # KiB/s from Koofr, 0 = no limit
 

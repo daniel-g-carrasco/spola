@@ -15,7 +15,7 @@ import _setup  # noqa: F401
 from spola.config import Config, Pair
 from spola.preflight import (
     check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
-    refused_paths, refused_reason, root_identity, scan_names,
+    Refused, refused_paths, refused_reason, rename_plan, root_identity, scan_names,
 )
 from spola.rclone import exclude_lines, filter_escape
 
@@ -231,6 +231,35 @@ class RefusedPathsTest(unittest.TestCase):
                        if r.code == "case-collision"]
             self.assertEqual(left.other, "Report.pdf")
             self.assertIn("Report.pdf", refused_reason(left.code, left.other))
+
+    def test_names_koofr_accepts_are_suggested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            for name in ("foto \U0001F600.jpg", "Report.pdf", "report.PDF", "report (2).pdf", "Foto.jpg",
+                         "\U0001F600.txt", "ok \U0001F44D\ufe0f.txt"):
+                (t / name).write_text("x")
+            (t / "Vacanze \U0001F334").mkdir()
+            refused = refused_paths(tmp, "/x")
+            refused.append(Refused("deep/" + "a" * 50, False, "long-path"))
+            got = {item.path: new for item, new in rename_plan(tmp, refused, "/x")}
+            self.assertEqual(got, {
+                "foto \U0001F600.jpg": "foto (2).jpg",          # "foto.jpg" would be Foto.jpg on Koofr
+                "Vacanze \U0001F334": "Vacanze",                 # a folder: no extension to keep
+                "\U0001F600.txt": "Untitled.txt",
+                "ok \U0001F44D\ufe0f.txt": "ok.txt",              # the emoji's selector goes too
+                "report.PDF": "report (3).PDF",                  # (2) is taken, upper and lower case aside
+                "deep/" + "a" * 50: None,                         # only the user can shorten a path
+            })
+            # the suggestions are accepted, and do not collide with each other
+            self.assertTrue(all(ord(ch) <= 0xFFFF for new in got.values() if new for ch in new))
+            self.assertEqual(len({new.casefold() for new in got.values() if new}), 5)
+        # a path that would grow too long has no suggestion
+        long_root = "/" + "r" * 1015          # "a.txt" fits, "a (2).txt" does not
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.txt").write_text("x")
+            (Path(tmp) / "A.txt").write_text("x")
+            (item,) = refused_paths(tmp, long_root)
+            self.assertEqual(rename_plan(tmp, [item], long_root), [(item, None)])
 
     def test_exclude_patterns_are_literal(self):
         self.assertEqual(filter_escape("a[1]*?{x}.txt"), "/a\\[1\\]\\*\\?\\{x\\}.txt")

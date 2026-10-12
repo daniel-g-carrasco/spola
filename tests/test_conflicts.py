@@ -9,7 +9,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola.conflicts import ResolveError, group, resolve
+from spola.conflicts import ResolveError, decide, difference, group, resolve
 
 
 class ConflictsTest(unittest.TestCase):
@@ -89,6 +89,39 @@ class ConflictsTest(unittest.TestCase):
         self.write("a/doc (Koofr 2026-10-10).odt", "taken")
         resolve(str(self.root), conflict, "both", trash=self.trash)
         self.assertIn("a/doc (Koofr 2026-10-10) (2).odt", self.listing())
+
+    def test_rules(self):
+        conflict = self.conflict()
+        local, koofr = self.root / conflict.local.path, self.root / conflict.koofr.path
+        os.utime(local, (0, 1_000_000))
+        os.utime(koofr, (0, 1_000_000 - 7200))
+        conflict = group(self.listing(), str(self.root))[0]
+        newer = decide(conflict, "newer")
+        self.assertEqual(newer.choice, "local")
+        self.assertIn("2 hours", newer.reason)
+        os.utime(koofr, (0, 1_000_000 + 300))
+        conflict = group(self.listing(), str(self.root))[0]
+        self.assertEqual(decide(conflict, "newer").choice, "koofr")
+        self.assertEqual(decide(conflict, "local").choice, "local")
+        self.assertEqual(decide(conflict, "koofr").choice, "koofr")
+        self.assertEqual(decide(conflict, "both").choice, "both")
+        self.assertIsNone(decide(conflict, "ask").choice)
+        # what a rule cannot decide is left to the user, with the reason
+        os.utime(koofr, (0, 1_000_000 + 1))
+        conflict = group(self.listing(), str(self.root))[0]
+        self.assertIsNone(decide(conflict, "newer").choice)
+        koofr.unlink()
+        conflict = group(self.listing(), str(self.root))[0]
+        self.assertIsNone(decide(conflict, "newer").choice)
+        self.assertIsNone(decide(conflict, "koofr").choice)
+        self.assertEqual(decide(conflict, "local").choice, "local")
+
+    def test_difference_in_words(self):
+        self.assertEqual(difference(5), "5 seconds")
+        self.assertEqual(difference(-300), "5 minutes")
+        self.assertEqual(difference(3 * 3600), "3 hours")
+        self.assertEqual(difference(86400 * 2), "2 days")
+        self.assertEqual(difference(60), "60 seconds")
 
     def test_missing_copy(self):
         conflict = self.conflict()
