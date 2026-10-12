@@ -102,6 +102,23 @@ def progress_text(stats: dict | None) -> tuple[str, float | None]:
     return text, max(0.0, min(1.0, fraction))
 
 
+def time_left(seconds) -> str:
+    """rclone's estimate, said the way people say it."""
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    if seconds < 60:
+        return _("less than a minute left")
+    if seconds < 3600:
+        n = round(seconds / 60)
+        return ngettext("about {n} minute left", "about {n} minutes left", n).format(n=n)
+    n = round(seconds / 3600)
+    return ngettext("about {n} hour left", "about {n} hours left", n).format(n=n)
+
+
 def when(timestamp: float) -> str:
     """10:42 today, 9 Oct otherwise."""
     moment = GLib.DateTime.new_from_unix_local(int(timestamp))

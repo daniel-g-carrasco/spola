@@ -14,8 +14,11 @@ The item is registered by object path on our unique bus name, so no
 org.kde.StatusNotifierItem-* name has to be owned (none is allowed in the
 Flatpak); both GNOME's AppIndicator extension and Noctalia accept that.
 
-The menu changes while files are transferring (a submenu lists them), so
-LayoutUpdated is throttled too, and items are numbered depth-first.
+The menu changes while files are transferring (a submenu lists them, the
+progress line moves), so its signals are throttled too, and items are
+numbered depth-first. When only texts change (the progress), the host gets
+ItemsPropertiesUpdated for those items: an open menu updates in place
+instead of being rebuilt.
 """
 
 from __future__ import annotations
@@ -106,7 +109,7 @@ MENU_XML = """
     </method>
     <signal name="ItemsPropertiesUpdated">
       <arg type="a(ia{sv})" name="updatedProps"/>
-      <arg type="a(ia{sv})" name="removedProps"/>
+      <arg type="a(ias)" name="removedProps"/>
     </signal>
     <signal name="LayoutUpdated">
       <arg type="u" name="revision"/>
@@ -147,6 +150,10 @@ class MenuItem:
     def key(self) -> tuple:
         return (self.label, self.enabled and (self.action is not None or bool(self.children)),
                 self.separator, self.icon, tuple(c.key() for c in self.children))
+
+    def shape(self) -> tuple:
+        """The structure only: what changes it needs a new layout."""
+        return (self.separator, tuple(c.shape() for c in self.children))
 
 
 def number(items: list[MenuItem]) -> tuple[dict[int, MenuItem], dict[int, list[int]]]:
@@ -223,6 +230,9 @@ class TrayIcon:
         self._icon = Throttle(MIN_ICON_INTERVAL_MS, lambda: self._signal(ITEM_PATH, "org.kde.StatusNotifierItem", "NewIcon"))
         self._tooltip = Throttle(MIN_TOOLTIP_INTERVAL_MS, lambda: self._signal(ITEM_PATH, "org.kde.StatusNotifierItem", "NewToolTip"))
         self._layout_signal = Throttle(MIN_MENU_INTERVAL_MS, self._layout_updated)
+        self._props_signal = Throttle(MIN_MENU_INTERVAL_MS, self._props_updated)
+        self._dirty: set[int] = set()
+        self._props_serial = 0
         self._icon.emitted = self.icon_name
         self._tooltip.emitted = (self.tooltip_title, self.tooltip_body)
 
@@ -244,6 +254,7 @@ class TrayIcon:
         self._icon.cancel()
         self._tooltip.cancel()
         self._layout_signal.cancel()
+        self._props_signal.cancel()
         if self._watch_id:
             Gio.bus_unwatch_name(self._watch_id)
             self._watch_id = 0
@@ -261,12 +272,30 @@ class TrayIcon:
         self._tooltip.set((title, body))
 
     def set_menu(self, items: list[MenuItem]) -> None:
-        changed = [i.key() for i in items] != [i.key() for i in self.items]
+        if [i.key() for i in items] == [i.key() for i in self.items]:
+            self.items = items                  # same texts: new actions only
+            self._by_id, self._children = number(items)
+            return
+        same_shape = [i.shape() for i in items] == [i.shape() for i in self.items]
+        old = self._by_id
         self.items = items
         self._by_id, self._children = number(items)
-        if changed:
+        if same_shape:
+            # only texts or states changed (the progress line): update those items
+            self._dirty |= {i for i, item in self._by_id.items() if old.get(i) and old[i].key() != item.key()}
+            self._props_serial += 1
+            self._props_signal.set(self._props_serial)
+        else:
+            self._dirty.clear()
             self.revision += 1
             self._layout_signal.set(self.revision)
+
+    def _props_updated(self) -> None:
+        dirty, self._dirty = self._dirty, set()
+        updated = [(i, self._by_id[i].props()) for i in sorted(dirty) if i in self._by_id]
+        if self.connection and updated:
+            self.connection.emit_signal(None, MENU_PATH, "com.canonical.dbusmenu", "ItemsPropertiesUpdated",
+                                        GLib.Variant("(a(ia{sv})a(ias))", (updated, [])))
 
     def _layout_updated(self) -> None:
         if self.connection:

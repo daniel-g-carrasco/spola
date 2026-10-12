@@ -162,6 +162,30 @@ class TrayTest(unittest.TestCase):
         spin(0.3)
         self.assertEqual(self.clicked, ["recent"])
 
+    def test_new_texts_update_items_in_place(self):
+        # the progress line changes every second: an open menu must update
+        # in place, not be rebuilt (LayoutUpdated) at every change
+        layouts, props = [], []
+        menu = "/StatusNotifierItem/Menu"
+        self.host.signal_subscribe(None, "com.canonical.dbusmenu", "LayoutUpdated", menu, None,
+                                   Gio.DBusSignalFlags.NONE, lambda *a: layouts.append(1))
+        self.host.signal_subscribe(None, "com.canonical.dbusmenu", "ItemsPropertiesUpdated", menu, None,
+                                   Gio.DBusSignalFlags.NONE, lambda *a: props.append(a[5].unpack()))
+        self.tray.set_menu([MenuItem("Syncing work"), MenuItem("10% · 1 of 9 files"), MenuItem("Quit", lambda: None)])
+        spin(2.3)
+        layouts.clear()
+        self.tray.set_menu([MenuItem("Syncing work"), MenuItem("40% · 4 of 9 files"), MenuItem("Quit", lambda: None)])
+        spin(2.3)
+        self.assertEqual(layouts, [])
+        self.assertEqual(len(props), 1)
+        (updated, removed), = props
+        self.assertEqual([(i, p["label"]) for i, p in updated], [(2, "40% · 4 of 9 files")])
+        self.assertEqual(removed, [])
+        # a line more or less is a new layout
+        self.tray.set_menu([MenuItem("Up to date"), MenuItem("Quit", lambda: None)])
+        spin(2.3)
+        self.assertEqual(len(layouts), 1)
+
     def test_menu_updates_are_throttled(self):
         updates = []
         self.host.signal_subscribe(None, "com.canonical.dbusmenu", "LayoutUpdated", "/StatusNotifierItem/Menu",
