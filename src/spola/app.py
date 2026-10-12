@@ -21,7 +21,7 @@ from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .ui import status_text, tray_icon  # noqa: E402
+from .ui import progress_text, status_text, time_left, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
@@ -190,8 +190,22 @@ class SpolaApp(Adw.Application):
         reason = "" if engine.creds else _("Not signed in to Koofr")
         reason = reason or (engine.blocked_reason() if overall is Status.PAUSED else "")
         summary = reason or status_text(overall)
+        progress = ""
+        task = engine.active
+        if task is not None and not task.dry_run and engine.cfg.pair(task.pair_id):
+            # what other sync clients show on hover and at the top of their
+            # menu: which folder, how far, how fast, how long still
+            pair, rt = engine.cfg.pair(task.pair_id), engine.runtime[task.pair_id]
+            summary = _("Syncing “{name}”").format(name=pair.name)
+            text, fraction = progress_text(rt.stats)
+            parts = [text] if text else [_("Comparing the two sides…")]
+            if fraction is not None:
+                parts.insert(0, f"{int(fraction * 100)}%")
+            if (left := time_left((rt.stats or {}).get("eta"))):
+                parts.append(left)
+            progress = " · ".join(parts)
         self.tray.set_icon(tray_icon(overall))
-        self.tray.set_tooltip(APP_NAME, summary)
+        self.tray.set_tooltip(APP_NAME, summary + (f"\n{progress}" if progress else ""))
         if summary != self._last_summary:
             self._last_summary = summary
             portal.set_status(self.get_dbus_connection(), summary)
@@ -204,6 +218,7 @@ class SpolaApp(Adw.Application):
             MenuItem(_("No recently synced files"))]))
         self.tray.set_menu([
             MenuItem(summary),
+            *([MenuItem(progress)] if progress else []),
             MenuItem(separator=True),
             *files,
             MenuItem(separator=True),
