@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import json
+import posixpath
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -110,6 +111,12 @@ def web_url(mount_id: str | None, path: str) -> str:
     if not mount_id:
         return f"{KOOFR_WEB}/app/storage"
     return f"{KOOFR_WEB}/app/storage/{mount_id}?" + urllib.parse.urlencode({"path": path})
+
+
+def folder_url(mount_id: str | None, remote_root: str, path: str) -> str:
+    """The Koofr folder holding `path` (relative to a pair's root), in the
+    web app: it cannot point at a single file."""
+    return web_url(mount_id, posixpath.join(remote_root, posixpath.dirname(path)).rstrip("/") or "/")
 
 
 def user_agent(instance_id: str) -> str:

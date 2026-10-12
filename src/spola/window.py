@@ -1008,22 +1008,23 @@ class PreviewDialog(Adw.Dialog):
             group.add(Adw.ActionRow(title=_("The preview stopped"),
                                     subtitle=GLib.markup_escape_text(outcome.message or ""), subtitle_lines=4))
             return
+        # the last field: the file is only on Koofr for now, so a click opens its folder there
         rows = [
-            (plan.upload, _("Copied to Koofr"), "go-up-symbolic"),
-            (plan.download, _("Copied to this computer"), "go-down-symbolic"),
+            (plan.upload, _("Copied to Koofr"), "go-up-symbolic", False),
+            (plan.download, _("Copied to this computer"), "go-down-symbolic", True),
             (plan.replace_local, _("Replaced here by the newer Koofr version (the old one goes to the backup)"),
-             "document-revert-symbolic"),
-            (plan.delete_local, _("Deleted here (moved to Spola's backup)"), "user-trash-symbolic"),
-            (plan.delete_remote, _("Deleted on Koofr"), "user-trash-symbolic"),
-            (plan.conflicts, _("Changed on both sides: both versions are kept"), "dialog-warning-symbolic"),
+             "document-revert-symbolic", False),
+            (plan.delete_local, _("Deleted here (moved to Spola's backup)"), "user-trash-symbolic", False),
+            (plan.delete_remote, _("Deleted on Koofr"), "user-trash-symbolic", True),
+            (plan.conflicts, _("Changed on both sides: both versions are kept"), "dialog-warning-symbolic", False),
             (plan.refused, _("Left out: Koofr does not accept these names (rename them to sync them)"),
-             "action-unavailable-symbolic"),
+             "action-unavailable-symbolic", False),
         ]
         if plan.empty:
             group.add(Adw.ActionRow(title=_("Nothing to do: the two folders already match.")))
         rt = self.engine.runtime.get(self.pair_id)
         why = {r.path: preflight.refused_reason(r.code, r.other) for r in (rt.pending_refused if rt else [])}
-        for paths, title, icon in rows:
+        for paths, title, icon, on_koofr in rows:
             if not paths:
                 continue
             row = Adw.ExpanderRow(title=title, subtitle=ngettext("{n} file", "{n} files", len(paths)).format(n=len(paths)))
@@ -1031,8 +1032,11 @@ class PreviewDialog(Adw.Dialog):
             for path in paths[:PREVIEW_LIMIT]:
                 # a left-out name says why: most of them look perfectly normal
                 reason = why.get(path, "") if paths is plan.refused else ""
-                row.add_row(Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2,
-                                          subtitle=GLib.markup_escape_text(reason), subtitle_lines=3))
+                item = Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2,
+                                     subtitle=GLib.markup_escape_text(reason), subtitle_lines=3, activatable=True,
+                                     tooltip_text=_("Open on Koofr") if on_koofr else _("Show in the file manager"))
+                item.connect("activated", lambda _r, p=path, k=on_koofr: self._show(p, k))
+                row.add_row(item)
             if len(paths) > PREVIEW_LIMIT:
                 row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=len(paths) - PREVIEW_LIMIT)))
             group.add(row)
@@ -1040,6 +1044,14 @@ class PreviewDialog(Adw.Dialog):
             self.confirm.set_sensitive(True)
             if plan.delete_remote or plan.delete_local:
                 self.confirm.set_css_classes(["destructive-action"])
+
+    def _show(self, path: str, on_koofr: bool) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if on_koofr:
+            url = koofr_api.folder_url(self.engine.cfg.mount_id, pair.remote, path)
+            Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
+        else:
+            reveal(self.window, os.path.join(pair.local, path))
 
     def _confirm(self) -> None:
         self.engine.confirm(self.pair_id, self.mode, self.force)

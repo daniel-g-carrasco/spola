@@ -14,7 +14,7 @@ from _setup import FIXTURES
 from spola import listings
 from spola.config import Config, Pair, load, normalize_remote, save
 from spola.jobs import prune_backups
-from spola.paths import Paths
+from spola.paths import Paths, nearest_folder
 
 
 class ListingTest(unittest.TestCase):
@@ -88,6 +88,15 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(normalize_remote("/a//b/./c"), "/a/b/c")
         with self.assertRaises(ValueError):
             normalize_remote("/a/../b")
+
+
+class NearestFolderTest(unittest.TestCase):
+    def test_the_closest_folder_that_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a").mkdir()
+            self.assertEqual(nearest_folder(f"{tmp}/a/file.txt"), f"{tmp}/a")
+            self.assertEqual(nearest_folder(f"{tmp}/a/gone/deeper/file.txt"), f"{tmp}/a")
+            self.assertEqual(nearest_folder("/no-such-folder-here/x/file"), "/")
 
 
 class PruneTest(unittest.TestCase):
