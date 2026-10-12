@@ -89,7 +89,12 @@
     <screenshot>
       <caption>Conflicts: both versions, a choice for each</caption>
       <caption xml:lang="it">I conflitti: entrambe le versioni, una scelta per ciascuno</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.2.0/data/screenshots/conflicts.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.2/data/screenshots/conflicts.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Resolving all conflicts with one rule</caption>
+      <caption xml:lang="it">Tutti i conflitti risolti con una regola</caption>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.2/data/screenshots/resolve-all.png</image>
     </screenshot>
     <screenshot>
       <caption>Sync status of the folders in Files</caption>
@@ -109,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.2" date="2026-10-12" type="development">
+      <description>
+        <p>Many conflicts at once: Resolve All keeps the newer version, this computer's, Koofr's or both, after showing what happens to each file and leaving to you what the rule cannot decide. A rule can also resolve new conflicts on its own after each sync, for all folders in Preferences or for one folder on its page; the default is still to ask. The version not kept goes to the wastebasket here and to Koofr's trash.</p>
+        <p>Spola suggests names Koofr accepts for the files it refuses (the emoji taken out, "Contract (2).odt" for a name that differs only in case) and renames them once you confirm, from the list of files not synced or from the preview of a first alignment. A click on a file in a preview shows it in the file manager, or its folder on Koofr when it is only there.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-12" type="development">
       <description>
         <p>Spola no longer syncs while Koofr Desktop runs on the same computer or is set to start at login: on one laptop the two engines on the same folders deleted a file on Koofr. Koofr Desktop on your other computers is fine.</p>
