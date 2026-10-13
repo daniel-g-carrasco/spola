@@ -1,8 +1,12 @@
 """The scheduler: decides when each pair runs, one run at a time, and keeps
 the status that the window, the tray and (later) Nautilus show.
 
-Rules, from docs/progetto.md (5.3, 5.4):
-  * runs are queued and executed one at a time for the whole account;
+Rules, from docs/progetto.md (5.3, 5.4, appendix P):
+  * runs are queued and executed one at a time for the whole account, and
+    next to them one preview (a dry run, which only reads), never two runs
+    on the same pair;
+  * a preview is kept: its dialog can be closed and opened again at once,
+    and a pair that waits for the user gets its preview prepared ahead;
   * a pair that was never aligned never runs on its own: the first alignment
     (and any repair) starts only after the user confirmed a dry-run preview;
   * local changes start a run 10 s after the last change, or at most 2 min
@@ -18,8 +22,10 @@ from __future__ import annotations
 import enum
 import os
 import re
+import shutil
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -30,12 +36,13 @@ from . import conflicts as conflicts_mod
 from . import jobs, koofr_api, listings
 from .recent import Recent
 from . import activity as activity_mod
+from . import account as account_mod
 from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, every_translation, ngettext
 from .paths import Paths
-from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, find_rclone, koofr_env,
-                     relative_path)
+from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, describe, find_rclone,
+                     koofr_env, relative_path)
 from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
@@ -45,6 +52,9 @@ MAX_WAIT_S = 120
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
 RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
 ACTIVITY_INTERVAL_S = 60
+PREVIEW_TTL_S = 30 * 60         # a ready preview opens at once for this long (with its age shown)
+PREVIEW_AHEAD_DELAY_S = 60      # quiet time before preparing the preview of a pair that waits for the user
+EVENT_SLICE_S = 0.008           # the main loop handles rclone's lines in slices this long, then draws
 
 
 def conflict_name_pattern() -> re.Pattern:
@@ -83,6 +93,46 @@ def quick_ignore(rel: str) -> bool:
     return default_excluded(rel)
 
 
+def free_space(rclone: str, paths: Paths, creds: Credentials | None, dev_remote: str | None) -> int | None:
+    """Free space on Koofr (on the disk of the developer's local "Koofr"),
+    for a preview's summary; None if it cannot be known now."""
+    try:
+        if dev_remote:
+            return shutil.disk_usage(dev_remote).free
+        if creds is None:
+            return None
+        return account_mod.check(rclone, paths, creds).free
+    except Exception:  # only a summary line: the preview goes on without it
+        return None
+
+
+@dataclass
+class Preview:
+    """A dry run of a pair, kept: the dialog that asked for it can be closed
+    while it runs and opened again at once when it is done. `reason` is
+    "preview" when the user asked for it, "ahead" when Spola prepared it for
+    a pair waiting for the user."""
+    mode: Mode
+    force: bool
+    reason: str
+    task: Task | None = None
+    outcome: Outcome | None = None
+    error: str = ""
+    stats: dict | None = None
+    free_bytes: int | None = None       # free space on Koofr, when known
+    finished: float = 0.0               # time.time()
+    stale: bool = False                 # something changed since it started
+    listeners: list = field(default_factory=list)   # callback(outcome, error), called once
+
+    @property
+    def running(self) -> bool:
+        return self.outcome is None and not self.error
+
+    def fresh(self, now: float | None = None) -> bool:
+        return (self.outcome is not None and not self.stale
+                and (time.time() if now is None else now) - self.finished < PREVIEW_TTL_S)
+
+
 @dataclass
 class Task:
     pair_id: str
@@ -112,7 +162,9 @@ class PairRuntime:
     first_change: float = 0.0
     changed_during_run: set[str] = field(default_factory=set)
     pending_refused: list = field(default_factory=list)
-    before_run: tuple = (None, "")          # (status, message) a preview must restore
+    before_run: tuple = (None, "")          # (status, message) before a run that may not start
+    preview: Preview | None = None
+    ahead_source: int = 0                   # timer before preparing the preview ahead
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     activity: activity_mod.RunActivity = field(default_factory=activity_mod.RunActivity)
@@ -157,7 +209,13 @@ class Engine(GObject.Object):
         self.runtime: dict[str, PairRuntime] = {p.id: PairRuntime() for p in cfg.pairs}
         self.recent = Recent(paths.state / "recent.json")
         self.queue: list[Task] = []
-        self.active: Task | None = None
+        self.active: Task | None = None         # the real run, being prepared or running
+        self.previewing: Task | None = None     # the preview next to it
+        # rclone's lines, from the reader threads to the main loop: handed
+        # over in slices, so that a run with 150,000 files never freezes the window
+        self._events: deque = deque()
+        self._events_lock = threading.Lock()
+        self._events_scheduled = False
         self._poll_source = 0
         self._shutdown_cb: Callable[[], None] | None = None
         self._closing = False
@@ -216,27 +274,30 @@ class Engine(GObject.Object):
         for rt in self.runtime.values():
             if rt.watcher:
                 rt.watcher.stop()
-        current = self._current_run()
-        if current is None:
+        runs = self._current_runs()
+        if not runs:
             done()
             return
         self._shutdown_cb = done
-        current.cancel()
+        for run in runs:
+            run.cancel()
         # bisync needs up to 30 s for transfers plus 60 s to save its state;
         # after that a second SIGINT stops it at once (--recover handles it).
         GLib.timeout_add_seconds(95, self._force_stop)
 
     def _force_stop(self) -> bool:
-        current = self._current_run()
-        if current is not None:
-            current.cancel()
+        for run in self._current_runs():
+            run.cancel()
         return False
 
-    def _current_run(self) -> BisyncRun | None:
-        if self.active is None:
-            return None
-        rt = self.runtime.get(self.active.pair_id)
-        return rt.run if rt else None
+    def _current_runs(self) -> list[BisyncRun]:
+        """The rclone processes running: the real run, the preview."""
+        runs = []
+        for task in (self.active, self.previewing):
+            rt = self.runtime.get(task.pair_id) if task else None
+            if rt and rt.run and rt.run.running:
+                runs.append(rt.run)
+        return runs
 
     def save_config(self) -> None:
         config_mod.save(self.cfg, self.paths.config_file)
@@ -248,6 +309,7 @@ class Engine(GObject.Object):
         rt.status = self._idle_status(pair, rt)
         self._update_conflicts(pair, rt)
         self._start_watcher(pair, rt)
+        self._want_preview_ahead(pair, rt)
 
     def add_pair(self, local: str, remote: str) -> Pair:
         from .preflight import root_identity
@@ -265,6 +327,7 @@ class Engine(GObject.Object):
         pair = self.cfg.pair(pair_id)
         if pair is None:
             return
+        self.cancel_preview(pair_id)
         rt = self.runtime.pop(pair_id, None)
         self.queue = [t for t in self.queue if t.pair_id != pair_id]
         if rt:
@@ -272,7 +335,7 @@ class Engine(GObject.Object):
                 rt.watcher.stop()
             if rt.run and rt.run.running:
                 rt.run.cancel()
-            for source in (rt.retry_source, rt.debounce_source):
+            for source in (rt.retry_source, rt.debounce_source, rt.ahead_source):
                 if source:
                     GLib.source_remove(source)
         self.cfg.pairs.remove(pair)
@@ -294,6 +357,11 @@ class Engine(GObject.Object):
                 rt.watcher = None
             if rt.run and rt.run.running and not (rt.task and rt.task.dry_run):
                 rt.run.cancel()
+            if rt.preview is not None and rt.preview.running and rt.preview.reason == "ahead":
+                self.cancel_preview(pair_id)
+            if rt.ahead_source:
+                GLib.source_remove(rt.ahead_source)
+                rt.ahead_source = 0
         else:
             self._start_watcher(pair, rt)
             self.request_sync(pair_id, "resume")
@@ -311,9 +379,10 @@ class Engine(GObject.Object):
         self.save_config()
         if paused:
             self.queue = [t for t in self.queue if t.dry_run]
-            current = self._current_run()
-            if current and self.active and not self.active.dry_run:
-                current.cancel()
+            rt = self.runtime.get(self.active.pair_id) if self.active else None
+            if rt and rt.run and rt.run.running:
+                rt.run.cancel()
+            self._cancel_previews_ahead()
         else:
             self.sync_all("resume")
         for pair in self.cfg.pairs:
@@ -381,6 +450,9 @@ class Engine(GObject.Object):
             rt.message = _("First alignment to confirm")
         elif status in (Status.OK, Status.CONFLICTS, Status.SKIPPED, Status.PENDING):
             rt.message = ""
+        if (status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION)
+                and not rt.ahead_source and not (rt.preview and (rt.preview.running or rt.preview.fresh()))):
+            self._want_preview_ahead(pair, rt)
         self.emit("pair-changed", pair.id)
 
     def overall(self) -> Status:
@@ -404,10 +476,7 @@ class Engine(GObject.Object):
         if pair is None or not pair.initialized or pair.paused:
             return
         rt = self.runtime[pair_id]
-        # while a preview runs the status says "syncing": what counts is the
-        # status it will restore (a pair waiting for a repair keeps waiting)
-        waiting = rt.before_run[0] if rt.task and rt.task.dry_run else rt.status
-        if waiting in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+        if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             return      # waiting for the user
         if self.blocked_reason() and reason != "manual":
             if rt.run is None:
@@ -419,10 +488,145 @@ class Engine(GObject.Object):
         self._enqueue(Task(pair_id, Mode.SYNC, reason=reason))
 
     def preview(self, pair_id: str, mode: Mode, force: bool,
-                callback: Callable[[Outcome | None, str], None]) -> None:
-        """Dry run, ahead of the queue, for a confirmation dialog."""
-        self._enqueue(Task(pair_id, mode, dry_run=True, force=force, reason="preview", callback=callback),
-                      front=True)
+                callback: Callable[[Outcome | None, str], None] | None = None,
+                reason: str = "preview", refresh: bool = False) -> Preview | None:
+        """A dry run for a confirmation dialog, next to the real runs: the one
+        running or ready for the same question is reused (unless `refresh`).
+        `callback(outcome, error)` is called once, when it is done."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            if callback:
+                GLib.idle_add(lambda: callback(None, _("This folder is no longer synced.")) and False)
+            return None
+        kept = rt.preview
+        if kept is not None and (kept.mode, kept.force) == (mode, force) and not refresh:
+            if kept.running:
+                if callback:
+                    kept.listeners.append(callback)
+                if reason == "preview":
+                    kept.reason = "preview"         # the user is waiting for it now
+                return kept
+            if kept.fresh():
+                if callback:
+                    GLib.idle_add(lambda: callback(kept.outcome, kept.error) and False)
+                return kept
+        if kept is not None and kept.running:
+            self.cancel_preview(pair_id)            # another question: that answer is not wanted now
+        preview = rt.preview = Preview(mode, force, reason, listeners=[callback] if callback else [])
+        task = preview.task = Task(pair_id, mode, dry_run=True, force=force, reason=reason)
+        task.callback = lambda outcome, error: self._preview_finished(pair_id, task, outcome, error)
+        if rt.ahead_source:
+            GLib.source_remove(rt.ahead_source)
+            rt.ahead_source = 0
+        self._enqueue(task, front=True)
+        self.emit("pair-changed", pair_id)
+        return preview
+
+    def cancel_preview(self, pair_id: str) -> None:
+        """Stop the pair's preview, queued, being prepared or running."""
+        rt = self.runtime.get(pair_id)
+        preview = rt.preview if rt else None
+        if preview is None or not preview.running:
+            return
+        task, rt.preview = preview.task, None
+        if any(t is task for t in self.queue):
+            self.queue = [t for t in self.queue if t is not task]
+        elif rt.task is task:
+            if rt.run is not None and rt.run.running:
+                rt.run.cancel()
+            else:
+                task.cancelled = True           # being prepared: it will not start
+        listeners, preview.listeners = preview.listeners, []
+        for callback in listeners:
+            callback(None, _("Stopped."))
+        self.emit("pair-changed", pair_id)
+
+    def forget_listener(self, pair_id: str, callback) -> None:
+        """A dialog closed while its preview runs: the preview goes on, and
+        tells the user when it is ready."""
+        rt = self.runtime.get(pair_id)
+        if rt and rt.preview and callback in rt.preview.listeners:
+            rt.preview.listeners.remove(callback)
+
+    def invalidate_preview(self, pair_id: str) -> None:
+        """Something changed: a kept preview no longer tells the truth."""
+        rt = self.runtime.get(pair_id)
+        if rt is None or rt.preview is None:
+            return
+        if rt.preview.running:
+            rt.preview.stale = True
+        else:
+            rt.preview = None
+            self.emit("pair-changed", pair_id)
+        pair = self.cfg.pair(pair_id)
+        if pair is not None:
+            self._want_preview_ahead(pair, rt)
+
+    def review_args(self, pair_id: str) -> tuple[Mode, bool] | None:
+        """The preview a pair waiting for the user needs: its first alignment,
+        a repair, or the confirmation of a run stopped by a safety check."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return None
+        if not pair.initialized or rt.status is Status.NEEDS_REPAIR:
+            return Mode.RESYNC, False
+        if rt.status is Status.NEEDS_CONFIRMATION:
+            return Mode.SYNC, True
+        return None
+
+    def _preview_finished(self, pair_id: str, task: Task, outcome: Outcome | None, error: str) -> None:
+        rt = self.runtime.get(pair_id)
+        preview = rt.preview if rt else None
+        if preview is None or preview.task is not task:
+            return                  # cancelled, or replaced by another question
+        if outcome is not None and outcome.result is Result.CANCELLED:
+            outcome, error = None, error or _("Stopped.")
+        if outcome is None and not error:
+            error = _("The preview failed")
+        preview.outcome, preview.error, preview.finished = outcome, error, time.time()
+        listeners, preview.listeners = preview.listeners, []
+        for callback in listeners:
+            callback(outcome, error)
+        if outcome is None:
+            rt.preview = None
+        elif (not listeners and preview.reason == "preview"
+              and self.review_args(pair_id) == (preview.mode, preview.force)):
+            # the review the user asked for, its dialog closed while it ran: say it is ready
+            plan = outcome.plan
+            self.emit("attention", pair_id, "preview-ready",
+                      describe(plan) if not plan.empty else _("Nothing to do: the two folders already match."))
+        self.emit("pair-changed", pair_id)
+
+    def _want_preview_ahead(self, pair: Pair, rt: PairRuntime) -> None:
+        """A pair waiting for the user: its preview, prepared once things are
+        quiet, opens at once when the user looks."""
+        if self.review_args(pair.id) is None:
+            return
+        if rt.ahead_source:
+            GLib.source_remove(rt.ahead_source)
+        rt.ahead_source = GLib.timeout_add_seconds(max(1, int(PREVIEW_AHEAD_DELAY_S)), self._preview_ahead, pair.id)
+
+    def _preview_ahead(self, pair_id: str) -> bool:
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            return False
+        rt.ahead_source = 0
+        args = self.review_args(pair_id)
+        if (args is None or pair.paused or self.cfg.paused_all or self.creds is None or self.rclone is None
+                or self.blocked_reason()):
+            return False
+        kept = rt.preview
+        if kept is not None and (kept.mode, kept.force) == args and (kept.running or kept.fresh()):
+            return False
+        self.preview(pair_id, *args, reason="ahead")
+        return False
+
+    def _cancel_previews_ahead(self) -> None:
+        """Conditions changed (a metered network, a pause): what Spola
+        prepares on its own stops; what the user asked for goes on."""
+        for pair_id, rt in self.runtime.items():
+            if rt.preview is not None and rt.preview.running and rt.preview.reason == "ahead":
+                self.cancel_preview(pair_id)
 
     def confirm(self, pair_id: str, mode: Mode, force: bool,
                 callback: Callable[[Outcome | None, str], None] | None = None) -> None:
@@ -430,6 +634,10 @@ class Engine(GObject.Object):
         rt = self.runtime[pair_id]
         if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             rt.status = Status.PENDING
+        if rt.ahead_source:
+            GLib.source_remove(rt.ahead_source)
+            rt.ahead_source = 0
+        rt.preview = None           # what it said is about to happen
         self._enqueue(Task(pair_id, mode, force=force, reason="confirmed", callback=callback), front=True)
 
     def stop(self, pair_id: str) -> None:
@@ -446,9 +654,10 @@ class Engine(GObject.Object):
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None or not jobs.write_filters(self.paths, pair, text):
             return False
+        self.invalidate_preview(pair_id)
         if pair.initialized:
             self.queue = [t for t in self.queue if t.pair_id != pair_id or t.dry_run]
-            if rt.run is None:
+            if rt.run is None or (rt.task and rt.task.dry_run):
                 self._set_status(pair, rt, Status.NEEDS_REPAIR, _("The exclusions changed"))
             else:
                 rt.status = Status.NEEDS_REPAIR
@@ -516,6 +725,7 @@ class Engine(GObject.Object):
                 except OSError as e:
                     errors.append(f"{old}: {e.strerror or e}")
         if done:
+            self.invalidate_preview(pair_id)
             rt.refused = [r for r in rt.refused if r.path not in done]
             rt.pending_refused = [r for r in rt.pending_refused if r.path not in done]
             rt.states.refused = {r.path for r in rt.refused}
@@ -548,6 +758,7 @@ class Engine(GObject.Object):
         return done, errors
 
     def _forget_conflicts(self, pair: Pair, rt: PairRuntime, gone: set[str]) -> None:
+        self.invalidate_preview(pair.id)
         rt.conflicts = [p for p in rt.conflicts if p not in gone]
         rt.states.conflicts = set(rt.conflicts)
         self.emit("root-changed", pair.id)
@@ -600,61 +811,88 @@ class Engine(GObject.Object):
     # -- running -----------------------------------------------------------------
 
     def _next(self) -> bool:
-        if self.active is not None or not self.queue or self._shutdown_cb:
+        """Fill the free lanes: the real run, the preview. A pair already busy
+        in the other lane waits."""
+        if self._shutdown_cb or self._closing:
             return False
-        task = self.queue.pop(0)
+        for dry in (False, True):
+            if (self.previewing if dry else self.active) is not None:
+                continue
+            task = next((t for t in self.queue if t.dry_run == dry and self._pair_free(t.pair_id)), None)
+            if task is not None:
+                self.queue = [t for t in self.queue if t is not task]
+                self._prepare(task)
+        return False
+
+    def _pair_free(self, pair_id: str) -> bool:
+        rt = self.runtime.get(pair_id)
+        return rt is None or rt.task is None
+
+    def _set_lane(self, task: Task, value: Task | None) -> None:
+        if task.dry_run:
+            self.previewing = value
+        else:
+            self.active = value
+
+    def _prepare(self, task: Task) -> None:
         pair = self.cfg.pair(task.pair_id)
         if pair is None:
             GLib.idle_add(self._next)
-            return False
+            return
         rt = self.runtime[pair.id]
 
-        def fail(message: str, status: Status = Status.ERROR) -> bool:
+        def fail(message: str, status: Status = Status.ERROR) -> None:
             if task.callback:
                 task.callback(None, message)
             if not task.dry_run:
                 self._set_status(pair, rt, status, message)
             GLib.idle_add(self._next)
-            return False
 
         if self.creds is None:
             return fail(_("Sign in to Koofr first."))
         if self.rclone is None:
             return fail(_("rclone was not found."))
         if task.reason not in ("preview", "confirmed", "manual") and (pair.paused or self.blocked_reason()):
+            if task.dry_run:
+                return fail(_("Stopped."))
             self._set_status(pair, rt, Status.PAUSED)
             GLib.idle_add(self._next)
-            return False
+            return
         # Preparing a run walks the whole folder (the names Koofr refuses) and
         # can take seconds on a large one: off the main loop, so the window, a
-        # preview dialog and the tray never freeze. The slot is taken meanwhile.
-        self.active = task
+        # preview dialog and the tray never freeze. The lane is taken meanwhile.
+        # A preview leaves the pair's status alone: it decides nothing.
+        self._set_lane(task, task)
         rt.task = task
         rt.before_run = (rt.status, rt.message)
-        self._set_status(pair, rt, Status.SYNCING,
-                         _("Preparing the preview…") if task.dry_run else _("Preparing…"))
+        if not task.dry_run:
+            self._set_status(pair, rt, Status.SYNCING, _("Preparing…"))
+        else:
+            self.emit("pair-changed", pair.id)
         override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
-        cfg, paths, rclone = self.cfg, self.paths, self.rclone
+        cfg, paths, rclone, creds = self.cfg, self.paths, self.rclone, self.creds
 
         def work():
+            free = None
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override)
                 result = (job, bisync_args(rclone, job.request), "")
+                if task.dry_run:
+                    free = free_space(rclone, paths, creds, override)
             except jobs.NotReady as e:
                 result = (None, None, e.problems[0].message)
             except OSError as e:
                 result = (None, None, str(e))
-            GLib.idle_add(self._start_prepared, task, *result)
+            GLib.idle_add(self._start_prepared, task, *result, free)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
-        return False
 
-    def _start_prepared(self, task: Task, job, argv, error: str) -> bool:
+    def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None) -> bool:
         """The run prepared in a thread: start it, unless things changed
         meanwhile (shutdown, pair removed or paused, Stop pressed)."""
-        self.active = None
+        self._set_lane(task, None)
         if self._closing:
             return False
         pair = self.cfg.pair(task.pair_id)
@@ -665,6 +903,9 @@ class Engine(GObject.Object):
         rt.task = None
 
         def restore() -> None:
+            if task.dry_run:
+                self.emit("pair-changed", pair.id)
+                return
             status, message = rt.before_run
             if status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
                 self._set_status(pair, rt, status, message)
@@ -684,7 +925,7 @@ class Engine(GObject.Object):
             GLib.idle_add(self._next)
             return False
 
-        if task.cancelled or (not task.dry_run and task.reason not in ("confirmed", "manual")
+        if task.cancelled or (task.reason not in ("confirmed", "manual", "preview")
                               and (pair.paused or self.blocked_reason())):
             if task.callback:
                 task.callback(None, _("Stopped."))
@@ -695,29 +936,70 @@ class Engine(GObject.Object):
             return fail(error)
         if self.creds is None:
             return fail(_("Sign in to Koofr first."))
+        dry = task.dry_run
         run = BisyncRun(argv, koofr_env(self.creds.user, self.creds.obscured),
                         self.paths.lock_file(pair.id), self.paths.log_dir(pair.id),
                         job.path1, job.path2,
-                        on_event=lambda ev, pid=pair.id: GLib.idle_add(self._on_event, pid, ev),
-                        on_exit=lambda out, t=task: GLib.idle_add(self._on_exit, t, out))
+                        on_event=lambda ev, pid=pair.id: self._post_event(pid, ev, dry),
+                        on_exit=lambda out, t=task: self._post_exit(t, out))
         try:
             run.start()
         except PairBusy:
             return fail(_("This folder is being synced by another Spola process."), Status.PENDING)
         except OSError as e:
             return fail(str(e))
-        self.active = task
+        self._set_lane(task, task)
         rt.run, rt.task = run, task
         rt.pending_refused = job.refused
         rt.run_roots = (job.path1, job.path2)
+        if task.dry_run:
+            if rt.preview is not None and rt.preview.task is task:
+                rt.preview.free_bytes = free
+            self.emit("pair-changed", pair.id)
+            return False
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
-        if not task.dry_run:
-            rt.activity = activity_mod.RunActivity()
-            self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
-        message = _("Preparing the preview…") if task.dry_run else _("Syncing…")
-        self._set_status(pair, rt, Status.SYNCING, message)
+        rt.activity = activity_mod.RunActivity()
+        self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
+        self._set_status(pair, rt, Status.SYNCING, _("Syncing…"))
         return False
+
+    def _post_event(self, pair_id: str, ev: Event, dry: bool) -> None:
+        """In the reader thread: queue a line for the main loop. A preview
+        needs only its progress; its plan comes with the outcome."""
+        if dry and ev.kind is not Kind.STATS:
+            return
+        with self._events_lock:
+            self._events.append((pair_id, ev))
+            if self._events_scheduled:
+                return
+            self._events_scheduled = True
+        GLib.idle_add(self._drain_events)
+
+    def _post_exit(self, task: Task, outcome: Outcome) -> None:
+        """In the reader thread: the end of the run, after its last lines."""
+        with self._events_lock:
+            self._events.append((None, (task, outcome)))
+            if self._events_scheduled:
+                return
+            self._events_scheduled = True
+        GLib.idle_add(self._drain_events)
+
+    def _drain_events(self) -> bool:
+        """In the main loop: the queued lines (and ends of runs), in order, a
+        slice at a time."""
+        end = time.monotonic() + EVENT_SLICE_S
+        while time.monotonic() < end:
+            with self._events_lock:
+                if not self._events:
+                    self._events_scheduled = False
+                    return False
+                pair_id, item = self._events.popleft()
+            if pair_id is None:
+                self._on_exit(*item)
+            else:
+                self._on_event(pair_id, item)
+        return True
 
     def _on_event(self, pair_id: str, ev: Event) -> bool:
         rt = self.runtime.get(pair_id)
@@ -726,17 +1008,21 @@ class Engine(GObject.Object):
             return False
         real = not (rt.task and rt.task.dry_run)
         roots = list(rt.run_roots)
-        if real:
-            self._track(rt.activity, ev, lambda p: relative_path(p, roots))
+        if not real:
+            if ev.kind is Kind.STATS and ev.stats and rt.preview is not None and rt.preview.task is rt.task:
+                rt.preview.stats = ev.stats
+                self.emit("pair-changed", pair_id)
+            return False
+        self._track(rt.activity, ev, lambda p: relative_path(p, roots))
         if ev.kind is Kind.STATS and ev.stats:
             rt.stats = ev.stats
             rt.transferring = list(ev.stats.get("transferring") or [])
             self.emit("pair-changed", pair_id)
-        elif ev.kind is Kind.QUEUE and ev.path and not (rt.task and rt.task.dry_run):
+        elif ev.kind is Kind.QUEUE and ev.path:
             rel = relative_path(ev.path, list(rt.run_roots))
             rt.states.syncing.add(rel)
             self.emit("paths-changed", pair_id, ancestors_and_self(rel))
-        elif ev.kind is Kind.ERROR and ev.path and not (rt.task and rt.task.dry_run):
+        elif ev.kind is Kind.ERROR and ev.path:
             rel = relative_path(ev.path, list(rt.run_roots))
             rt.states.errors.add(rel)
             self.emit("paths-changed", pair_id, ancestors_and_self(rel))
@@ -769,25 +1055,27 @@ class Engine(GObject.Object):
             act.failed(rel(ev.path))
 
     def _on_exit(self, task: Task, outcome: Outcome) -> bool:
-        self.active = None
-        if self._inhibit_cookie:
+        self._set_lane(task, None)
+        if not task.dry_run and self._inhibit_cookie:
             self.uninhibit(self._inhibit_cookie)
             self._inhibit_cookie = 0
         pair = self.cfg.pair(task.pair_id)
         rt = self.runtime.get(task.pair_id)
         if pair is not None and rt is not None:
             rt.run, rt.task = None, None
-            rt.transferring = []
             if not task.dry_run:
+                rt.transferring = []
                 rt.activity.run_ended(outcome.result is Result.OK)
+                self.invalidate_preview(pair.id)        # the folders are not what it saw
             self._handle_outcome(pair, rt, task, outcome)
             if not task.dry_run:
                 self.emit("run-finished", pair.id, task.reason)
         if task.callback:
             task.callback(outcome, "")
         if self._shutdown_cb:
-            cb, self._shutdown_cb = self._shutdown_cb, None
-            cb()
+            if self.active is None and self.previewing is None:
+                cb, self._shutdown_cb = self._shutdown_cb, None
+                cb()
             return False
         GLib.idle_add(self._next)
         return False
@@ -800,13 +1088,7 @@ class Engine(GObject.Object):
             if outcome.result is not Result.OK:
                 self.emit("root-changed", pair.id)
         if task.dry_run:
-            # a preview decides nothing: a pair waiting for the user keeps waiting
-            status, message = rt.before_run
-            if status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
-                self._set_status(pair, rt, status, message)
-            else:
-                self._set_status(pair, rt, self._idle_status(pair, rt))
-            return
+            return          # a preview decides nothing (its dialog has the outcome)
         rt.last_outcome = outcome
         result = outcome.result
         if result is Result.OK:
@@ -912,7 +1194,9 @@ class Engine(GObject.Object):
             return
         if pair.initialized:
             self.emit("paths-changed", pair_id, rt.states.mark_pending(rel))
-        if rt.run is not None:
+        if rt.preview is not None:
+            self.invalidate_preview(pair_id)
+        if rt.run is not None and not (rt.task and rt.task.dry_run):
             rt.changed_during_run.add(rel)
             return
         self._schedule_debounced(pair, rt)
@@ -980,6 +1264,7 @@ class Engine(GObject.Object):
             self._activity_seen = {a.id for a in activities if a.timestamp == self._activity_since}
         touched, _full = koofr_api.touched_pairs(new, self.cfg.pairs, mount_id, self.cfg.instance_id)
         for pair_id in sorted(touched):
+            self.invalidate_preview(pair_id)
             self.request_sync(pair_id, "remote-change")
         self._set_feed(True)
         return False
@@ -1002,8 +1287,9 @@ class Engine(GObject.Object):
             # run stops (bisync saves its state and goes on later); one the user
             # asked for, or a preview, goes on
             task = self.active
-            if task is not None and not task.dry_run and task.reason not in ("manual", "confirmed"):
+            if task is not None and task.reason not in ("manual", "confirmed"):
                 self.stop(task.pair_id)
+            self._cancel_previews_ahead()
         for pair in self.cfg.pairs:
             rt = self.runtime[pair.id]
             if rt.run is None:

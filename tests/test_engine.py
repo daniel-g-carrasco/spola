@@ -22,6 +22,7 @@ from spola.conflicts import decide
 from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
 from spola.paths import Paths
 from spola.preflight import rename_plan, root_identity
+from spola import jobs
 from spola.rclone import Mode, Result
 
 RCLONE = rclone_binary()
@@ -42,6 +43,7 @@ def spin_until(cond, timeout=60.0) -> bool:
 class EngineTest(unittest.TestCase):
     def setUp(self):
         engine_mod.DEBOUNCE_S = 1
+        engine_mod.PREVIEW_AHEAD_DELAY_S = 3600      # only the test about it prepares previews ahead
         self.tmp = Path(tempfile.mkdtemp(prefix="spola-engine-"))
         self.local = self.tmp / "local"
         self.remote_root = self.tmp / "remote"
@@ -309,6 +311,107 @@ class EngineTest(unittest.TestCase):
         spin_until(lambda: False, engine_mod.DEBOUNCE_S + 3)
         self.assertEqual(runs, ["manual"])
         self.assertIn("renamed-there.txt", [f.path for f in self.engine.recent.items])    # in the tray's list
+
+    def other_pair(self, name="other", files=5):
+        local = self.tmp / name
+        local.mkdir()
+        for i in range(files):
+            (local / f"{name}-{i}.txt").write_text(str(i))
+        (self.remote_root / name).mkdir()
+        return self.engine.add_pair(str(local), f"/{name}")
+
+    def preview_of(self, pair_id, mode=Mode.RESYNC, force=False, **kw):
+        got = []
+        kept = self.engine.preview(pair_id, mode, force, lambda out, err: got.append((out, err)), **kw)
+        return kept, got
+
+    def logs(self, pair_id):
+        folder = self.engine.paths.log_dir(pair_id)
+        return len(list(folder.glob("*.jsonl"))) if folder.exists() else 0
+
+    def test_a_preview_runs_next_to_another_folders_sync(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        other = self.other_pair()
+        _kept, got = self.preview_of(other.id)
+        self.assertTrue(spin_until(lambda: got, 60))
+        # done while the other folder still uploads, and it decided nothing
+        self.assertIsNotNone(self.engine.runtime["p1"].run)
+        self.assertEqual(self.engine.active.pair_id, "p1")
+        outcome, error = got[0]
+        self.assertEqual(error, "")
+        self.assertEqual(sorted(outcome.plan.upload), [f"other-{i}.txt" for i in range(5)])
+        self.assertIs(self.engine.runtime[other.id].status, Status.NEEDS_SETUP)
+        self.engine.stop("p1")
+
+    def test_a_preview_is_kept_until_something_changes(self):
+        kept, got = self.preview_of("p1")
+        self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
+        self.assertTrue(spin_until(lambda: got, 60))
+        first, runs = got[0][0], self.logs("p1")
+        self.assertIsNotNone(kept.free_bytes)                   # (the disk of the local "Koofr")
+        # opened again: at once, the same answer, no new run
+        again, got2 = self.preview_of("p1")
+        self.assertTrue(spin_until(lambda: got2, 5))
+        self.assertIs(again, kept)
+        self.assertIs(got2[0][0], first)
+        self.assertEqual(self.logs("p1"), runs)
+        # after a change it is asked again
+        self.engine.set_filters("p1", jobs.read_filters(self.engine.paths, self.pair) + "- *.tmp\n")
+        third, got3 = self.preview_of("p1")
+        self.assertIsNot(third, kept)
+        self.assertTrue(spin_until(lambda: got3, 60))
+        self.assertIsNot(got3[0][0], first)
+        # on an aligned folder, a local change is enough
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        _kept, got4 = self.preview_of("p1", Mode.SYNC)
+        self.assertTrue(spin_until(lambda: got4, 60))
+        self.assertTrue(got4[0][0].plan.empty)
+        (self.local / "new.txt").write_text("x")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].preview is None
+                                   or self.engine.runtime["p1"].preview.mode is not Mode.SYNC, 10))
+
+    def test_cancel_stops_a_preview(self):
+        kept, got = self.preview_of("p1")
+        self.engine.cancel_preview("p1")
+        self.assertEqual(got, [(None, "Stopped.")])
+        self.assertIsNone(self.engine.runtime["p1"].preview)
+        spin_until(lambda: False, 3)
+        self.assertEqual(got, [(None, "Stopped.")])              # told once, nothing after
+        self.assertIsNone(self.engine.previewing)
+        self.assertIs(self.status(), Status.NEEDS_SETUP)
+
+    def test_a_preview_whose_dialog_was_closed_tells_when_ready(self):
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
+        kept, got = self.preview_of("p1")
+        self.engine.forget_listener("p1", kept.listeners[0])
+        self.assertTrue(spin_until(lambda: told, 60))
+        self.assertEqual(told[0], ("preview-ready", "30 files to Koofr"))
+        self.assertEqual(got, [])
+        self.assertTrue(kept.fresh())
+
+    def test_a_folder_waiting_for_the_user_gets_its_preview_ahead(self):
+        engine_mod.PREVIEW_AHEAD_DELAY_S = 1
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        other = self.other_pair()
+        rt = self.engine.runtime[other.id]
+        self.assertTrue(spin_until(lambda: rt.preview is not None and rt.preview.fresh(), 60))
+        self.assertEqual((rt.preview.mode, rt.preview.reason), (Mode.RESYNC, "ahead"))
+        self.assertEqual(len(rt.preview.outcome.plan.upload), 5)
+        self.assertNotIn("preview-ready", told)                  # nobody asked: no notification
+        # not on a metered connection
+        self.engine.blocked_reason = lambda: "Paused on a metered connection"
+        third = self.other_pair("third")
+        spin_until(lambda: False, 3)
+        self.assertIsNone(self.engine.runtime[third.id].preview)
 
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()

@@ -317,6 +317,7 @@ class SpolaApp(Adw.Application):
         titles = {
             "conflicts": _("Conflicts in “{name}”"),
             "resolved": _("Conflicts resolved in “{name}”"),
+            "preview-ready": _("The preview of “{name}” is ready"),
             "confirm": _("“{name}” is waiting for your confirmation"),
             "repair": _("“{name}” needs a repair"),
             "error": _("“{name}” cannot be synced"),

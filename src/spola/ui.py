@@ -149,6 +149,10 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
     if rt.status is Status.SKIPPED:
         n = len(rt.refused)
         return ngettext("{n} file left out", "{n} files left out", n).format(n=n)
+    if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+        # what the review will show, once its preview is ready (prepared ahead)
+        base = rt.message if rt.message != status_text(rt.status) else ""
+        return " · ".join(part for part in (base, preview_summary(rt.preview)) if part)
     if rt.status is Status.OK and rt.last_sync:
         if short:
             return when(rt.last_sync)
@@ -158,6 +162,26 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
     if rt.message and rt.message != status_text(rt.status):
         return rt.message
     return ""
+
+
+def preview_summary(preview) -> str:
+    """A kept preview in a few words: being prepared, or what it found."""
+    if preview is None:
+        return ""
+    if preview.running:
+        return _("preparing the preview…")
+    if not preview.fresh():
+        return ""
+    plan = preview.outcome.plan
+    if plan.empty:
+        return _("nothing to do")
+    parts = [describe(plan)]
+    size = plan.upload_bytes + plan.download_bytes
+    if size:
+        parts.append(GLib.format_size(size))
+    if preview.free_bytes is not None and plan.upload_bytes > preview.free_bytes:
+        parts.append(_("not enough space on Koofr"))
+    return " · ".join(parts)
 
 
 def status_line(engine: Engine, pair_id: str) -> str:
