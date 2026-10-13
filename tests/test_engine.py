@@ -16,7 +16,7 @@ from gi.repository import GLib
 
 from spola import engine as engine_mod
 from spola import koofr_api
-from spola.account import Credentials
+from spola.account import Credentials, Quota
 from spola.config import Config, Pair
 from spola.conflicts import decide
 from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
@@ -412,6 +412,26 @@ class EngineTest(unittest.TestCase):
         third = self.other_pair("third")
         spin_until(lambda: False, 3)
         self.assertIsNone(self.engine.runtime[third.id].preview)
+
+    def test_the_space_on_koofr_is_read_and_a_full_account_is_told(self):
+        # read at sign-in (here: the disk of the local "Koofr")
+        self.assertTrue(spin_until(lambda: self.engine.space is not None, 20))
+        self.assertGreater(self.engine.space.total, 0)
+        self.assertFalse(self.engine.low_space)
+        changed = []
+        self.engine.connect("status-changed", lambda _e: changed.append(1))
+        self.engine._space_read_done(Quota(total=1000, used=950, free=50))     # 5% free
+        self.assertTrue(self.engine.low_space)
+        self.assertEqual(changed, [1])
+        self.engine._space_read_done(Quota(total=1000, used=950, free=50))     # the same: no news
+        self.assertEqual(changed, [1])
+        self.engine._space_read_done(Quota(total=1000, used=850, free=150))    # 15%: fine
+        self.assertFalse(self.engine.low_space)
+        # signed out: no space known, nothing read
+        self.engine.set_credentials(None)
+        self.assertIsNone(self.engine.space)
+        self.engine.refresh_space(min_age=0)
+        self.assertFalse(self.engine._space_busy)
 
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()

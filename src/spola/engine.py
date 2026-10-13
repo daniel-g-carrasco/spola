@@ -55,6 +55,8 @@ ACTIVITY_INTERVAL_S = 60
 PREVIEW_TTL_S = 30 * 60         # a ready preview opens at once for this long (with its age shown)
 PREVIEW_AHEAD_DELAY_S = 60      # quiet time before preparing the preview of a pair that waits for the user
 EVENT_SLICE_S = 0.008           # the main loop handles rclone's lines in slices this long, then draws
+LOW_SPACE_FRACTION = 0.10       # below this share free on Koofr, the window says so
+SPACE_REFRESH_S = 3600          # the space on Koofr is read again at most this often on its own
 
 
 def conflict_name_pattern() -> re.Pattern:
@@ -93,17 +95,26 @@ def quick_ignore(rel: str) -> bool:
     return default_excluded(rel)
 
 
-def free_space(rclone: str, paths: Paths, creds: Credentials | None, dev_remote: str | None) -> int | None:
-    """Free space on Koofr (on the disk of the developer's local "Koofr"),
-    for a preview's summary; None if it cannot be known now."""
+def space_of(rclone: str, paths: Paths, creds: Credentials | None,
+             dev_remote: str | None) -> account_mod.Quota | None:
+    """The space on Koofr (the disk of the developer's local "Koofr"); None
+    if it cannot be known now. One `rclone about`: cheap, read-only."""
     try:
         if dev_remote:
-            return shutil.disk_usage(dev_remote).free
+            usage = shutil.disk_usage(dev_remote)
+            return account_mod.Quota(usage.total, usage.used, usage.free)
         if creds is None:
             return None
-        return account_mod.check(rclone, paths, creds).free
-    except Exception:  # only a summary line: the preview goes on without it
+        quota = account_mod.check(rclone, paths, creds)
+        return quota if quota.total else None
+    except Exception:  # only a summary or a warning: nothing waits for it
         return None
+
+
+def free_space(rclone: str, paths: Paths, creds: Credentials | None, dev_remote: str | None) -> int | None:
+    """Free space on Koofr, for a preview's summary."""
+    space = space_of(rclone, paths, creds, dev_remote)
+    return space.free if space is not None else None
 
 
 @dataclass
@@ -216,6 +227,10 @@ class Engine(GObject.Object):
         self._events: deque = deque()
         self._events_lock = threading.Lock()
         self._events_scheduled = False
+        # the space on Koofr, read now and then (see refresh_space)
+        self.space: account_mod.Quota | None = None
+        self._space_read = 0.0
+        self._space_busy = False
         self._poll_source = 0
         self._shutdown_cb: Callable[[], None] | None = None
         self._closing = False
@@ -395,11 +410,46 @@ class Engine(GObject.Object):
         self.creds = creds
         if creds:
             self.sync_all("login")
+            self.refresh_space(min_age=0)
+        else:
+            self.space = None
         for pair in self.cfg.pairs:
             rt = self.runtime[pair.id]
             if not rt.run:
                 self._set_status(pair, rt, self._idle_status(pair, rt))
         self.emit("status-changed")
+
+    # -- space on Koofr ------------------------------------------------------------
+
+    def refresh_space(self, min_age: float = SPACE_REFRESH_S) -> None:
+        """Read the space on Koofr again, in a thread, unless it was read less
+        than `min_age` seconds ago: at sign-in, after a run that uploaded or
+        deleted something, and once an hour."""
+        if (self._space_busy or self.creds is None or self.rclone is None
+                or (self._space_read and time.monotonic() - self._space_read < min_age)):
+            return
+        self._space_busy = True
+        rclone, paths, creds, dev = self.rclone, self.paths, self.creds, self.dev_remote
+
+        def work():
+            space = space_of(rclone, paths, creds, dev)
+            GLib.idle_add(lambda: self._space_read_done(space) and False)
+
+        threading.Thread(target=work, name="koofr-space", daemon=True).start()
+
+    def _space_read_done(self, space: account_mod.Quota | None) -> None:
+        self._space_busy = False
+        self._space_read = time.monotonic()
+        if space is not None and space != self.space:
+            self.space = space
+            self.emit("status-changed")
+
+    @property
+    def low_space(self) -> bool:
+        """Under LOW_SPACE_FRACTION of Koofr free: the window says so."""
+        space = self.space
+        return bool(space and space.total and space.free is not None
+                    and space.free < space.total * LOW_SPACE_FRACTION)
 
     # -- status ----------------------------------------------------------------
 
@@ -1114,6 +1164,8 @@ class Engine(GObject.Object):
                 self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
             rt.status = Status.OK
             plan = outcome.plan
+            if plan.upload or plan.delete_remote:
+                self.refresh_space(min_age=60)          # what Koofr holds just changed
             self.recent.record(pair.id, pair.local, plan.upload + [new for _old, new in plan.moved_remote],
                                plan.download + plan.replace_local + [new for _old, new in plan.moved_local])
             listed = self._update_conflicts(pair, rt)
@@ -1279,6 +1331,7 @@ class Engine(GObject.Object):
 
     def _poll(self) -> bool:
         self.sync_all("poll")
+        self.refresh_space()
         return True
 
     def _on_conditions(self, *_args) -> None:

@@ -353,7 +353,8 @@ def waiting_for_user(engine: Engine) -> list[str]:
 
 class AttentionBanner:
     """What waits for the user, under the header bar: the folder, or how
-    many, and the one button that deals with it. A banner of its own, so
+    many, and the one button that deals with it; when nothing does, a Koofr
+    account close to full. A banner of its own, so
     that the status card keeps saying what Spola is doing (a folder waiting
     for its alignment must not hide the others syncing), and so that it stays
     in view while the list scrolls. (Adw.Banner cannot be subclassed.)"""
@@ -369,6 +370,16 @@ class AttentionBanner:
     def update(self) -> None:
         engine = self.engine
         waiting = waiting_for_user(engine) if engine.creds is not None else []
+        if not waiting and engine.creds is not None and engine.low_space:
+            # nothing to review, but the account is filling up: worth knowing
+            # before a sync stops on a full Koofr (folders waiting come first)
+            space = engine.space
+            self.widget.set_title(escape(_("Space is running out on Koofr: {free} left of {total}").format(
+                free=GLib.format_size(space.free), total=GLib.format_size(space.total))))
+            self.widget.set_button_label(_("Open Koofr"))
+            self._do = lambda: Gtk.UriLauncher.new(koofr_api.web_url(None, "/")).launch(self.window, None, None, None)
+            self.widget.set_revealed(True)
+            return
         self.widget.set_revealed(bool(waiting))
         if not waiting:
             return
