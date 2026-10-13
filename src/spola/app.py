@@ -321,6 +321,10 @@ class SpolaApp(Adw.Application):
     def _on_attention(self, _engine, pair_id: str, kind: str, message: str) -> None:
         pair = self.engine.cfg.pair(pair_id)
         name = pair.name if pair else APP_NAME
+        if kind == "preview-ready" and self.window is not None and self.window.is_active():
+            # the window is in front: it says so there, with the button to look
+            self.window.toast_review(_("The preview of “{name}” is ready").format(name=name), pair_id)
+            return
         titles = {
             "conflicts": _("Conflicts in “{name}”"),
             "resolved": _("Conflicts resolved in “{name}”"),

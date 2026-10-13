@@ -133,6 +133,7 @@ class Preview:
     free_bytes: int | None = None       # free space on Koofr, when known
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
+    seen: bool = False                  # its answer reached a dialog
     listeners: list = field(default_factory=list)   # callback(outcome, error), called once
 
     @property
@@ -476,6 +477,8 @@ class Engine(GObject.Object):
             # the user's own pause comes first: a pair put on hold before its
             # first alignment waits quietly, and asks for it once resumed
             return Status.PAUSED
+        if self.confirmed_waiting(pair.id):
+            return Status.PENDING           # what the user confirmed waits its turn
         if not pair.initialized:
             return Status.NEEDS_SETUP
         if self.blocked_reason():
@@ -528,6 +531,8 @@ class Engine(GObject.Object):
         rt = self.runtime[pair_id]
         if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             return      # waiting for the user
+        if self.confirmed_waiting(pair_id):
+            return      # the run the user confirmed does it, and goes even on a metered network
         if self.blocked_reason() and reason != "manual":
             if rt.run is None:
                 self._set_status(pair, rt, Status.PAUSED)
@@ -558,6 +563,7 @@ class Engine(GObject.Object):
                 return kept
             if kept.fresh():
                 if callback:
+                    kept.seen = True
                     GLib.idle_add(lambda: callback(kept.outcome, kept.error) and False)
                 return kept
         if kept is not None and kept.running:
@@ -597,6 +603,7 @@ class Engine(GObject.Object):
         rt = self.runtime.get(pair_id)
         if rt and rt.preview and callback in rt.preview.listeners:
             rt.preview.listeners.remove(callback)
+            self.emit("pair-changed", pair_id)      # the window says it goes on
 
     def invalidate_preview(self, pair_id: str) -> None:
         """Something changed: a kept preview no longer tells the truth."""
@@ -635,6 +642,7 @@ class Engine(GObject.Object):
             error = _("The preview failed")
         preview.outcome, preview.error, preview.finished = outcome, error, time.time()
         listeners, preview.listeners = preview.listeners, []
+        preview.seen = bool(listeners)
         for callback in listeners:
             callback(outcome, error)
         if outcome is None:
@@ -680,15 +688,27 @@ class Engine(GObject.Object):
 
     def confirm(self, pair_id: str, mode: Mode, force: bool,
                 callback: Callable[[Outcome | None, str], None] | None = None) -> None:
-        """The real run the user confirmed after a preview."""
-        rt = self.runtime[pair_id]
-        if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
-            rt.status = Status.PENDING
+        """The real run the user confirmed after a preview. It goes before
+        every automatic run, after the ones confirmed earlier, and never stops
+        the sync in progress: until its turn the pair says it is confirmed
+        and waiting, not "waiting for your confirmation" any more."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None:
+            if callback:
+                GLib.idle_add(lambda: callback(None, _("This folder is no longer synced.")) and False)
+            return
         if rt.ahead_source:
             GLib.source_remove(rt.ahead_source)
             rt.ahead_source = 0
-        rt.preview = None           # what it said is about to happen
+        self.cancel_preview(pair_id)    # one still running: its answer is not wanted now
+        rt.preview = None               # what it said is about to happen
         self._enqueue(Task(pair_id, mode, force=force, reason="confirmed", callback=callback), front=True)
+        if rt.task is None or rt.task.dry_run:
+            self._set_status(pair, rt, Status.PENDING)
+
+    def confirmed_waiting(self, pair_id: str) -> bool:
+        """A run the user confirmed, queued behind the sync in progress."""
+        return any(t.pair_id == pair_id and t.reason == "confirmed" and not t.dry_run for t in self.queue)
 
     def stop(self, pair_id: str) -> None:
         rt = self.runtime.get(pair_id)
@@ -842,8 +862,10 @@ class Engine(GObject.Object):
                                left).format(n=left))
 
     def _enqueue(self, task: Task, front: bool = False) -> None:
+        # a run already queued does the same (a confirmed one, without the
+        # safety check, covers an automatic one)
         duplicate = any(t.pair_id == task.pair_id and t.mode == task.mode and not t.dry_run and not task.dry_run
-                        and t.force == task.force for t in self.queue)
+                        and (t.force == task.force or t.force) for t in self.queue)
         running_same = (self.active is not None and self.active.pair_id == task.pair_id
                         and not self.active.dry_run and not task.dry_run and task.reason not in ("confirmed",))
         if duplicate:
@@ -852,7 +874,12 @@ class Engine(GObject.Object):
             # it will run again afterwards if the changes need it
             self.runtime[task.pair_id].changed_during_run.add("")
             return
-        if front:
+        if front and task.reason == "confirmed" and not task.dry_run:
+            # confirmations in the order the user gave them
+            at = max((i + 1 for i, t in enumerate(self.queue) if t.reason == "confirmed" and not t.dry_run),
+                     default=0)
+            self.queue.insert(at, task)
+        elif front:
             self.queue.insert(0, task)
         else:
             self.queue.append(task)
