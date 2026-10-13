@@ -57,6 +57,7 @@ class RunActivity:
         self.into = ""                        # the side the current copies go to (bisync's phases)
         self.moving: dict[str, str] = {}      # new name -> old, until rclone confirms the move
         self.warned = ""                      # the last "new or changed in both paths"
+        self.deletes_queued = 0               # all of them, beyond the MAX_OPS kept for the list
 
     def _op(self, path: str, kind: str) -> Op | None:
         op = self.ops.get(path)
@@ -67,6 +68,8 @@ class RunActivity:
         return op
 
     def queued(self, path: str, kind: str) -> None:
+        if kind in (DELETE_HERE, DELETE_KOOFR):
+            self.deletes_queued += 1
         if path:
             self._op(path, kind)
 
@@ -104,12 +107,16 @@ class RunActivity:
         if op is not None and op.kind in (UPLOAD, DOWNLOAD):
             self._finish(op)
 
-    def deleted(self, path: str, here: bool) -> None:
+    def deleted(self, path: str, here: bool | None) -> None:
         """A "Deleted" line: only for a deletion. The same line also comes
         when an old local version goes into the backup folder before the new
-        one is downloaded, and that download is not done yet."""
+        one is downloaded, and that download is not done yet. `here` None: a
+        folder removed, on a side rclone does not say."""
         op = self.ops.get(path)
-        if op is not None and op.kind == (DELETE_HERE if here else DELETE_KOOFR):
+        if op is None:
+            return
+        if (op.kind == (DELETE_HERE if here else DELETE_KOOFR) if here is not None
+                else op.kind in (DELETE_HERE, DELETE_KOOFR)):
             self._finish(op)
 
     def phase(self, into: str) -> None:

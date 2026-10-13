@@ -447,7 +447,7 @@ class OverallStatus(Gtk.Box):
         task = engine.active
         if task is not None and not task.dry_run and cfg.pair(task.pair_id):
             pair, rt = cfg.pair(task.pair_id), engine.runtime[task.pair_id]
-            text, fraction = progress_text(rt.stats)
+            text, fraction = progress_text(rt.stats, rt.activity.deletes_queued)
             self._show(Status.SYNCING, _("Syncing “{name}”").format(name=pair.name), text or _("Comparing the two sides…"))
             self.progress.set_opacity(1)
             if fraction is None:
@@ -692,7 +692,7 @@ class PairPage(Adw.NavigationPage):
         syncing = syncing_for_real(self.engine, self.pair_id)
         self.progress_row.set_visible(syncing)
         if syncing:
-            fraction = progress_text(rt.stats)[1]
+            fraction = progress_text(rt.stats, rt.activity.deletes_queued)[1]
             if fraction is None:
                 self.progress.pulse()
             else:

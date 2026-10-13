@@ -214,7 +214,7 @@ class SpolaApp(Adw.Application):
             # menu: which folder, how far, how fast, how long still
             pair, rt = engine.cfg.pair(task.pair_id), engine.runtime[task.pair_id]
             summary = _("Syncing “{name}”").format(name=pair.name)
-            text, fraction = progress_text(rt.stats)
+            text, fraction = progress_text(rt.stats, rt.activity.deletes_queued)
             parts = [text] if text else [_("Comparing the two sides…")]
             if fraction is not None:
                 parts.insert(0, f"{int(fraction * 100)}%")

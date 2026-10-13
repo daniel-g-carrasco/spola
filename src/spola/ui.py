@@ -16,6 +16,7 @@ from . import APP_ID, conflicts  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
 from .paths import nearest_folder  # noqa: E402
+from .progress import progress_text, time_left  # noqa: E402,F401 (used by the window and the tray)
 from .rclone import Result, describe  # noqa: E402
 
 STATUS_ICONS = {
@@ -85,41 +86,6 @@ def status_text(status: Status) -> str:
     }[status]
 
 
-def progress_text(stats: dict | None) -> tuple[str, float | None]:
-    """A short line for the row and the fraction for its bar (None while
-    the two sides are still being compared)."""
-    if not stats:
-        return "", None
-    total, done = stats.get("totalBytes") or 0, stats.get("bytes") or 0
-    files, total_files = stats.get("transfers") or 0, stats.get("totalTransfers") or 0
-    if not total_files and not total:
-        checks = stats.get("checks") or 0
-        return (_("Comparing files ({n} checked)").format(n=checks) if checks else ""), None
-    text = ngettext("{done} of {total} file", "{done} of {total} files", total_files).format(done=files, total=total_files)
-    speed = stats.get("speed") or 0
-    if speed:
-        text += " · " + _("{speed}/s").format(speed=GLib.format_size(int(speed)))
-    fraction = done / total if total else (files / total_files if total_files else 0.0)
-    return text, max(0.0, min(1.0, fraction))
-
-
-def time_left(seconds) -> str:
-    """rclone's estimate, said the way people say it."""
-    try:
-        seconds = int(seconds)
-    except (TypeError, ValueError):
-        return ""
-    if seconds <= 0:
-        return ""
-    if seconds < 60:
-        return _("less than a minute left")
-    if seconds < 3600:
-        n = round(seconds / 60)
-        return ngettext("about {n} minute left", "about {n} minutes left", n).format(n=n)
-    n = round(seconds / 3600)
-    return ngettext("about {n} hour left", "about {n} hours left", n).format(n=n)
-
-
 def when(timestamp: float) -> str:
     """10:42 today, 9 Oct otherwise."""
     moment = GLib.DateTime.new_from_unix_local(int(timestamp))
@@ -141,7 +107,7 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
         return ""
     if rt.status is Status.SYNCING:
         if syncing_for_real(engine, pair_id):
-            return progress_text(rt.stats)[0]
+            return progress_text(rt.stats, rt.activity.deletes_queued)[0]
         return rt.message
     if rt.status is Status.CONFLICTS:
         n = len(engine.conflicts(pair_id))           # conflicts, not copies
