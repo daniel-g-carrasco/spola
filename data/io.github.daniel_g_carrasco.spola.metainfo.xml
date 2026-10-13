@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.5" date="2026-10-13" type="development">
+      <description>
+        <p>Fixed: a click on "Open Spola" in the tray menu could quit Spola. The menu's items were numbered by their place, and the place changes while a sync runs (a file done, the progress line gone): a tray that still showed the menu of a moment before sent the number that had become "Quit". Every item that does something now keeps its number wherever it moves, and a number is never given to another item.</p>
+      </description>
+    </release>
     <release version="0.3.4" date="2026-10-13" type="development">
       <description>
         <p>Previews no longer hold anything up: they run next to the syncs of the other folders, the window stays usable, and you can close one and open it again at once, or cancel it for good. While it runs you see how far it is; when it is done it says how much goes each way and warns when Koofr has no room for it. A folder waiting for you has its preview prepared ahead (not on a metered connection), so Review opens it at once, and its row already says what it will do.</p>
