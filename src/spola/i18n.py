@@ -74,3 +74,12 @@ def pgettext(context: str, message: str) -> str:
 
 def ngettext(singular: str, plural: str, n: int) -> str:
     return _translation.ngettext(singular, plural, n)
+
+
+def count(n: int) -> str:
+    """A number as the desktop's language writes it: 189,902 or 189.902
+    (Python's "n" format follows the locale GTK sets at start)."""
+    try:
+        return format(int(n), "n")
+    except (TypeError, ValueError):
+        return str(n)

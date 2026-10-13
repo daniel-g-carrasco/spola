@@ -25,7 +25,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .i18n import ngettext
+from .i18n import count, ngettext
 
 REMOTE_NAME = "koofr"   # changing it would orphan every pair's bisync listings
 
@@ -284,6 +284,7 @@ class Event:
     action: str = ""             # e.g. "File is new", "Queue copy to Path2"
     path: str = ""
     target: str = ""             # where a file is moved to (MOVED, a dry run's SKIPPED move)
+    size: int = 0                # bytes of a file a dry run would copy (SKIPPED copy)
     stats: dict | None = None
 
 
@@ -298,6 +299,13 @@ _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued co
 # "Renamed from \"<old>\"", whose object is the new name.
 _MOVED_TO = re.compile(r"^Moved \(server-side\) to: (.+)$", re.S)
 _RENAMED_FROM = re.compile(r'^Renamed from "', re.S)
+
+
+def _int(value) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _side_of(d: dict) -> str:
@@ -342,7 +350,8 @@ def parse_line(line: str) -> Event | None:
     if d.get("skipped"):
         skipped = str(d["skipped"])
         target = skipped[len("move to "):] if skipped.startswith("move to ") else ""
-        return Event(Kind.SKIPPED, msg, level, action=skipped, path=str(d.get("object", "")), target=target)
+        return Event(Kind.SKIPPED, msg, level, action=skipped, path=str(d.get("object", "")), target=target,
+                     size=_int(d.get("size")))
     if (m := _MOVED_TO.match(msg)) and d.get("object"):
         return Event(Kind.MOVED, msg, level, path=str(d["object"]), target=m[1])
     if _RENAMED_FROM.match(msg) and d.get("object"):
@@ -390,6 +399,9 @@ class Plan:
     # other, instead of a delete plus an upload or a download
     moved_remote: list[tuple[str, str]] = field(default_factory=list)   # moved here, then on Koofr
     moved_local: list[tuple[str, str]] = field(default_factory=list)    # moved on Koofr, then here
+    # what a dry run would copy each way, in bytes (a real run does not say)
+    upload_bytes: int = 0
+    download_bytes: int = 0
 
     @property
     def empty(self) -> bool:
@@ -401,18 +413,18 @@ def describe(plan: Plan) -> str:
     """One line for the row and the toasts: "3 files to Koofr, 1 deleted"."""
     parts = []
     if plan.upload:
-        parts.append(ngettext("{n} file to Koofr", "{n} files to Koofr", len(plan.upload)).format(n=len(plan.upload)))
+        parts.append(ngettext("{n} file to Koofr", "{n} files to Koofr", len(plan.upload)).format(n=count(len(plan.upload))))
     if plan.download or plan.replace_local:
         n = len(set(plan.download) | set(plan.replace_local))
-        parts.append(ngettext("{n} file from Koofr", "{n} files from Koofr", n).format(n=n))
+        parts.append(ngettext("{n} file from Koofr", "{n} files from Koofr", n).format(n=count(n)))
     moved = len(plan.moved_remote) + len(plan.moved_local)
     if moved:
-        parts.append(ngettext("{n} moved", "{n} moved", moved).format(n=moved))
+        parts.append(ngettext("{n} moved", "{n} moved", moved).format(n=count(moved)))
     deleted = len(plan.delete_local) + len(plan.delete_remote)
     if deleted:
-        parts.append(ngettext("{n} deleted", "{n} deleted", deleted).format(n=deleted))
+        parts.append(ngettext("{n} deleted", "{n} deleted", deleted).format(n=count(deleted)))
     if plan.conflicts:
-        parts.append(ngettext("{n} conflict", "{n} conflicts", len(plan.conflicts)).format(n=len(plan.conflicts)))
+        parts.append(ngettext("{n} conflict", "{n} conflicts", len(plan.conflicts)).format(n=count(len(plan.conflicts))))
     return ", ".join(parts)
 
 
@@ -453,6 +465,14 @@ def relative_path(path: str, roots: list[str]) -> str:
     return path.lstrip("/")
 
 
+def _count_bytes(plan: Plan, ev: Event, into: str) -> None:
+    if ev.kind is Kind.SKIPPED and ev.action == "copy":
+        if into == "Path1":
+            plan.download_bytes += ev.size
+        else:
+            plan.upload_bytes += ev.size
+
+
 def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
               cancelled: bool = False) -> Outcome:
     roots = [path1, path2]
@@ -475,10 +495,13 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
                     plan.replace_local.append(ev.path)
             elif ev.kind is Kind.COPIED or ev.action == "copy":
                 (plan.download if into == "Path1" else plan.upload).append(ev.path)
+                _count_bytes(plan, ev, into)
         elif resync and ev.kind is Kind.BACKUP and into == "Path1":
             plan.replace_local.append(ev.path)
         elif ev.kind in (Kind.MOVED, Kind.SKIPPED) and ev.target:
             moving[relative_path(ev.target, roots)] = relative_path(ev.path, roots)
+        elif ev.kind is Kind.SKIPPED and ev.action == "copy" and into:
+            _count_bytes(plan, ev, into)
         elif ev.kind is Kind.RENAMED and into:
             new = relative_path(ev.path, roots)
             if new in moving:

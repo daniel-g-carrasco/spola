@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import gi
 
@@ -16,7 +17,7 @@ from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
 from . import account, activity, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
-from .i18n import _, ngettext, pgettext  # noqa: E402
+from .i18n import _, count, ngettext, pgettext  # noqa: E402
 from .rclone import Mode, Outcome, Result, describe  # noqa: E402
 from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
                  place_name, status_badge, status_css, status_detail, status_icon, status_line, status_text,
@@ -1197,20 +1198,23 @@ class PreferencesDialog(Adw.PreferencesDialog):
 
 
 class PreviewDialog(Adw.Dialog):
-    """Runs a dry run and shows what would happen; `confirm_label` None means
-    information only."""
+    """What a run would do, from a dry run the engine keeps: the dialog can be
+    closed while it runs (it goes on, and Spola says when it is ready),
+    opened again at once, or stopped for good with Cancel. `confirm_label`
+    None means information only."""
 
     def __init__(self, window: MainWindow, pair_id: str, mode: Mode, force: bool,
                  title: str, explanation: str, confirm_label: str | None):
-        super().__init__(title=title, content_width=560, content_height=560)
+        super().__init__(title=title, content_width=560, content_height=600)
         self.window, self.engine = window, window.engine
         self.pair_id, self.mode, self.force = pair_id, mode, force
+        self.waiting = self.closing = self.short_of_space = False
         view = Adw.ToolbarView()
         header = Adw.HeaderBar(show_end_title_buttons=confirm_label is None,
                                show_start_title_buttons=False)
         if confirm_label:
             cancel = Gtk.Button(label=_("Cancel"))
-            cancel.connect("clicked", lambda *_: self.close())
+            cancel.connect("clicked", lambda *_: self._cancel())
             header.pack_start(cancel)
             self.confirm = Gtk.Button(label=confirm_label, css_classes=["suggested-action"], sensitive=False)
             self.confirm.connect("clicked", lambda *_: self._confirm())
@@ -1222,26 +1226,83 @@ class PreviewDialog(Adw.Dialog):
         self.page = Adw.PreferencesPage()
         intro = Adw.PreferencesGroup(description=explanation)
         self.page.add(intro)
+        # while it runs: how far it is, and the way out that lets it go on
         self.spinner_group = Adw.PreferencesGroup()
-        spinner_row = Adw.ActionRow(title=_("Comparing the two folders…"),
-                                    subtitle=_("Nothing is changed while the preview runs."))
-        spinner_row.add_prefix(Adw.Spinner())
-        self.spinner_group.add(spinner_row)
-        self.page.add(self.spinner_group)
+        self.spinner_row = Adw.ActionRow(title=_("Comparing the two folders…"),
+                                         subtitle=_("Nothing is changed while the preview runs."), subtitle_lines=2)
+        self.spinner_row.add_prefix(Adw.Spinner())
+        self.spinner_group.add(self.spinner_row)
+        background = Adw.ButtonRow(title=_("Continue in Background"))
+        background.connect("activated", lambda *_: self.close())
+        self.spinner_group.add(background)
+        self.info_group: Adw.PreferencesGroup | None = None
         self.result_group: Adw.PreferencesGroup | None = None
         self.toasts = Adw.ToastOverlay(child=self.page)
         view.set_content(self.toasts)
         self.set_child(view)
-        self.engine.preview(pair_id, mode, force, self._done)
+        self._handler = self.engine.connect("pair-changed",
+                                            lambda _e, pid: self._progress() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self._closed())
+        self._start()
+
+    def _start(self, refresh: bool = False) -> None:
+        for group in (self.info_group, self.result_group):
+            if group is not None:
+                self.page.remove(group)
+        self.info_group = self.result_group = None
+        if self.spinner_group.get_parent() is None:
+            self.page.add(self.spinner_group)
+        if self.confirm is not None:
+            self.confirm.set_sensitive(False)
+            self.confirm.set_css_classes(["suggested-action"])
+        self.waiting = True
+        self.engine.preview(self.pair_id, self.mode, self.force, self._done, refresh=refresh)
+        self._progress()
+
+    def _progress(self) -> None:
+        """While it runs: waiting its turn, looking at this computer, then how
+        many files and folders it has listed on both sides."""
+        rt = self.engine.runtime.get(self.pair_id)
+        preview = rt.preview if rt else None
+        if not self.waiting or preview is None or not preview.running:
+            return
+        if rt.task is not preview.task:
+            text = (_("Waiting for this folder's sync to finish…") if rt.task is not None
+                    else _("Waiting for another preview to finish…"))
+        elif rt.run is None:
+            text = _("Looking at the files on this computer…")
+        else:
+            listed = int((preview.stats or {}).get("listed") or 0)
+            text = (ngettext("{n} file or folder compared so far", "{n} files and folders compared so far",
+                             listed).format(n=count(listed)) if listed else _("Listing the files on both sides…"))
+        self.spinner_row.set_subtitle(escape(text + "\n" + _("Nothing is changed while the preview runs.")))
+
+    def _closed(self) -> None:
+        self.engine.disconnect(self._handler)
+        if self.waiting and not self.closing:
+            # closed while it runs: it goes on, and tells the user when it is ready
+            self.engine.forget_listener(self.pair_id, self._done)
+
+    def _cancel(self) -> None:
+        self.closing = True
+        if self.waiting:
+            self.engine.cancel_preview(self.pair_id)
+        self.close()
 
     def _done(self, outcome: Outcome | None, error: str) -> None:
-        self.page.remove(self.spinner_group)
+        if self.closing:
+            return
+        self.waiting = False
+        if self.spinner_group.get_parent() is not None:
+            self.page.remove(self.spinner_group)
         group = self.result_group = Adw.PreferencesGroup()
-        self.page.add(group)
         if outcome is None:
+            self.page.add(group)
             group.add(Adw.ActionRow(title=_("The preview failed"), subtitle=GLib.markup_escape_text(error)))
             return
         plan = outcome.plan
+        self._info(outcome)
+        self.page.add(group)
         if outcome.result is not Result.OK and not plan.empty:
             group.set_description(_("Note: {message}").format(message=outcome.message))
         elif outcome.result is not Result.OK:
@@ -1273,7 +1334,11 @@ class PreviewDialog(Adw.Dialog):
         for paths, title, icon, on_koofr in rows:
             if not paths:
                 continue
-            row = Adw.ExpanderRow(title=title, subtitle=ngettext("{n} file", "{n} files", len(paths)).format(n=len(paths)))
+            subtitle = ngettext("{n} file", "{n} files", len(paths)).format(n=count(len(paths)))
+            size = plan.upload_bytes if paths is plan.upload else plan.download_bytes if paths is plan.download else 0
+            if size:
+                subtitle += " · " + GLib.format_size(size)
+            row = Adw.ExpanderRow(title=title, subtitle=escape(subtitle))
             row.add_prefix(Gtk.Image(icon_name=icon))
             for entry in paths[:PREVIEW_LIMIT]:
                 if isinstance(entry, tuple):
@@ -1292,7 +1357,7 @@ class PreviewDialog(Adw.Dialog):
                 item.connect("activated", lambda _r, p=here, k=on_koofr: self._show(p, k))
                 row.add_row(item)
             if len(paths) > PREVIEW_LIMIT:
-                row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=len(paths) - PREVIEW_LIMIT)))
+                row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=count(len(paths) - PREVIEW_LIMIT))))
             group.add(row)
         pair = self.engine.cfg.pair(self.pair_id)
         if plan.refused and rt is not None and pair is not None and any(
@@ -1306,19 +1371,51 @@ class PreviewDialog(Adw.Dialog):
             self.confirm.set_sensitive(True)
             if plan.delete_remote or plan.delete_local:
                 self.confirm.set_css_classes(["destructive-action"])
+            elif self.short_of_space:
+                self.confirm.set_css_classes([])       # possible, no longer the obvious choice
+
+    def _info(self, outcome: Outcome) -> None:
+        """Above the lists: whether Koofr has room for what goes up, and how
+        old the preview is when it was kept from earlier."""
+        self.short_of_space = False
+        rt = self.engine.runtime.get(self.pair_id)
+        preview = rt.preview if rt else None
+        group, rows = Adw.PreferencesGroup(), 0
+        plan = outcome.plan
+        free = preview.free_bytes if preview is not None and preview.outcome is outcome else None
+        if plan.upload_bytes and free is not None:
+            needed, room = GLib.format_size(plan.upload_bytes), GLib.format_size(free)
+            row = Adw.ActionRow(subtitle_lines=4)
+            if plan.upload_bytes > free:
+                self.short_of_space = True
+                row.set_title(escape(_("Not Enough Space on Koofr")))
+                row.set_subtitle(escape(_(
+                    "{needed} to upload, {free} free. Leave some folders out (Exclusions) or make room on Koofr "
+                    "first: otherwise the sync stops when Koofr is full.").format(needed=needed, free=room)))
+                row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["error"]))
+            else:
+                row.set_title(escape(_("Space on Koofr")))
+                row.set_subtitle(escape(_("{needed} to upload, {free} free").format(needed=needed, free=room)))
+                row.add_prefix(Gtk.Image(icon_name="drive-harddisk-symbolic"))
+            group.add(row)
+            rows += 1
+        if preview is not None and preview.outcome is outcome and time.time() - preview.finished > 60:
+            row = Adw.ActionRow(title=escape(_("Prepared at {time}").format(time=when(preview.finished))),
+                                subtitle=escape(_("Changes made since then are not in this list.")))
+            refresh = Gtk.Button(label=_("Refresh"), valign=Gtk.Align.CENTER)
+            refresh.connect("clicked", lambda *_: self._start(refresh=True))
+            row.add_suffix(refresh)
+            group.add(row)
+            rows += 1
+        if rows:
+            self.info_group = group
+            self.page.add(group)
 
     def _renamed(self, done: int, errors: list[str]) -> None:
         """The names changed: what the run would do changed too."""
-        tell(self.toasts, ngettext("{n} file renamed", "{n} files renamed", done).format(n=done) if done else "",
+        tell(self.toasts, ngettext("{n} file renamed", "{n} files renamed", done).format(n=count(done)) if done else "",
              errors)
-        if self.result_group is not None:
-            self.page.remove(self.result_group)
-            self.result_group = None
-        self.page.add(self.spinner_group)
-        if self.confirm is not None:
-            self.confirm.set_sensitive(False)
-            self.confirm.set_css_classes(["suggested-action"])
-        self.engine.preview(self.pair_id, self.mode, self.force, self._done)
+        self._start(refresh=True)
 
     def _show(self, path: str, on_koofr: bool) -> None:
         pair = self.engine.cfg.pair(self.pair_id)

@@ -160,6 +160,15 @@ class ParseTest(unittest.TestCase):
             self.assertEqual(plan.upload + plan.download + plan.delete_local + plan.delete_remote, [], name)
             self.assertFalse(plan.empty, name)
 
+    def test_a_preview_says_how_much_goes_each_way(self):
+        out = summarize(0, events("resync-dry-run.jsonl"), "/ROOT/a/", "/ROOT/b/")
+        self.assertEqual((out.plan.upload_bytes, out.plan.download_bytes), (6, 20))
+        out = summarize(0, events("koofr-renames-dry-run.jsonl"), "/home/user/renames/", "koofr:renames")
+        self.assertEqual(out.plan.upload_bytes, 8)               # new.txt; the moves copy nothing
+        # a real run does not say
+        out = summarize(0, events("resync.jsonl"), "/ROOT/a/", "/ROOT/b/")
+        self.assertEqual((out.plan.upload_bytes, out.plan.download_bytes), (0, 0))
+
     def test_a_move_without_its_confirmation_is_not_a_rename(self):
         evs = [parse_line(text) for text in (
             '{"level":"info","msg":"- Path1 Do queued copies to - Path2"}',
