@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.7" date="2026-10-13" type="development">
+      <description>
+        <p>A sync no longer looks stuck once its copies are done: when it goes on deleting files on Koofr, one at a time, the status says "Deleting: 2,000 of 8,148" and the bar moves again, then "Removing empty folders" while the folders left empty go. In the list of files, deleted folders are marked done as they go.</p>
+      </description>
+    </release>
     <release version="0.3.6" date="2026-10-13" type="development">
       <description>
         <p>Fixed: after a big reorganisation, the preview counted thousands of conflicts that do not exist. rclone warns about every file new or changed on both sides, then finds most of them identical, or sees a folder made on both sides; only a file whose two copies it renames is a conflict, and only those are counted now, in the preview, in the files list and in the notifications.</p>
