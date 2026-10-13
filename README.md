@@ -40,7 +40,7 @@ On [Margine OS](https://margine.dev): `ujust install-spola`, and `ujust install-
 
 Spola never writes its own sync engine: rclone bisync does the work, and Spola puts barriers around it.
 
-- **Preview before every big step.** The first alignment of a folder, a repair, and any run that stopped on a safety check are shown as a list of what would happen, and run only after you confirm.
+- **Preview before every big step.** The first alignment of a folder, a repair, and any run that stopped on a safety check are shown as a list of what would happen, and run only after you confirm. The list says how much goes each way and whether Koofr has room for it. A preview never holds up the other folders, which keep syncing; you can close it and it goes on (a notification says when it is ready), and a folder waiting for you has its preview prepared ahead, so Review opens it at once.
 - **No surprise deletions.** A run that would delete more than 10% of a side stops and waits (small folders may lose up to 5 files). Files deleted or replaced on this computer go to a local backup, kept 30 days.
 - **A move stays a move.** A file moved or renamed on one side is moved the same way on the other (on Koofr, on the server), not deleted and copied again; a big reorganisation still stops and asks first, with the moves listed as moves.
 - **Conflicts keep both versions**, with readable names (`report.conflict-local-2026-10-10-1.odt`, `report.conflict-koofr-2026-10-10-1.odt`). You decide one by one, or all at once with a rule (the newer version, this computer's, Koofr's, or both), after a list of what happens to each file; a rule can also run on its own after each sync. The version not kept goes to the wastebasket here and to Koofr's trash.

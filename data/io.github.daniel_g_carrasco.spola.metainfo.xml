@@ -69,7 +69,7 @@
     <screenshot type="default">
       <caption>What is going on at the top, the files being synced, then your folders, grouped by where they are</caption>
       <caption xml:lang="it">In cima cosa sta succedendo, i file in sincronizzazione, poi le tue cartelle, raggruppate per dove si trovano</caption>
-      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.1/data/screenshots/main-window.png</image>
+      <image>https://raw.githubusercontent.com/daniel-g-carrasco/spola/v0.3.4/data/screenshots/main-window.png</image>
     </screenshot>
     <screenshot>
       <caption>A folder's page: status, both locations, pause, exclusions</caption>
@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.4" date="2026-10-13" type="development">
+      <description>
+        <p>Previews no longer hold anything up: they run next to the syncs of the other folders, the window stays usable, and you can close one and open it again at once, or cancel it for good. While it runs you see how far it is; when it is done it says how much goes each way and warns when Koofr has no room for it. A folder waiting for you has its preview prepared ahead (not on a metered connection), so Review opens it at once, and its row already says what it will do.</p>
+        <p>What waits for you is now in a banner under the header bar, and the status at the top keeps saying what Spola is doing: a folder waiting for its alignment no longer hides the others syncing. Large previews no longer freeze the window for a moment while rclone reports thousands of files.</p>
+      </description>
+    </release>
     <release version="0.3.3" date="2026-10-13" type="development">
       <description>
         <p>A move stays a move: a file renamed or moved to another folder on one side is moved the same way on the other, on Koofr's server, instead of being deleted and copied again. A big reorganisation still stops for a confirmation, and its preview lists the moves as moves, not as deletions. Fixed along the way: after a file was renamed on Koofr, the next sync uploaded it again, because Koofr keeps modification times to the millisecond.</p>
