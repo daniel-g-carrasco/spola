@@ -1050,7 +1050,7 @@ class Engine(GObject.Object):
         elif ev.kind is Kind.COPIED and ev.path:
             act.copied(rel(ev.path), to_koofr=ev.side == "Path2")
         elif ev.kind is Kind.DELETED and ev.path:
-            act.deleted(rel(ev.path), here=ev.side == "Path1")
+            act.deleted(rel(ev.path), here=(ev.side == "Path1") if ev.side else None)
         elif ev.kind is Kind.BACKUP and ev.path:
             act.backed_up(rel(ev.path))
         elif ev.kind is Kind.ERROR and ev.path:

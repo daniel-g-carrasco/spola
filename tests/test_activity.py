@@ -49,6 +49,17 @@ class ActivityTest(unittest.TestCase):
         self.assertEqual((ops["from-there.jpg"].kind, ops["from-there.jpg"].origin), (act.MOVE_HERE, "IMG_2.jpg"))
         self.assertTrue(all(o.state == act.DONE for o in ops.values()))
 
+    def test_deleted_folders_are_done_too(self):
+        # thousands of files deleted on Koofr, then their folders: "Removing
+        # directory", on a side rclone does not say (and a remote hash with "_")
+        self.feed(line("- Path2    Queue delete           - koofr{kFw_7}:data/work/__old/a.txt"),
+                  line("- Path2    Queue delete           - koofr{kFw_7}:data/work/__old"),
+                  line("Deleted", object="__old/a.txt", objectType="*koofr.Object"),
+                  line("Removing directory", object="__old", objectType="string"))
+        ops = {o.path: o.state for o in self.a.ops.values()}
+        self.assertEqual(ops, {"__old/a.txt": act.DONE, "__old": act.DONE})
+        self.assertEqual(self.a.deletes_queued, 2)
+
     def test_queue_lines_say_what_and_which_way(self):
         self.feed(line("- Path2    Queue copy to Path1    - koofr{ab}:data/work/a/new.pdf"),
                   line("- Path1    Queue copy to Path2    - local{cd}:/home/u/work/b.odt"),

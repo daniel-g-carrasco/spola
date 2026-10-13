@@ -368,6 +368,9 @@ def parse_line(line: str) -> Event | None:
         return Event(Kind.COPIED, msg, level, side=_side_of(d), path=str(d["object"]))
     if msg == "Deleted" and d.get("object"):
         return Event(Kind.DELETED, msg, level, side=_side_of(d), path=str(d["object"]))
+    if msg == "Removing directory" and d.get("object"):
+        # a folder deleted, or left empty by the deletions: the side is not said
+        return Event(Kind.DELETED, msg, level, side="", path=str(d["object"]))
     if level in ("error", "critical"):
         obj = d.get("object")
         return Event(Kind.ERROR, msg, level, path=str(obj) if obj and d.get("objectType") != "string" else "")
