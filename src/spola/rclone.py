@@ -259,7 +259,8 @@ class Kind(enum.Enum):
     STATS = "stats"
     DELTA = "delta"              # change found on one side
     QUEUE = "queue"              # planned operation (copy, delete)
-    CONFLICT = "conflict"        # changed on both sides
+    CONFLICT = "conflict"        # new or changed on both sides: a conflict if bisync then renames the copies
+    EQUAL = "equal"              # ...but the two are the same file: nothing to do
     CONFLICT_RENAME = "conflict-rename"
     PHASE = "phase"              # "Path2 ... copying files to Path1": direction of what follows
     COPIED = "copied"
@@ -291,6 +292,7 @@ class Event:
 _DELTA = re.compile(r"^- (Path[12])\s+(File (?:changed: .*?|is new|was deleted))\s+- (.*)$", re.S)
 _QUEUE = re.compile(r"^- (Path[12])\s+(Queue (?:copy to Path[12]|delete))\s+- (.*)$", re.S)
 _CONFLICT = re.compile(r"^- WARNING\s+New or changed in both paths\s+- (.*)$", re.S)
+_EQUAL = re.compile(r"^Files are equal! Skipping: (.*)$", re.S)
 _RENAME = re.compile(r"^- (Path[12])\s+Renaming Path[12] copy\s+- (.*)$", re.S)
 _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued copies to)\s+- (Path[12])$")
 # a move by name: "Moved (server-side) to: <new>" (a rename, or bisync's own
@@ -336,6 +338,8 @@ def parse_line(line: str) -> Event | None:
         return Event(Kind.QUEUE, msg, level, side=m[1], action=m[2], path=m[3].strip())
     if (m := _CONFLICT.match(msg)):
         return Event(Kind.CONFLICT, msg, level, path=m[1].strip())
+    if (m := _EQUAL.match(msg)):
+        return Event(Kind.EQUAL, msg, level, path=m[1].strip())
     if (m := _RENAME.match(msg)):
         return Event(Kind.CONFLICT_RENAME, msg, level, side=m[1], path=m[2].strip())
     if (m := _PHASE.match(msg)):
@@ -444,9 +448,10 @@ NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection r
                  "no route to host")
 
 
-# rclone names a remote whose options it overrides with a hash suffix:
-# "koofr{Y64jj}:spola-test/a.txt", "local{HK82T}:/home/u/folder/a.txt".
-_REMOTE_PREFIX = re.compile(r"^[A-Za-z0-9_.-]+(?:\{[A-Za-z0-9]+\})?:")
+# rclone names a remote whose options it overrides with a hash suffix, in
+# URL-safe base64: "koofr{Y64jj}:spola-test/a.txt", "koofr{kFw_7}:data/a.jpg",
+# "local{HK82T}:/home/u/folder/a.txt".
+_REMOTE_PREFIX = re.compile(r"^[A-Za-z0-9_.-]+(?:\{[A-Za-z0-9_-]+\})?:")
 
 
 def _strip_remote(path: str) -> str:
@@ -482,6 +487,12 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
     resync = any(ev.kind is Kind.PHASE and "Resync" in ev.message for ev in events)
     into = ""          # side the current copy phase writes to
     moving: dict[str, str] = {}      # new name -> old, until --track-renames confirms the move
+    # "New or changed in both paths" is only a warning: bisync then finds the
+    # two the same ("Files are equal! Skipping"), or it is a folder, or it
+    # renames the two copies (a dry run: "skipped": "rename" on the file).
+    # Only the last is a conflict.
+    warned: str | None = None
+    renamed: set[str] = set()
     for ev in events:
         if ev.kind is Kind.STATS:
             stats = ev.stats
@@ -515,13 +526,19 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             elif ev.action == "Queue delete":
                 (plan.delete_local if ev.side == "Path1" else plan.delete_remote).append(rel)
         elif ev.kind is Kind.CONFLICT:
-            plan.conflicts.append(relative_path(ev.path, roots))
+            warned = relative_path(ev.path, roots)
+            plan.conflicts.append(warned)
+        elif ev.kind is Kind.CONFLICT_RENAME and warned is not None:
+            renamed.add(warned)
+        elif ev.kind is Kind.SKIPPED and ev.action == "rename" and ev.path:
+            renamed.add(relative_path(ev.path, roots))
         elif ev.kind in (Kind.ERROR, Kind.CRITICAL, Kind.SAFETY_ABORT):
             plan.errors.append(ev.message)
             first_error = first_error or ev.message
             if ev.kind is Kind.ERROR and ev.path:
                 plan.error_paths.append(relative_path(ev.path, roots))
 
+    plan.conflicts = [p for p in plan.conflicts if p in renamed]
     # a move was queued as a delete plus a copy: it is neither
     for moves, copies, deletes in ((plan.moved_remote, plan.upload, plan.delete_remote),
                                    (plan.moved_local, plan.download, plan.delete_local)):

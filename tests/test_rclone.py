@@ -9,7 +9,7 @@ from _setup import fixture_lines
 from spola.rclone import (
     DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
     bisync_args, clean_env, conflict_suffix, default_excluded, describe, effective_max_delete, koofr_env,
-    parse_line, remote_spec, summarize,
+    parse_line, relative_path, remote_spec, summarize,
 )
 
 
@@ -178,6 +178,30 @@ class ParseTest(unittest.TestCase):
         self.assertEqual([e.kind for e in evs[1:]], [Kind.MOVED, Kind.MOVED, Kind.RENAMED])
         self.assertEqual((evs[1].path, evs[1].target), ("a.txt", "a.conflict-local-2026-10-13-1.txt"))
         self.assertEqual(summarize(0, evs, "/h/x/", "koofr:x").plan.moved_remote, [])
+
+    def test_a_warning_is_a_conflict_only_when_the_copies_are_renamed(self):
+        # "New or changed in both paths", then: renamed copies (a conflict),
+        # "Files are equal" (the same file on both sides), nothing (a folder
+        # made on both sides). A dry run says "skipped rename" instead.
+        def plan(lines, path2="koofr:x"):
+            return summarize(0, [parse_line(text) for text in lines], "/h/x/", path2).plan
+        warn = '{"level":"notice","msg":"- WARNING           New or changed in both paths                - %s"}'
+        real = plan([warn % "a.txt",
+                     '{"level":"notice","msg":"- Path1 Renaming Path1 copy - local{HK82T}:/h/x/a.conflict-local-2026-10-13-1.txt"}',
+                     warn % "b.jpg", '{"level":"info","msg":"Files are equal! Skipping: b.jpg"}',
+                     warn % "2021"])
+        self.assertEqual(real.conflicts, ["a.txt"])
+        dry = plan([warn % "a.txt",
+                    '{"level":"notice","msg":"Skipped rename as --dry-run is set","skipped":"rename","object":"a.txt"}',
+                    warn % "b.jpg", '{"level":"info","msg":"Files are equal! Skipping: b.jpg"}'])
+        self.assertEqual(dry.conflicts, ["a.txt"])
+
+    def test_remote_hashes_with_underscore_and_dash(self):
+        # URL-safe base64: koofr{kFw_7}, koofr{a-b9Z}
+        roots = ["/home/u/camera-roll/", "koofr:data/media/photos/camera-roll"]
+        self.assertEqual(relative_path("koofr{kFw_7}:data/media/photos/camera-roll/2021/a.jpg", roots), "2021/a.jpg")
+        self.assertEqual(relative_path("koofr{a-b9Z}:data/media/photos/camera-roll/b.jpg", roots), "b.jpg")
+        self.assertEqual(relative_path("local{HK82T}:/home/u/camera-roll/c.jpg", roots), "c.jpg")
 
     def test_root_remote(self):
         out = summarize(0, [parse_line('{"level":"info","msg":"- Path1 Queue copy to Path2 - koofr{ab12}:a/b.txt"}')],

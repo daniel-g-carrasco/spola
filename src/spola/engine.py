@@ -1042,7 +1042,9 @@ class Engine(GObject.Object):
         elif ev.kind is Kind.RENAMED and ev.path:
             act.renamed(rel(ev.path))
         elif ev.kind is Kind.CONFLICT and ev.path:
-            act.conflict(rel(ev.path))
+            act.warning(rel(ev.path))
+        elif ev.kind is Kind.CONFLICT_RENAME:
+            act.copies_renamed()
         elif ev.kind is Kind.STATS and ev.stats:
             act.transferring(list(ev.stats.get("transferring") or []), rel)
         elif ev.kind is Kind.COPIED and ev.path:
