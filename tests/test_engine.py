@@ -349,6 +349,47 @@ class EngineTest(unittest.TestCase):
         self.assertIs(self.engine.runtime[other.id].status, Status.NEEDS_SETUP)
         self.engine.stop("p1")
 
+    def test_a_confirmed_run_waits_its_turn_and_says_so(self):
+        # another folder syncs for a while: what the user confirms is not
+        # lost, it says it is confirmed, and goes in the order given
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        first, second = self.other_pair("first"), self.other_pair("second")
+        changed = []
+        self.engine.connect("pair-changed", lambda _e, pid: changed.append(pid))
+        self.engine.confirm(second.id, Mode.RESYNC, False)
+        self.engine.confirm(first.id, Mode.RESYNC, False)
+        for pair in (first, second):
+            self.assertIs(self.engine.runtime[pair.id].status, Status.PENDING)
+            self.assertTrue(self.engine.confirmed_waiting(pair.id))
+            self.assertIn(pair.id, changed)                     # the window hears it at once
+        self.assertEqual([t.pair_id for t in self.engine.queue if t.reason == "confirmed"], [second.id, first.id])
+        # an automatic run neither queues behind it nor changes what it says
+        queued = list(self.engine.queue)
+        self.engine.sync_all("poll")
+        self.engine._on_conditions()
+        self.assertEqual(self.engine.queue, queued)
+        self.assertIs(self.engine.runtime[first.id].status, Status.PENDING)
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.engine.stop("p1")
+        for pair in (first, second):
+            self.assertTrue(spin_until(lambda pair=pair: pair.initialized
+                                       and self.engine.runtime[pair.id].status is Status.OK, 60))
+        self.assertFalse(self.engine.confirmed_waiting(first.id))
+
+    def test_confirming_stops_a_preview_still_running(self):
+        kept, got = self.preview_of("p1")
+        self.engine.confirm("p1", Mode.RESYNC, False)
+        self.assertEqual(got, [(None, "Stopped.")])
+        self.assertIs(self.status(), Status.PENDING)
+        self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK, 60))
+        self.assertEqual(len(self.remote_files()), 30)
+
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
         self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
@@ -390,12 +431,20 @@ class EngineTest(unittest.TestCase):
     def test_a_preview_whose_dialog_was_closed_tells_when_ready(self):
         told = []
         self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
+        changed = []
+        self.engine.connect("pair-changed", lambda _e, pid: changed.append(pid))
         kept, got = self.preview_of("p1")
+        changed.clear()
         self.engine.forget_listener("p1", kept.listeners[0])
+        self.assertEqual(changed, ["p1"])                       # the banner says it goes on
         self.assertTrue(spin_until(lambda: told, 60))
         self.assertEqual(told[0], ("preview-ready", "30 files to Koofr"))
         self.assertEqual(got, [])
         self.assertTrue(kept.fresh())
+        self.assertFalse(kept.seen)                             # ready, not looked at yet
+        _again, got2 = self.preview_of("p1")
+        self.assertTrue(spin_until(lambda: got2, 5))
+        self.assertTrue(kept.seen)
 
     def test_a_folder_waiting_for_the_user_gets_its_preview_ahead(self):
         engine_mod.PREVIEW_AHEAD_DELAY_S = 1

@@ -86,6 +86,17 @@ def status_text(status: Status) -> str:
     }[status]
 
 
+def pair_status_text(engine: Engine, pair_id: str) -> str:
+    """The status of one pair: a run the user confirmed, waiting its turn,
+    says so (not just "changes waiting")."""
+    rt = engine.runtime.get(pair_id)
+    if rt is None:
+        return ""
+    if rt.status is Status.PENDING and engine.confirmed_waiting(pair_id):
+        return _("Confirmed")
+    return status_text(rt.status)
+
+
 def when(timestamp: float) -> str:
     """10:42 today, 9 Oct otherwise."""
     moment = GLib.DateTime.new_from_unix_local(int(timestamp))
@@ -109,6 +120,9 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
         if syncing_for_real(engine, pair_id):
             return progress_text(rt.stats, rt.activity.deletes_queued)[0]
         return rt.message
+    if rt.status is Status.PENDING and engine.confirmed_waiting(pair_id):
+        return _("starts after the sync in progress") if short else \
+            _("It starts as soon as the sync in progress is done.")
     if rt.status is Status.CONFLICTS:
         n = len(engine.conflicts(pair_id))           # conflicts, not copies
         return ngettext("{n} file", "{n} files", n).format(n=n)
@@ -155,7 +169,7 @@ def status_line(engine: Engine, pair_id: str) -> str:
     if rt is None:
         return ""
     detail = status_detail(engine, pair_id, short=True)
-    return status_text(rt.status) + (" · " + detail if detail else "")
+    return pair_status_text(engine, pair_id) + (" · " + detail if detail else "")
 
 
 def display_path(path: str) -> str:

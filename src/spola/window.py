@@ -20,8 +20,8 @@ from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, count, ngettext, pgettext  # noqa: E402
 from .rclone import Mode, Outcome, Result, describe  # noqa: E402
 from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
-                 place_name, status_badge, status_css, status_detail, status_icon, status_line, status_text,
-                 syncing_for_real, when)
+                 pair_status_text, place_name, status_badge, status_css, status_detail, status_icon, status_line,
+                 status_text, syncing_for_real, when)
 
 PREVIEW_LIMIT = 300
 STATE_VERSION = 2       # window.json of the first layout (600 px wide) is ignored
@@ -84,7 +84,13 @@ class MainWindow(Adw.ApplicationWindow):
         self.update_overall()
 
     def toast(self, text: str) -> None:
-        self.toasts.add_toast(Adw.Toast(title=text, timeout=5))
+        self.toasts.add_toast(Adw.Toast(title=escape(text), timeout=5))     # (a toast reads markup)
+
+    def toast_review(self, text: str, pair_id: str) -> None:
+        """A toast with a Review button, for news about one folder while the
+        window is in front (a notification would say it outside)."""
+        self.toasts.add_toast(Adw.Toast(title=escape(text), timeout=8, button_label=_("Review"),
+                                        action_name="app.review", action_target=GLib.Variant("s", pair_id)))
 
     def _on_run_finished(self, _engine, pair_id: str, reason: str) -> None:
         """A click on Sync Now deserves an answer, even when nothing changed."""
@@ -383,6 +389,16 @@ class AttentionBanner:
         self.widget.set_revealed(bool(waiting))
         if not waiting:
             return
+        background = self._background_preview(waiting)
+        if background is not None:
+            # the preview the user sent to the background: it goes on, then it is ready
+            pair_id, running = background
+            name = engine.cfg.pair(pair_id).name
+            self.widget.set_title(escape((_("Preparing the preview of “{name}”…") if running
+                                          else _("The preview of “{name}” is ready")).format(name=name)))
+            self.widget.set_button_label(_("Show") if running else _("Review"))
+            self._do = lambda: self.window.review(pair_id)
+            return
         pair_id = waiting[0]
         pair, status = engine.cfg.pair(pair_id), engine.runtime[pair_id].status
         if len(waiting) > 1:
@@ -405,6 +421,23 @@ class AttentionBanner:
             # the most serious first; the next one after it
             self.widget.set_button_label(_("Review"))
             self._do = lambda: self.window.review(pair_id)
+
+
+    def _background_preview(self, waiting: list[str]) -> tuple[str, bool] | None:
+        """(pair id, still running) of a review the user asked for and left
+        to run with its dialog closed, or that is ready and not seen yet: the
+        running ones first."""
+        found = []
+        for pair_id in waiting:
+            preview = self.engine.runtime[pair_id].preview
+            if (preview is None or preview.reason != "preview" or preview.listeners
+                    or self.engine.review_args(pair_id) != (preview.mode, preview.force)):
+                continue
+            if preview.running:
+                found.append((0, pair_id, True))
+            elif preview.fresh() and not preview.seen:
+                found.append((1, pair_id, False))
+        return min(found)[1:] if found else None
 
 
 class OverallStatus(Gtk.Box):
@@ -696,7 +729,7 @@ class PairPage(Adw.NavigationPage):
         rt = self.engine.runtime.get(self.pair_id)
         if pair is None or rt is None:
             return
-        self.status_row.set_title(escape(status_text(rt.status)))
+        self.status_row.set_title(escape(pair_status_text(self.engine, self.pair_id)))
         self.status_row.set_subtitle(escape(status_detail(self.engine, self.pair_id, short=False)))
         self.activity.update()
         self.icon.show(rt.status)
@@ -1438,6 +1471,11 @@ class PreviewDialog(Adw.Dialog):
 
     def _confirm(self) -> None:
         self.engine.confirm(self.pair_id, self.mode, self.force)
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is not None and self.engine.confirmed_waiting(self.pair_id) and self.engine.active is not None:
+            # another folder is syncing: the confirmation is not lost, it waits
+            self.window.toast(_("“{name}” confirmed: it starts as soon as the sync in progress is done")
+                              .format(name=pair.name))
         self.close()
 
 
