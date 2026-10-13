@@ -132,6 +132,9 @@ class MenuItem:
     separator: bool = False
     children: list[MenuItem] = field(default_factory=list)
     icon: str = ""
+    # what keeps the item's number while the menu changes (see Ids); the
+    # label when empty
+    name: str = ""
 
     def props(self) -> dict:
         if self.separator:
@@ -156,21 +159,55 @@ class MenuItem:
         return (self.separator, tuple(c.shape() for c in self.children))
 
 
-def number(items: list[MenuItem]) -> tuple[dict[int, MenuItem], dict[int, list[int]]]:
-    """Ids for the items, depth-first from 1 (0 is the root), and the
-    children of each id."""
-    by_id: dict[int, MenuItem] = {}
-    children: dict[int, list[int]] = {0: []}
+class Ids:
+    """The numbers of the menu items, kept across menus. A tray host may
+    hold a menu a moment old (a click while a file finishes, or while the
+    progress line goes away), and its click carries the old number: if the
+    numbers followed the positions, "Open Spola" would land on "Quit". An item
+    that does something keeps its number for its name, wherever it moves, and
+    a number once given to it is never given to another; a line of text (no
+    action) keeps the number of its place, so that a text changing every
+    second is updated in place."""
 
-    def walk(parent: int, lst: list[MenuItem]) -> None:
-        for item in lst:
-            item_id = len(by_id) + 1
-            by_id[item_id] = item
-            children[parent].append(item_id)
-            children[item_id] = []
-            walk(item_id, item.children)
-    walk(0, items)
-    return by_id, children
+    MAX_NAMES = 2000          # beyond that, the names no longer in the menu are forgotten
+
+    def __init__(self):
+        self._ids: dict[str, int] = {}
+        self._next = 1
+
+    def number(self, items: list[MenuItem]) -> tuple[dict[int, MenuItem], dict[int, list[int]]]:
+        """Ids for the items (0 is the root), and the children of each id."""
+        by_id: dict[int, MenuItem] = {}
+        children: dict[int, list[int]] = {0: []}
+        used: set[str] = set()
+
+        def walk(parent: int, parent_key: str, lst: list[MenuItem]) -> None:
+            for position, item in enumerate(lst):
+                if item.action is not None or item.children:
+                    key = f"{parent_key}/{item.name or item.label}"
+                    n = 2
+                    while key in used:          # two items alike: told apart by order
+                        key, n = f"{parent_key}/{item.name or item.label}#{n}", n + 1
+                else:
+                    key = f"{parent_key}/@{position}"
+                used.add(key)
+                if key not in self._ids:
+                    self._ids[key] = self._next
+                    self._next += 1
+                item_id = self._ids[key]
+                by_id[item_id] = item
+                children[parent].append(item_id)
+                children[item_id] = []
+                walk(item_id, key, item.children)
+        walk(0, "", items)
+        if len(self._ids) > self.MAX_NAMES:
+            self._ids = {k: v for k, v in self._ids.items() if k in used}
+        return by_id, children
+
+
+def number(items: list[MenuItem]) -> tuple[dict[int, MenuItem], dict[int, list[int]]]:
+    """Ids for one menu on its own (see Ids)."""
+    return Ids().number(items)
 
 
 class Throttle:
@@ -223,6 +260,7 @@ class TrayIcon:
         self.items: list[MenuItem] = []
         self._by_id: dict[int, MenuItem] = {}
         self._children: dict[int, list[int]] = {0: []}
+        self._ids = Ids()
         self.revision = 1
         self.connection: Gio.DBusConnection | None = None
         self._reg_ids: list[int] = []
@@ -274,12 +312,12 @@ class TrayIcon:
     def set_menu(self, items: list[MenuItem]) -> None:
         if [i.key() for i in items] == [i.key() for i in self.items]:
             self.items = items                  # same texts: new actions only
-            self._by_id, self._children = number(items)
+            self._by_id, self._children = self._ids.number(items)
             return
         same_shape = [i.shape() for i in items] == [i.shape() for i in self.items]
         old = self._by_id
         self.items = items
-        self._by_id, self._children = number(items)
+        self._by_id, self._children = self._ids.number(items)
         if same_shape:
             # only texts or states changed (the progress line): update those items
             self._dirty |= {i for i, item in self._by_id.items() if old.get(i) and old[i].key() != item.key()}

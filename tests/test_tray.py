@@ -186,6 +186,33 @@ class TrayTest(unittest.TestCase):
         spin(2.3)
         self.assertEqual(len(layouts), 1)
 
+    def test_a_click_on_a_menu_a_moment_old_never_lands_elsewhere(self):
+        # the host opened the menu while a file was still transferring; the
+        # file is done, the menu is shorter: "Open" must stay "Open" (with
+        # numbers by position it became "Quit", and Spola quit)
+        def menu(files):
+            return [MenuItem("Syncing work"),
+                    MenuItem("Transferring Now", children=[MenuItem(f"f{i}.jpg", lambda: None, name=f"f{i}")
+                                                           for i in range(files)], name="transferring"),
+                    MenuItem("Open", lambda: self.clicked.append("open"), name="open"),
+                    MenuItem("Quit", lambda: self.clicked.append("quit"), name="quit")]
+        menu_path = "/StatusNotifierItem/Menu"
+        self.tray.set_menu(menu(2))
+        _rev, (_id, _props, children) = self.call(menu_path, "com.canonical.dbusmenu", "GetLayout",
+                                                  GLib.Variant("(iias)", (0, -1, []))).unpack()
+        seen = {c[1].get("label"): c[0] for c in children}
+        self.tray.set_menu(menu(1))           # what the host has not fetched yet
+        self.call(menu_path, "com.canonical.dbusmenu", "Event",
+                  GLib.Variant("(isvu)", (seen["Open"], "clicked", GLib.Variant("s", ""), 0)))
+        spin(0.3)
+        self.assertEqual(self.clicked, ["open"])
+        # a number that belonged to an item no longer there does nothing
+        self.tray.set_menu([MenuItem("Up to date"), MenuItem("Quit", lambda: self.clicked.append("quit"), name="quit")])
+        self.call(menu_path, "com.canonical.dbusmenu", "Event",
+                  GLib.Variant("(isvu)", (seen["Open"], "clicked", GLib.Variant("s", ""), 0)))
+        spin(0.3)
+        self.assertEqual(self.clicked, ["open"])
+
     def test_menu_updates_are_throttled(self):
         updates = []
         self.host.signal_subscribe(None, "com.canonical.dbusmenu", "LayoutUpdated", "/StatusNotifierItem/Menu",

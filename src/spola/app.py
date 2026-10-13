@@ -230,20 +230,25 @@ class SpolaApp(Adw.Application):
         files = []
         transferring = self._transferring()
         if transferring:
-            files.append(MenuItem(_("Transferring Now"), children=transferring))
-        files.append(MenuItem(_("Recently Synced Files"), children=self._recent() or [
+            files.append(MenuItem(_("Transferring Now"), children=transferring, name="transferring"))
+        files.append(MenuItem(_("Recently Synced Files"), name="recent", children=self._recent() or [
             MenuItem(_("No recently synced files"))]))
+        # every item that does something has a name: its number stays the same
+        # while the menu changes, so a click on a menu a moment old (a file just
+        # finished) never lands on another item (see tray.Ids)
         self.tray.set_menu([
             MenuItem(summary),
             *([MenuItem(progress)] if progress else []),
             MenuItem(separator=True),
             *files,
             MenuItem(separator=True),
-            MenuItem(_("Sync Now"), (lambda: engine.sync_all("manual")) if engine.creds and not paused else None),
-            MenuItem(_("Resume") if paused else _("Pause"), lambda: engine.set_paused_all(not paused)),
-            MenuItem(_("Open Spola"), self.activate),
+            MenuItem(_("Sync Now"), (lambda: engine.sync_all("manual")) if engine.creds and not paused else None,
+                     name="sync-now"),
+            MenuItem(_("Resume") if paused else _("Pause"), lambda: engine.set_paused_all(not paused),
+                     name="resume" if paused else "pause"),
+            MenuItem(_("Open Spola"), self.activate, name="open"),
             MenuItem(separator=True),
-            MenuItem(_("Quit"), self._quit),
+            MenuItem(_("Quit"), self._quit, name="quit"),
         ])
 
     def _transferring(self) -> list[MenuItem]:
@@ -258,7 +263,8 @@ class SpolaApp(Adw.Application):
         for path, direction in recent.transferring(rt.transferring):
             folder = os.path.join(pair.local, os.path.dirname(path))
             items.append(MenuItem(os.path.basename(path), lambda p=folder: self._open_folder(p),
-                                  icon="send-to-symbolic" if direction == "up" else "folder-download-symbolic"))
+                                  icon="send-to-symbolic" if direction == "up" else "folder-download-symbolic",
+                                  name=f"{pair.id}:{path}"))
         return items
 
     def _recent(self) -> list[MenuItem]:
@@ -268,7 +274,8 @@ class SpolaApp(Adw.Application):
             if pair is not None:
                 path = os.path.join(pair.local, f.path)
                 items.append(MenuItem(os.path.basename(f.path), lambda p=path: self._reveal(p),
-                                      icon="send-to-symbolic" if f.direction == "up" else "folder-download-symbolic"))
+                                      icon="send-to-symbolic" if f.direction == "up" else "folder-download-symbolic",
+                                      name=f"{f.pair_id}:{f.path}"))
         return items
 
     def _reveal(self, path: str) -> None:
