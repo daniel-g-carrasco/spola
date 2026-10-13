@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.6" date="2026-10-13" type="development">
+      <description>
+        <p>Fixed: after a big reorganisation, the preview counted thousands of conflicts that do not exist. rclone warns about every file new or changed on both sides, then finds most of them identical, or sees a folder made on both sides; only a file whose two copies it renames is a conflict, and only those are counted now, in the preview, in the files list and in the notifications.</p>
+        <p>Fixed: some Koofr paths kept a prefix like "koofr{kFw_7}:", so the moves of a reorganisation were also counted as uploads and deletions, and the lists showed full remote paths.</p>
+      </description>
+    </release>
     <release version="0.3.5" date="2026-10-13" type="development">
       <description>
         <p>Fixed: a click on "Open Spola" in the tray menu could quit Spola. The menu's items were numbered by their place, and the place changes while a sync runs (a file done, the progress line gone): a tray that still showed the menu of a moment before sent the number that had become "Quit". Every item that does something now keeps its number wherever it moves, and a number is never given to another item.</p>
