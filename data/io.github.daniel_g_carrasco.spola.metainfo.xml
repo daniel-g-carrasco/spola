@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.8" date="2026-10-14" type="development">
+      <description>
+        <p>A confirmation no longer looks lost: a folder you confirm while another one syncs says at once "Confirmed, starts after the sync in progress", and the confirmed runs go in the order you gave them, before every automatic one. A preview left running in the background shows in the banner while it is prepared, then says it is ready, with the button to look at it.</p>
+        <p>When little space is left on Koofr, under 10%, the banner says how much remains.</p>
+      </description>
+    </release>
     <release version="0.3.7" date="2026-10-13" type="development">
       <description>
         <p>A sync no longer looks stuck once its copies are done: when it goes on deleting files on Koofr, one at a time, the status says "Deleting: 2,000 of 8,148" and the bar moves again, then "Removing empty folders" while the folders left empty go. In the list of files, deleted folders are marked done as they go.</p>
