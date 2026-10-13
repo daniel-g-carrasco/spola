@@ -54,7 +54,12 @@ class ActivityTest(unittest.TestCase):
                   line("- Path1    Queue copy to Path2    - local{cd}:/home/u/work/b.odt"),
                   line("- Path1    Queue delete           - local{cd}:/home/u/work/old.txt"),
                   line("- Path2    Queue delete           - koofr{ab}:data/work/gone.txt"),
-                  line("- WARNING  New or changed in both paths - both.md"))
+                  line("- WARNING  New or changed in both paths - both.md"),
+                  line("- Path1    Renaming Path1 copy    - local{cd}:/home/u/work/both.conflict-local-2026-10-13-1.md"),
+                  # the same file on both sides, and a folder made on both: no conflict
+                  line("- WARNING  New or changed in both paths - same.jpg"),
+                  line("Files are equal! Skipping: same.jpg"),
+                  line("- WARNING  New or changed in both paths - 2021"))
         kinds = {o.path: o.kind for o in self.a.ops.values()}
         self.assertEqual(kinds, {"a/new.pdf": act.DOWNLOAD, "b.odt": act.UPLOAD, "old.txt": act.DELETE_HERE,
                                  "gone.txt": act.DELETE_KOOFR, "both.md": act.CONFLICT})

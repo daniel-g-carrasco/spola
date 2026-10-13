@@ -56,6 +56,7 @@ class RunActivity:
         self.clock = clock
         self.into = ""                        # the side the current copies go to (bisync's phases)
         self.moving: dict[str, str] = {}      # new name -> old, until rclone confirms the move
+        self.warned = ""                      # the last "new or changed in both paths"
 
     def _op(self, path: str, kind: str) -> Op | None:
         op = self.ops.get(path)
@@ -72,6 +73,16 @@ class RunActivity:
     def conflict(self, path: str) -> None:
         if path and (op := self._op(path, CONFLICT)):
             op.kind = CONFLICT
+
+    def warning(self, path: str) -> None:
+        """Changed on both sides: a conflict only if bisync goes on to rename
+        the two copies (two equal files, or a folder, are no conflict)."""
+        self.warned = path
+
+    def copies_renamed(self) -> None:
+        if self.warned:
+            self.conflict(self.warned)
+            self.warned = ""
 
     def transferring(self, entries: list[dict], relative) -> None:
         """rclone's "transferring" stats: the copies in progress."""
