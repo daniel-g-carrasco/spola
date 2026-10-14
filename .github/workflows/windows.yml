@@ -165,9 +165,14 @@ jobs:
           Start-Process "$env:LOCALAPPDATA\Programs\Spola\Spola.exe" -ArgumentList '--background'
           Start-Sleep 20
           if (-not (Get-Process Spola -ErrorAction SilentlyContinue)) { Write-Error 'Spola did not start'; exit 1 }
-          $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -Wait -PassThru
+          # Setup only (Start-Process -Wait would wait for the Spola it starts again too)
+          $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -PassThru
+          if (-not $p.WaitForExit(300000)) { Write-Error 'Setup did not finish'; exit 1 }
           Get-Content update.log | Select-String 'Spola is running|Spola quit|Ending|WMI|RestartManager|succeeded|Abort'
           if ($p.ExitCode -ne 0) { Write-Error "update over a running Spola: $($p.ExitCode)"; exit 1 }
+          Start-Sleep 15
+          if (-not (Get-Process Spola -ErrorAction SilentlyContinue)) { Write-Error 'Spola was not started again'; exit 1 }
+          Get-Process Spola | Stop-Process
       - name: Attach to the release (a v* tag)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
