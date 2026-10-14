@@ -68,6 +68,7 @@ class Config:
     download_limit_kb: int = 0           # KiB/s from Koofr, 0 = no limit
     check_updates: bool = True           # Windows: a newer release, once a day at start
     last_update_check: str = ""          # ISO date of the last check made on its own
+    explorer_status: bool = True         # Windows: the sync status in File Explorer (cloudfiles.py)
 
     @property
     def bwlimit(self) -> str | None:

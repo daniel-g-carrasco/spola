@@ -63,6 +63,11 @@ Filename: "{app}\Spola.exe"; Description: "{cm:LaunchProgram,Spola}"; Flags: now
 ; an update (from Spola's own dialog, /SILENT) starts again the Spola it closed
 Filename: "{app}\Spola.exe"; Flags: nowait runasoriginaluser; Check: SpolaWasRunning
 
+[UninstallRun]
+; File Explorer's status (the sync roots) and entries, taken out; the folders
+; and their files stay as they are
+Filename: "{app}\Spola.exe"; Parameters: "forget-windows"; Flags: runhidden waituntilterminated; RunOnceId: "ForgetWindows"
+
 [Code]
 const
   WM_CLOSE = $0010;

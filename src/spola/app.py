@@ -43,6 +43,7 @@ class SpolaApp(Adw.Application):
         self.tray: TrayIcon | None = None
         self._quitting = False
         self._quit_done = False
+        self.explorer_status = None         # Windows: the sync status in File Explorer
         self._last_summary = ""
 
     # -- start-up -------------------------------------------------------------------
@@ -103,6 +104,10 @@ class SpolaApp(Adw.Application):
         self._refresh_tray()
         self.engine.start()
         self._register_explorer()
+        if WINDOWS and getattr(sys, "frozen", False):
+            from .explorer_status import ExplorerStatus
+            self.explorer_status = ExplorerStatus(self.engine, f"{sys.executable},0", __version__)
+            self.explorer_status.update()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
         if self.engine.cfg.nautilus_integration and not WINDOWS:
             try:
@@ -492,6 +497,8 @@ class SpolaApp(Adw.Application):
                 self.tray.stop()
             if self.sync_service:
                 self.sync_service.stop()
+            if self.explorer_status:
+                self.explorer_status.stop()
             self.release()
             self.quit()
             self._quit_done = True
