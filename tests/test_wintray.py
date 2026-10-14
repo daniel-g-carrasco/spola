@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+"""The icon's window on Windows: how Spola answers Windows when it is asked
+to quit (Setup before an update, sign-out, shutdown)."""
+
+import sys
+import time
+import unittest
+
+import _setup  # noqa: F401
+
+if sys.platform != "win32":
+    raise unittest.SkipTest("the notification area of Windows")
+
+import locale  # noqa: E402
+
+from gi.repository import GLib  # noqa: E402
+
+_before = locale.setlocale(locale.LC_ALL)
+from spola import wintray  # noqa: E402
+# GTK, initialised on import, sets the user's locale: the other tests read
+# numbers written as in the C locale ("2000", not "2 000")
+locale.setlocale(locale.LC_ALL, _before)
+
+
+class QuitTest(unittest.TestCase):
+    def setUp(self):
+        self.asked, self.done = [], []
+
+        def on_quit():
+            self.asked.append(1)
+            # the quit is over a moment later, as when rclone saves its state
+            GLib.timeout_add(300, lambda: self.done.append(1) and False)
+
+        self.tray = wintray.WinTray("io.example.test", "Test", on_activate=lambda: None,
+                                    on_quit=on_quit, has_quit=lambda: bool(self.done))
+
+    def test_a_sign_out_is_never_refused(self):
+        self.assertEqual(self.tray._window_proc(None, wintray.WM_QUERYENDSESSION, 0, 1), 1)
+        self.assertEqual(self.asked, [])
+
+    def test_the_end_of_the_session_is_answered_once_the_quit_is_over(self):
+        start = time.monotonic()
+        self.assertEqual(self.tray._window_proc(None, wintray.WM_ENDSESSION, 1, 1), 0)
+        self.assertEqual(self.asked, [1])
+        self.assertEqual(self.done, [1])
+        self.assertGreaterEqual(time.monotonic() - start, 0.25)
+        # a sign-out cancelled by the user (wParam FALSE): nothing to do
+        self.assertEqual(self.tray._window_proc(None, wintray.WM_ENDSESSION, 0, 0), 0)
+        self.assertEqual(self.asked, [1])
+
+    def test_close_starts_the_quit_from_the_main_loop(self):
+        self.assertEqual(self.tray._window_proc(None, wintray.WM_CLOSE, 0, 0), 0)
+        self.assertEqual(self.asked, [])
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + 5
+        while not self.asked and time.monotonic() < deadline:
+            context.iteration(False)
+        self.assertEqual(self.asked, [1])
+
+
+if __name__ == "__main__":
+    unittest.main()

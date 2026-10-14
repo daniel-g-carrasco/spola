@@ -16,6 +16,7 @@ from __future__ import annotations
 import ctypes
 import os
 import struct
+import time
 from collections.abc import Callable
 from ctypes import wintypes
 from pathlib import Path
@@ -36,6 +37,10 @@ LRESULT = ctypes.c_ssize_t
 WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
 
 WM_NULL, WM_DESTROY, WM_CONTEXTMENU, WM_USER = 0x0000, 0x0002, 0x007B, 0x0400
+WM_CLOSE, WM_QUERYENDSESSION, WM_ENDSESSION = 0x0010, 0x0011, 0x0016
+# at sign-out Windows waits a few seconds, then offers to end the apps still
+# running; bisync saves its state in this time when it has nothing to finish
+END_SESSION_WAIT_S = 30
 WM_LBUTTONUP, WM_RBUTTONUP = 0x0202, 0x0205
 NIN_SELECT, NIN_KEYSELECT, NIN_BALLOONUSERCLICK = WM_USER, WM_USER + 1, WM_USER + 5
 CALLBACK_MESSAGE = WM_USER + 100
@@ -128,9 +133,18 @@ def ico_from_svg(svg: str, ico: Path) -> None:
 
 
 class WinTray:
+    """on_quit starts a graceful quit (rclone stopped, its state saved) and
+    has_quit tells when it is over: Windows asks through the icon's window,
+    the one window Spola always has. WM_CLOSE comes from Setup before an
+    update and from taskkill without /F; WM_ENDSESSION at sign-out, at
+    shutdown and from the Restart Manager, and the process may be ended as
+    soon as it is answered, so the answer waits for the quit."""
+
     def __init__(self, app_id: str, title: str, on_activate: Callable[[], None],
-                 icon_theme_path: str = "", cache: Path | None = None):
+                 icon_theme_path: str = "", cache: Path | None = None,
+                 on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None):
         self.app_id, self.title, self.on_activate = app_id, title, on_activate
+        self.on_quit, self.has_quit = on_quit, has_quit
         self.icon_theme_path = icon_theme_path
         self.cache = cache or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Spola" / "icons"
         self.items: list[MenuItem] = []
@@ -256,7 +270,27 @@ class WinTray:
         if message == self._taskbar_created:
             self._add()                 # Explorer restarted: the icon again
             return 0
+        if message == WM_QUERYENDSESSION:
+            return 1                    # never in the way of a sign-out or an update
+        if message == WM_CLOSE:
+            if self.on_quit:
+                GLib.idle_add(lambda: self.on_quit() and False)
+            return 0                    # the window goes with the app, not before
+        if message == WM_ENDSESSION:
+            if wparam and self.on_quit:
+                self.on_quit()
+                self._wait_for_quit()
+            return 0
         return user32.DefWindowProcW(hwnd, message, wparam, lparam)
+
+    def _wait_for_quit(self) -> None:
+        """The main loop, run from here until the quit is over: the end of
+        rclone's run arrives through it."""
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + END_SESSION_WAIT_S
+        while self.has_quit and not self.has_quit() and time.monotonic() < deadline:
+            if not context.iteration(False):
+                time.sleep(0.05)
 
     def _show_menu(self) -> None:
         actions: dict[int, Callable[[], None]] = {}
