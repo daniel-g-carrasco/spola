@@ -354,6 +354,24 @@ class EngineTest(unittest.TestCase):
         (self.remote_root / name).mkdir()
         return self.engine.add_pair(str(local), f"/{name}")
 
+    def test_two_empty_folders_align_and_sync(self):
+        # empty but for what Spola leaves out: bisync's listings are empty,
+        # and it refuses a run from them ("Empty prior Path1 listing")
+        local = self.tmp / "empty"
+        local.mkdir()
+        (local / ".cache").mkdir()              # Koofr Desktop's, excluded
+        (self.remote_root / "empty").mkdir()
+        pair = self.engine.add_pair(str(local), "/empty")
+        rt = self.engine.runtime[pair.id]
+        self.engine.confirm(pair.id, Mode.RESYNC, False)
+        self.assertTrue(spin_until(lambda: pair.initialized and self.engine.active is None
+                                   and not self.engine.queue, 60))          # the alignment and its seal
+        self.assertIsNot(rt.status, Status.NEEDS_REPAIR, rt.message)
+        (local / "first.txt").write_text("x")
+        self.engine.request_sync(pair.id, "manual")
+        self.assertTrue(spin_until(lambda: (self.remote_root / "empty" / "first.txt").exists()
+                                   and rt.status is Status.OK, 60), (rt.status, rt.message))
+
     def test_a_folder_removed_and_added_again_is_not_replaced(self):
         # the pair removed left its marker; the new pair, another id, took it
         # for the sign of a folder replaced and refused its preview
