@@ -35,7 +35,7 @@ from gi.repository import Gio, GLib, GObject
 
 from . import config as config_mod
 from . import conflicts as conflicts_mod
-from . import jobs, koofr_api, listings
+from . import WINDOWS, jobs, koofr_api, listings
 from . import trash as trash_mod
 from .recent import Recent
 from . import activity as activity_mod
@@ -252,6 +252,12 @@ class Engine(GObject.Object):
         self.network.connect("notify::network-metered", self._on_conditions)
         if self.power is not None:
             self.power.connect("notify::power-saver-enabled", self._on_conditions)
+        # Windows: GLib knows whether there is a network, not what it costs,
+        # and has no power profile; Windows itself tells
+        self.windows_conditions = None
+        if WINDOWS:
+            from .winconditions import Conditions
+            self.windows_conditions = Conditions(self._on_conditions)
 
     # -- lifecycle -------------------------------------------------------------
 
@@ -291,9 +297,21 @@ class Engine(GObject.Object):
                 pass
         return True
 
+    def network_metered(self) -> bool:
+        if self.windows_conditions is not None:
+            return self.windows_conditions.metered
+        return self.network.get_network_metered()
+
+    def power_saver(self) -> bool:
+        if self.windows_conditions is not None:
+            return self.windows_conditions.power_saver
+        return self.power is not None and self.power.get_power_saver_enabled()
+
     def shutdown(self, done: Callable[[], None]) -> None:
         """Stop gracefully: no new runs, SIGINT to the running one, then done()."""
         self._closing = True            # a run still being prepared will not start
+        if self.windows_conditions is not None:
+            self.windows_conditions.stop()
         self.queue.clear()
         for rt in self.runtime.values():
             if rt.watcher:
@@ -475,9 +493,9 @@ class Engine(GObject.Object):
             return _("Paused")
         if not self.network.get_network_available():
             return _("Offline")
-        if self.cfg.pause_on_metered and self.network.get_network_metered():
+        if self.cfg.pause_on_metered and self.network_metered():
             return _("Paused on a metered connection")
-        if self.cfg.pause_on_power_saver and self.power is not None and self.power.get_power_saver_enabled():
+        if self.cfg.pause_on_power_saver and self.power_saver():
             return _("Paused in power saver mode")
         return ""
 
