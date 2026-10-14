@@ -1,12 +1,16 @@
 """The few Koofr REST calls Spola makes itself, with the same app password
 as rclone (HTTP Basic). Everything that changes files goes through rclone;
-the only write here is creating an empty folder, when the user asks for one
-while choosing where a new folder syncs to.
+the writes here are creating an empty folder, when the user asks for one
+while choosing where a new folder syncs to, and restoring from the trash
+what the user chose.
 
   GET  /api/v2/mounts                         the primary mount id (links to the web app)
   GET  /api/v2.1/user/activity                what changed on Koofr, and who changed it
   GET  /api/v2/mounts/{id}/files/list         the folders on Koofr, one level at a time
   POST /api/v2/mounts/{id}/files/folder       a new empty folder
+  GET  /api/v2/trash                          the trash, newest first, a page at a time
+  POST /api/v2/trash/undelete                 restore some of it (a job)
+  GET  /api/v2/jobs/{id}                      how that job is going
 
 The activity feed is not documented by Koofr (it is used by the web app and
 by third-party tools): Spola treats it as a doorbell only. When it fails,
@@ -31,6 +35,10 @@ ACTIVITY_LIMIT = 100
 
 class ApiError(Exception):
     pass
+
+
+class NotInTrash(ApiError):
+    """Undelete answered 404: the files are not in the trash (restored already)."""
 
 
 @dataclass(frozen=True)
@@ -75,6 +83,24 @@ def _get(user: str, password: str, path: str, params: dict | None = None) -> dic
         raise ApiError(f"{path}: {e}") from None
 
 
+def _post_json(user: str, password: str, path: str, body: dict) -> dict:
+    url = KOOFR_WEB + path
+    token = base64.b64encode(f"{user}:{password}".encode()).decode()
+    request = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "Authorization": f"Basic {token}", "Content-Type": "application/json", "Accept": "application/json",
+        "User-Agent": f"Spola/{__version__}"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            text = response.read()
+            return json.loads(text) if text else {}
+    except urllib.error.HTTPError as e:
+        if e.code == 404 and path.endswith("/undelete"):
+            raise NotInTrash(path) from None
+        raise ApiError(f"HTTP {e.code} for {path}") from None
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
+        raise ApiError(f"{path}: {e}") from None
+
+
 def _post(user: str, password: str, path: str, params: dict, body: dict) -> None:
     url = KOOFR_WEB + path + "?" + urllib.parse.urlencode(params)
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
@@ -98,6 +124,41 @@ def list_folders(user: str, password: str, mount_id: str, path: str) -> list[str
 
 def create_folder(user: str, password: str, mount_id: str, parent: str, name: str) -> None:
     _post(user, password, f"/api/v2/mounts/{mount_id}/files/folder", {"path": parent or "/"}, {"name": name})
+
+
+def trash_page(user: str, password: str, cursor: str | None = None):
+    """One page of the trash, newest first: (trash.Entry list, next cursor)."""
+    from .trash import Entry
+    params = {"pageSize": 1000, "sortField": "deleted", "sortDir": "desc"}
+    if cursor:
+        params["cursor"] = cursor
+    data = _get(user, password, "/api/v2/trash", params)
+    entries = []
+    for f in data.get("files") or []:
+        try:
+            entries.append(Entry(str(f["mountId"]), str(f["path"]), int(f.get("size") or 0), int(f["deleted"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return entries, (data.get("pageInfo") or {}).get("cursor")
+
+
+def trash_undelete(user: str, password: str, files: list[tuple[str, str]]) -> str | None:
+    """Restore these (mount id, path): the id of the job doing it."""
+    if not files:
+        raise ValueError("an empty list would restore the whole trash")
+    data = _post_json(user, password, "/api/v2/trash/undelete",
+                      {"files": [{"mountId": m, "path": p} for m, p in files]})
+    return data.get("id")
+
+
+def job_done(user: str, password: str, job_id: str) -> bool | None:
+    data = _get(user, password, f"/api/v2/jobs/{urllib.parse.quote(job_id)}")
+    state = data.get("status") or data.get("state")
+    if state in ("finished", "done"):
+        return True
+    if state in ("failed", "error"):
+        return False
+    return None
 
 
 def primary_mount_id(user: str, password: str) -> str:

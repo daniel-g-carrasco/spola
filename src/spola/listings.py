@@ -101,3 +101,52 @@ def count(workdir: Path) -> int | None:
         with open(path, encoding="utf-8", errors="surrogateescape") as f:
             counts.append(sum(1 for line in f if line[:1] in ("-", "d")))
     return min(counts)
+
+
+_EXACT = re.compile(r'^([-d])(\s+)(-?\d+) (\S+) (\S+) (\S+) (".*")$')
+
+
+def retime(path: Path, times: dict[str, str]) -> int:
+    """Give the entries of a listing new modification times ({relative
+    path: bisync's time text}), every other byte as it was. Each line must
+    rebuild exactly before anything is written: a listing in a format this
+    does not know is left alone (ValueError). Returns how many changed."""
+    # newline="": the bytes as they are, both ways (in text mode Windows
+    # writes "\r\n", and bisync then reads an empty listing)
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:
+        text = f.read()
+    lines = text.split("\n")
+    if not lines or not lines[0].startswith(HEADER):
+        raise ValueError("not a bisync listing (or an unknown version)")
+    out, changed = [lines[0]], 0
+    for line in lines[1:]:
+        if not line:
+            out.append(line)
+            continue
+        m = _EXACT.match(line)
+        if not m or "{}{}{} {} {} {} {}".format(*m.groups()) != line:
+            raise ValueError(f"unexpected listing line: {line!r}")
+        flag, gap, size, hash_, id_, modtime, quoted = m.groups()
+        new = times.get(go_unquote(quoted))
+        if new is not None and new != modtime:
+            changed += 1
+            modtime = new
+        out.append(f"{flag}{gap}{size} {hash_} {id_} {modtime} {quoted}")
+    if changed:
+        tmp = path.with_name(path.name + ".retime")
+        with open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write("\n".join(out))
+        tmp.replace(path)
+    return changed
+
+
+def bisync_time(stamp: str) -> str:
+    """An RFC 3339 time (rclone lsjson's ModTime) as bisync writes it in a
+    listing: UTC, nine decimals, "+0000"."""
+    from datetime import datetime, timezone
+    whole = re.sub(r"\.\d+", "", stamp).replace("Z", "+00:00")      # the decimals apart, all of them
+    t = datetime.fromisoformat(whole)
+    fraction = stamp.split(".", 1)[1] if "." in stamp else ""
+    digits = re.match(r"\d*", fraction).group(0)[:9].ljust(9, "0")      # rclone writes up to nine
+    t = t.astimezone(timezone.utc)
+    return t.strftime("%Y-%m-%dT%H:%M:%S.") + digits + "+0000"
