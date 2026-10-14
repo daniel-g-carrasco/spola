@@ -476,10 +476,21 @@ NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection r
 _REMOTE_PREFIX = re.compile(r"^[A-Za-z0-9_.-]+(?:\{[A-Za-z0-9_-]+\})?:")
 
 
+_DRIVE = re.compile(r"^[A-Za-z]:(?:/|$)")
+
+
 def _strip_remote(path: str) -> str:
-    if path.startswith("/"):
-        return path
-    return _REMOTE_PREFIX.sub("", path, count=1)
+    """A path of a log line or a root, as one plain path: without the remote
+    ("koofr{kFw_7}:", "local{HK82T}:"; a drive letter is not one) and, on
+    Windows, without the long-path prefix and with "/" only: rclone writes
+    "local{HK82T}://?/C:/Users/me/x.txt" for C:\\Users\\me\\x.txt."""
+    if not path.startswith("/") and not _DRIVE.match(path.replace("\\", "/")):
+        path = _REMOTE_PREFIX.sub("", path, count=1)
+    # only a Windows path: on Linux a name may hold a backslash
+    windows = path.replace("\\", "/")
+    if windows.startswith("//?/"):
+        windows = windows[4:]
+    return windows if _DRIVE.match(windows) else path
 
 
 def relative_path(path: str, roots: list[str]) -> str:
@@ -487,7 +498,10 @@ def relative_path(path: str, roots: list[str]) -> str:
     path = _strip_remote(path)
     for root in roots:
         root = _strip_remote(root).rstrip("/") + "/"
-        if root != "/" and path.startswith(root):
+        if root == "/":
+            continue
+        # Windows: the same folder whatever the case of its letters
+        if path.startswith(root) or (_DRIVE.match(root) and path.casefold().startswith(root.casefold())):
             return path[len(root):]
     return path.lstrip("/")
 

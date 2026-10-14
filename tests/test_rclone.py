@@ -184,6 +184,22 @@ class ParseTest(unittest.TestCase):
         plan = summarize(0, events("koofr-case-rename-dry-run.jsonl"), *roots).plan
         self.assertIn("screencasts/cast-0.mp4", plan.delete_remote)
 
+    def test_windows_paths(self):
+        # recorded on Windows: rclone writes "local{HK82T}://?/D:/..." for a
+        # local path; the root may come with backslashes, in another case
+        base = "D:/a/_temp/msys64/tmp/spola-win-2zruds14"
+        for path1 in (f"{base}/local/", base.replace("/", "\\") + "\\local\\", "d:/A/_temp/msys64/tmp/spola-win-2zruds14/local"):
+            for name in ("windows-sync-dry-run.jsonl", "windows-sync.jsonl"):
+                plan = summarize(0, events(name), path1, f"{base}/remote").plan
+                self.assertEqual(sorted(plan.upload), ["f00.txt", "new.txt"], (path1, name))
+                self.assertEqual(plan.download, ["from-koofr.txt"], (path1, name))
+                self.assertEqual(plan.delete_remote, ["f01.txt"], (path1, name))
+                self.assertEqual(plan.moved_remote, [("sub/photo.jpg", "sub/renamed.jpg")], (path1, name))
+        self.assertEqual(relative_path("local{HK82T}://?/C:/Users/me/Koofr/a/b.txt", ["C:\\Users\\me\\Koofr/"]), "a/b.txt")
+        self.assertEqual(relative_path("koofr{kFw_7}:data/work/x.txt", ["C:\\Users\\me\\work/", "koofr:data/work"]), "x.txt")
+        # on Linux a backslash is part of a name
+        self.assertEqual(relative_path("/home/u/a\\b.txt", ["/home/u/"]), "a\\b.txt")
+
     def test_a_preview_says_how_much_goes_each_way(self):
         out = summarize(0, events("resync-dry-run.jsonl"), "/ROOT/a/", "/ROOT/b/")
         self.assertEqual((out.plan.upload_bytes, out.plan.download_bytes), (6, 20))

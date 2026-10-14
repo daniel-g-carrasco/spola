@@ -1,0 +1,33 @@
+{"time":"2026-10-14T11:09:45.1487827Z","level":"notice","msg":"Config file \"D:\\\\a\\\\_temp\\\\msys64\\\\tmp\\\\spola-win-2zruds14\\\\state\\\\no-rclone.conf\" not found - using defaults","source":"config/config.go:374"}
+{"time":"2026-10-14T11:09:45.1950809Z","level":"info","msg":"Slow hash detected on Path1. Will ignore checksum due to slow-hash settings","source":"bisync/compare.go:170"}
+{"time":"2026-10-14T11:09:45.1950809Z","level":"info","msg":"Slow hash detected on Path2. Will ignore checksum due to slow-hash settings","source":"bisync/compare.go:179"}
+{"time":"2026-10-14T11:09:45.1950809Z","level":"notice","msg":"WARNING: Ignoring checksums globally as hashes are ignored or unavailable on both sides.","source":"bisync/compare.go:188"}
+{"time":"2026-10-14T11:09:45.1950809Z","level":"notice","msg":"Ignoring checksums during --resync as --slow-hash-sync-only is set.","source":"bisync/compare.go:66"}
+{"time":"2026-10-14T11:09:45.1964168Z","level":"info","msg":"Bisyncing with Comparison Settings: \n{\n\t\"Modtime\": true,\n\t\"Size\": true,\n\t\"Checksum\": false,\n\t\"HashType1\": 0,\n\t\"HashType2\": 0,\n\t\"NoSlowHash\": false,\n\t\"SlowHashSyncOnly\": true,\n\t\"SlowHashDetected\": true,\n\t\"DownloadHash\": false\n}\n","source":"bisync/compare.go:108"}
+{"time":"2026-10-14T11:09:45.1975876Z","level":"info","msg":"lock file renewed for 2m0s. New expiration: 2026-10-14 11:11:45.1970071 +0000 UTC m=+120.139531101","source":"bisync/lockfile.go:91"}
+{"time":"2026-10-14T11:09:45.1975876Z","level":"info","msg":"Synching Path1 \"local{HK82T}://?/D:/a/_temp/msys64/tmp/spola-win-2zruds14/local/\" with Path2 \"local{HK82T}://?/D:/a/_temp/msys64/tmp/spola-win-2zruds14/remote/\"","source":"bisync/operations.go:238"}
+{"time":"2026-10-14T11:09:45.1975876Z","level":"info","msg":"Using filters file D:/a/_temp/msys64/tmp/spola-win-2zruds14/state/filters/winsample.txt","source":"bisync/cmd.go:240"}
+{"time":"2026-10-14T11:09:45.1981733Z","level":"info","msg":"Storing filters file hash to D:/a/_temp/msys64/tmp/spola-win-2zruds14/state/filters/winsample.txt.md5","source":"bisync/cmd.go:263"}
+{"time":"2026-10-14T11:09:45.2005083Z","level":"info","msg":"Copying Path2 files to Path1","source":"bisync/resync.go:44"}
+{"time":"2026-10-14T11:09:45.2017156Z","level":"info","msg":"- Path2             Resync is copying files to                  - Path1","source":"bisync/resync.go:104"}
+{"time":"2026-10-14T11:09:45.2034474Z","level":"info","msg":"There was nothing to transfer","source":"sync/sync.go:1033"}
+{"time":"2026-10-14T11:09:45.2040197Z","level":"info","msg":"- Path1             Resync is copying files to                  - Path2","source":"bisync/resync.go:120"}
+{"time":"2026-10-14T11:09:45.2062116Z","level":"info","msg":"Made directory with metadata (mtime=2026-10-14T11:09:45.0414067Z)","object":"sub","objectType":"string","source":"operations/operations.go:1112"}
+{"time":"2026-10-14T11:09:45.2068094Z","level":"info","msg":"Copied (new)","size":1,"object":"f01.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2068094Z","level":"info","msg":"Copied (new)","size":1,"object":"f02.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2088322Z","level":"info","msg":"Copied (new)","size":1,"object":"f00.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2094155Z","level":"info","msg":"Copied (new)","size":1,"object":"f03.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2094155Z","level":"info","msg":"Copied (new)","size":1,"object":"f04.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2094155Z","level":"info","msg":"Copied (new)","size":1,"object":"f05.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2113243Z","level":"info","msg":"Copied (new)","size":1,"object":"f08.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2113243Z","level":"info","msg":"Copied (new)","size":1,"object":"f06.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2119633Z","level":"info","msg":"Copied (new)","size":1,"object":"f07.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2119633Z","level":"info","msg":"Copied (new)","size":1,"object":"f09.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2128822Z","level":"info","msg":"Copied (new)","size":1000,"object":"sub/photo.jpg","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2134517Z","level":"info","msg":"Copied (new)","size":2,"object":"f11.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2138537Z","level":"info","msg":"Copied (new)","size":2,"object":"f10.txt","objectType":"*local.Object","source":"operations/copy.go:382"}
+{"time":"2026-10-14T11:09:45.2142834Z","level":"info","msg":"Set directory modification time (using SetModTime)","object":"sub","objectType":"*local.Directory","source":"operations/operations.go:2782"}
+{"time":"2026-10-14T11:09:45.2146128Z","level":"info","msg":"Resync updating listings","source":"bisync/resync.go:130"}
+{"time":"2026-10-14T11:09:45.2178261Z","level":"info","msg":"Validating listings for Path1 \"local{HK82T}://?/D:/a/_temp/msys64/tmp/spola-win-2zruds14/local/\" vs Path2 \"local{HK82T}://?/D:/a/_temp/msys64/tmp/spola-win-2zruds14/remote/\"","source":"bisync/resync.go:164"}
+{"time":"2026-10-14T11:09:45.2186316Z","level":"info","msg":"Bisync successful","source":"bisync/operations.go:218"}
+{"time":"2026-10-14T11:09:45.2186316Z","level":"notice","msg":"\nTransferred:   \t       1014 B / 1014 B, 100%, 0 B/s, ETA -\nChecks:                 0 / 0, -, Listed 28\nTransferred:           13 / 13, 100%\nElapsed time:         0.0s\n\n","stats":{"bytes":1014,"checks":0,"deletedDirs":0,"deletes":0,"elapsedTime":0.0169159,"errors":0,"eta":null,"fatalError":false,"listed":28,"renames":0,"retryError":false,"serverSideCopies":0,"serverSideCopyBytes":0,"serverSideMoveBytes":0,"serverSideMoves":0,"speed":0,"totalBytes":1014,"totalChecks":0,"totalTransfers":13,"transferTime":0.0092655,"transfers":13},"source":"accounting/stats.go:549"}
