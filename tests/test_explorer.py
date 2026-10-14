@@ -47,7 +47,7 @@ class LocateTest(unittest.TestCase):
 
     def test_applies_to(self):
         condition = explorer.applies_to([Pair("p1", "C:/Users/me/Work", "/w"), Pair("p2", "D:\\Photos\\", "/p")])
-        self.assertIn('System.ItemPathDisplay:~<"', condition)
+        self.assertIn('System.ParsingPath:~<"', condition)
         self.assertIn('Work\\"', condition)
         self.assertEqual(condition.count(" OR "), 3)
 
@@ -65,7 +65,7 @@ class RegistryTest(unittest.TestCase):
             with mock.patch.object(explorer, "CLASSES", classes):
                 explorer.register(exe, [Pair("p1", os.path.expanduser("~"), "/w")])
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\Directory\shell\Spola.OpenOnKoofr") as key:
-                    self.assertIn("System.ItemPathDisplay", winreg.QueryValueEx(key, "AppliesTo")[0])
+                    self.assertIn("System.ParsingPath", winreg.QueryValueEx(key, "AppliesTo")[0])
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                     rf"{classes}\*\shell\Spola.CopyKoofrLink\command") as key:
                     self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --copy-link "%1"')
@@ -81,6 +81,38 @@ class RegistryTest(unittest.TestCase):
                     winreg.DeleteKey(winreg.HKEY_CURRENT_USER, sub)
                 except OSError:
                     pass
+
+
+@unittest.skipUnless(_setup.WINDOWS, "Windows only")
+class ShellTest(unittest.TestCase):
+    def test_the_shell_shows_the_entry_inside_only(self):
+        # the shell itself asked (Shell.Application, in a PowerShell of its
+        # own), with a verb of the test's own: AppliesTo on paths is easy to
+        # get wrong (System.ItemPathDisplay never matches there)
+        import subprocess
+        import winreg
+        verb = f"SpolaTest{os.getpid()}"
+        key_path = rf"Software\Classes\*\shell\{verb}"
+        with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as inside, \
+                tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as outside:
+            for folder in (inside, outside):
+                (Path(folder) / "f.txt").write_text("x")
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+                winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, verb)
+                winreg.SetValueEx(key, "AppliesTo", 0, winreg.REG_SZ, explorer.applies_to([Pair("p", inside, "/x")]))
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path + r"\command") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "cmd /c exit")
+            try:
+                folders = ", ".join("'%s'" % os.path.normpath(f).replace("/", "\\") for f in (inside, outside))
+                script = ("$sh = New-Object -ComObject Shell.Application; foreach ($d in @(%s)) { "
+                          "[bool]($sh.Namespace($d).ParseName('f.txt').Verbs() | Where-Object { $_.Name -eq '%s' }) }"
+                          % (folders, verb))
+                out = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                                     capture_output=True, text=True, timeout=60).stdout.split()
+            finally:
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path + r"\command")
+                winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
+        self.assertEqual(out, ["True", "False"])
 
 
 if __name__ == "__main__":
