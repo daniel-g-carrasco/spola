@@ -251,6 +251,70 @@ def check_root_identity(pair: Pair, known_entries: Iterable[str] = ()) -> list[P
     return []
 
 
+@dataclass(frozen=True)
+class CaseRename:
+    """A name changed here in its case alone: "Screencasts" to "screencasts"."""
+    old: str        # in the last listing of this computer
+    new: str        # here now
+    koofr: str      # on Koofr now
+
+
+def case_renames(root: str, before: Iterable[str], koofr: Iterable[str]) -> list[CaseRename]:
+    """What was renamed here by case alone since the last run. Koofr does not
+    tell "Screencasts" from "screencasts", and bisync cannot rename one into
+    the other there: it plans deletions and uploads that do nothing, the
+    files moved into the folder land in the old name, and the next run moves
+    them here into a second folder and stops for a repair. Renamed on Koofr
+    first, on the server, the two sides agree before bisync looks. In order:
+    a folder before what it holds, each with its name at that moment."""
+    on_koofr: dict[str, str] = {}
+    for path in koofr:
+        on_koofr.setdefault(path.casefold(), path)
+    listed: dict[str, dict[str, list[str]] | None] = {}
+
+    def names_in(parent: str) -> dict[str, list[str]] | None:
+        if parent not in listed:
+            try:
+                found: dict[str, list[str]] = {}
+                for name in os.listdir(os.path.join(root, parent)):
+                    found.setdefault(name.casefold(), []).append(name)
+                listed[parent] = found
+            except OSError:
+                listed[parent] = None
+        return listed[parent]
+
+    def now(path: str, moved: list[tuple[str, str]]) -> str:
+        """The path after the folders renamed so far (the deepest first)."""
+        for old, new in moved:
+            if path == old or path.startswith(old + "/"):
+                return new + path[len(old):]
+        return path
+
+    known = set(before)
+    renamed: list[CaseRename] = []
+    here_moved: list[tuple[str, str]] = []      # (before, now) of the folders renamed, deepest first
+    koofr_moved: list[tuple[str, str]] = []
+    for old in sorted(known, key=lambda p: (p.count("/"), p)):
+        parent, _sep, name = old.rpartition("/")
+        parent_now = now(parent, here_moved) if parent else ""
+        found = names_in(parent_now)
+        variants = found.get(name.casefold(), []) if found is not None else []
+        if name in variants or len(variants) != 1:
+            continue        # still here, gone, or two names to choose from
+        new = f"{parent_now}/{variants[0]}" if parent_now else variants[0]
+        there = on_koofr.get(old.casefold())
+        if new in known or there is None:
+            continue        # both names were here, or it is not on Koofr
+        there = now(there, koofr_moved)
+        koofr_parent, _sep, koofr_name = there.rpartition("/")
+        if koofr_name == variants[0]:
+            continue        # Koofr has that name already
+        renamed.append(CaseRename(old, new, there))
+        here_moved.insert(0, (old, new))
+        koofr_moved.insert(0, (there, f"{koofr_parent}/{variants[0]}" if koofr_parent else variants[0]))
+    return renamed
+
+
 def root_identity(path: str) -> tuple[int, int]:
     st = os.stat(path, follow_symlinks=False)
     return st.st_dev, st.st_ino

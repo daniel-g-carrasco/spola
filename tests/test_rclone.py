@@ -8,8 +8,8 @@ from _setup import fixture_lines
 
 from spola.rclone import (
     DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
-    bisync_args, clean_env, conflict_suffix, default_excluded, describe, effective_max_delete, koofr_env,
-    parse_line, relative_path, remote_spec, summarize,
+    bisync_args, clean_env, conflict_suffix, default_excluded, describe, effective_max_delete, fold_case_renames,
+    koofr_env, parse_line, relative_path, remote_spec, summarize,
 )
 
 
@@ -159,6 +159,30 @@ class ParseTest(unittest.TestCase):
             self.assertEqual(plan.moved_local, [("IMG_02.jpg", "from-windows-02.jpg")], name)
             self.assertEqual(plan.upload + plan.download + plan.delete_local + plan.delete_remote, [], name)
             self.assertFalse(plan.empty, name)
+
+    def test_a_rename_by_case_alone_is_one_move(self):
+        # recorded on Koofr: "Screencasts" renamed "screencasts" here, the
+        # files of "00. Screen" moved into it, "00-readme.md" deleted. The
+        # preview plans the renamed folder as deleted and uploaded again (Koofr
+        # cannot tell the two names apart); the run, with the folder renamed
+        # on Koofr first, finds both sides the same. Both say one move.
+        from spola.preflight import CaseRename
+        roots = ("/home/user/scratch/spola-case-probe/local/", "koofr:case-rename")
+        renames = [CaseRename("Screencasts", "screencasts", "Screencasts")]
+        moves = [("00. Screen/screen-0.mp4", "screencasts/screen-0.mp4"),
+                 ("00. Screen/screen-1.mp4", "screencasts/screen-1.mp4"),
+                 ("00. Screen/screen-2.mp4", "screencasts/screen-2.mp4")]
+        for name in ("koofr-case-rename-dry-run.jsonl", "koofr-case-rename.jsonl"):
+            plan = summarize(0, events(name), *roots).plan
+            fold_case_renames(plan, renames)
+            self.assertEqual(plan.moved_remote[0], ("Screencasts", "screencasts"), name)
+            self.assertEqual(sorted(plan.moved_remote[1:]), moves, name)
+            self.assertEqual(plan.upload, [], name)
+            self.assertEqual(plan.delete_remote, ["00-readme.md", "00. Screen"], name)
+            self.assertEqual(plan.conflicts, [], name)
+        # without the rename, the preview would delete the folder on Koofr
+        plan = summarize(0, events("koofr-case-rename-dry-run.jsonl"), *roots).plan
+        self.assertIn("screencasts/cast-0.mp4", plan.delete_remote)
 
     def test_a_preview_says_how_much_goes_each_way(self):
         out = summarize(0, events("resync-dry-run.jsonl"), "/ROOT/a/", "/ROOT/b/")

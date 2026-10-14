@@ -14,7 +14,7 @@ import _setup  # noqa: F401
 
 from spola.config import Config, Pair
 from spola.preflight import (
-    check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
+    CaseRename, case_renames, check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
     Refused, refused_paths, refused_reason, rename_plan, root_identity, scan_names,
 )
 from spola.rclone import exclude_lines, filter_escape
@@ -148,6 +148,45 @@ class KoofrDesktopTest(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+class CaseRenameTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp(prefix="spola-case-"))
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def make(self, *paths):
+        for rel in paths:
+            path = self.root / rel
+            if rel.endswith("/"):
+                path.mkdir(parents=True, exist_ok=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(rel)
+
+    def test_a_folder_renamed_by_case_alone_is_found_once(self):
+        before = ["Screencasts", "Screencasts/a.mp4", "Screencasts/Old.mp4", "00. Screen", "00. Screen/b.mp4",
+                  "File.txt", "keep.txt"]
+        # the folder renamed, a file in it renamed too, another moved in, a file renamed
+        self.make("screencasts/a.mp4", "screencasts/old.mp4", "screencasts/b.mp4", "file.txt", "keep.txt")
+        self.assertEqual(case_renames(str(self.root), before, before),
+                         [CaseRename("File.txt", "file.txt", "File.txt"),
+                          CaseRename("Screencasts", "screencasts", "Screencasts"),
+                          # in the folder, after it: Koofr's name by then
+                          CaseRename("Screencasts/Old.mp4", "screencasts/old.mp4", "screencasts/Old.mp4")])
+
+    def test_what_is_not_a_rename_by_case(self):
+        root = str(self.root)
+        self.make("a.txt", "Two.txt", "TWO.txt", "done.txt", "Sub/x.txt")
+        # both names were there before; gone; two names to choose from
+        self.assertEqual(case_renames(root, ["A.txt", "a.txt", "gone.txt", "two.txt"],
+                                      ["A.txt", "a.txt", "gone.txt", "two.txt"]), [])
+        # Koofr has the new name already, or not the old one
+        self.assertEqual(case_renames(root, ["Done.txt"], ["done.txt"]), [])
+        self.assertEqual(case_renames(root, ["Done.txt"], []), [])
+        # Koofr's own case of the parent is kept
+        self.assertEqual(case_renames(root, ["Sub", "Sub/X.txt"], ["SUB", "SUB/X.txt"]),
+                         [CaseRename("Sub/X.txt", "Sub/x.txt", "SUB/X.txt")])
 
 
 class RootIdentityTest(unittest.TestCase):
