@@ -7,8 +7,8 @@ or cancels its transfers and saves its state. On Windows the same comes from
 a console control event (Go delivers Ctrl+Break as os.Interrupt), which only
 reaches a process attached to the same console. Spola from a terminal (the
 CLI) starts rclone in its own process group on that console and sends it
-Ctrl+Break. The window has no console: rclone gets one of its own, hidden,
-and Spola attaches to it for the moment it takes to send the event.
+Ctrl+Break. The window has no console: rclone gets one of its own, without
+a window, and Spola attaches to it for the moment it takes to send the event.
 """
 
 from __future__ import annotations
@@ -30,8 +30,6 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
 
 CTRL_BREAK_EVENT = 1
-STARTF_USESHOWWINDOW = 0x1
-SW_HIDE = 0
 
 kernel32.GetConsoleWindow.restype = wintypes.HWND
 kernel32.GetConsoleCP.restype = wintypes.UINT
@@ -70,14 +68,14 @@ def has_console() -> bool:
 
 
 def popen_options() -> dict:
-    """How to start rclone so that interrupt() can reach it."""
+    """How to start rclone so that interrupt() can reach it. Without a
+    console of ours, rclone gets one without a window (CREATE_NO_WINDOW):
+    a new console with its window hidden is shown all the same where
+    Windows Terminal hosts the consoles (the default since Windows 11
+    22H2), flashing at every run."""
     if has_console():
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    info = subprocess.STARTUPINFO()
-    info.dwFlags |= STARTF_USESHOWWINDOW
-    info.wShowWindow = SW_HIDE
-    return {"creationflags": subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP,
-            "startupinfo": info}
+    return {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
 
 
 def interrupt(proc: subprocess.Popen) -> bool:

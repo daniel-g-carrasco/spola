@@ -24,7 +24,7 @@ from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
-                     effective_max_delete, exclude_lines, remote_spec)
+                     effective_max_delete, exclude_lines, no_window, remote_spec)
 
 
 def conflict_words(language: str = "") -> tuple[str, str]:
@@ -159,7 +159,8 @@ def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Path
         common += ["--user-agent", user_agent(cfg.instance_id)]     # Spola's own change, for the feed
 
     def rclone_run(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([rclone, *args, *common], env=env, capture_output=True, text=True, timeout=600)
+        return subprocess.run([rclone, *args, *common], env=env, capture_output=True, text=True, timeout=600,
+                              **no_window())
 
     for r in renames:
         parent, _sep, name = r.koofr.rpartition("/")

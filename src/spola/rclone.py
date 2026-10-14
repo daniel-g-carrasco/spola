@@ -130,11 +130,19 @@ def remote_spec(remote_path: str) -> str:
     return f"{REMOTE_NAME}:" + remote_path.strip("/")
 
 
+def no_window() -> dict:
+    """subprocess options for a short rclone call: on Windows a console
+    program started from the window would get a console of its own, shown
+    for the moment it runs (Windows Terminal hosts it, whatever the window
+    asks)."""
+    return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+
 def obscure(password: str, rclone: str) -> str:
     """rclone's reversible obfuscation, required for passwords given through
     the environment. Passed on stdin so it never shows in a command line."""
     proc = subprocess.run([rclone, "obscure", "-"], input=password, capture_output=True,
-                          text=True, timeout=30, check=True, env=clean_env())
+                          text=True, timeout=30, check=True, env=clean_env(), **no_window())
     return proc.stdout.strip()
 
 

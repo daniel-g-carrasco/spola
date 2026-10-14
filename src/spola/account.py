@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from .i18n import _
 from .paths import Paths
-from .rclone import koofr_env, obscure, remote_spec
+from .rclone import koofr_env, no_window, obscure, remote_spec
 
 TIMEOUT = 60
 
@@ -46,7 +46,7 @@ def _run(rclone: str, paths: Paths, creds: Credentials, *args: str) -> str:
             "--low-level-retries", "2", "--retries", "1"]
     try:
         proc = subprocess.run(argv, env=koofr_env(creds.user, creds.obscured), capture_output=True,
-                              text=True, timeout=TIMEOUT)
+                              text=True, timeout=TIMEOUT, **no_window())
     except subprocess.TimeoutExpired:
         raise AccountError(_("Koofr did not answer in time.")) from None
     if proc.returncode != 0:
