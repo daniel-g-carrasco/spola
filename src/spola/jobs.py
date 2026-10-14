@@ -96,6 +96,14 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         raise NotReady([Problem("not-initialized", "the first alignment has not been confirmed yet", pair.local)])
 
     workdir.mkdir(parents=True, exist_ok=True)
+    if mode is Mode.SYNC and listings.find(workdir, 1) and listings.count(workdir) == 0:
+        # bisync refuses a run from an empty listing ("Empty prior Path1
+        # listing. Cannot sync to an empty directory"): two folders empty
+        # but for what Spola leaves out stopped for a repair right after
+        # their first alignment. With nothing known in sync there is nothing
+        # to delete either: the run is a resync, which copies what each side
+        # has to the other (the engine still takes it for a sync)
+        mode = Mode.RESYNC
     ensure_filters(paths, pair)
     # One backup folder per run: a file replaced twice keeps both old copies.
     # rclone creates it only if something is actually backed up.
