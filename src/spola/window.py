@@ -747,6 +747,8 @@ class PairPage(Adw.NavigationPage):
             label, css, sensitive = _("Align…"), ["suggested-action"], signed_in
         elif rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION, Status.CONFLICTS, Status.SKIPPED):
             label, css, sensitive = _("Review…"), ["suggested-action"], True
+        elif rt.status is Status.SYNCING and rt.run is not None and rt.run.stopping:
+            label, css, sensitive = _("Stopping…"), [], False
         elif rt.status is Status.SYNCING:
             label, css, sensitive = _("Stop"), [], True
         else:

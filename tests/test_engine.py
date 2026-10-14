@@ -206,6 +206,33 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(list(self.engine.paths.log_dir("p1").iterdir())), logs_before)   # never started
         self.assertNotIn("new.txt", self.remote_files())
 
+    def test_stop_clicked_twice_stays_graceful(self):
+        # bisync takes a while to stop; a second click in the meantime must
+        # not end it at once: that left its lock and the next run refused
+        self.align()
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: rt.run is not None and rt.transferring, 30))
+        run = rt.run
+        changed = []
+        self.engine.connect("pair-changed", lambda _e, pid: changed.append(pid))
+        self.engine.stop("p1")
+        self.assertTrue(run.stopping)
+        self.assertIn("p1", changed)                    # the window shows "Stopping…" at once
+        self.engine.stop("p1")
+        self.assertEqual(run._interrupts, 1)
+        self.assertTrue(spin_until(lambda: not run.running, 120))
+        self.assertEqual(run.outcome.message, "stopped")
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.assertTrue(spin_until(lambda: self.engine.active is None, 10))
+        # the next run starts clean: no "prior lock file", nothing to repair
+        self.engine.request_sync("p1", "manual")
+        ok = spin_until(lambda: self.status() is Status.OK and "big.bin" in self.remote_files(), 60)
+        self.assertTrue(ok, (self.status(), rt.message, rt.last_outcome and rt.last_outcome.message))
+
     def test_a_metered_connection_stops_an_automatic_run(self):
         self.align()
         os.environ["SPOLA_DEV_BWLIMIT"] = "20k"

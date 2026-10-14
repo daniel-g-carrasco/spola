@@ -103,6 +103,12 @@ class BisyncRun:
         return not self._done.is_set()
 
     @property
+    def stopping(self) -> bool:
+        """Asked to stop and not over yet: bisync finishes or cancels its
+        transfers (up to 30 s) and saves its state."""
+        return self._interrupts > 0 and self.running
+
+    @property
     def pid(self) -> int | None:
         return self._proc.pid if self._proc else None
 

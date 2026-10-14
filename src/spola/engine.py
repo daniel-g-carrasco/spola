@@ -712,9 +712,14 @@ class Engine(GObject.Object):
         return any(t.pair_id == pair_id and t.reason == "confirmed" and not t.dry_run for t in self.queue)
 
     def stop(self, pair_id: str) -> None:
+        """The graceful stop, once: a second request while bisync saves its
+        state would end it at once and leave its lock and listings behind
+        (stopping at once is for quitting, after its own wait)."""
         rt = self.runtime.get(pair_id)
         if rt and rt.run and rt.run.running:
-            rt.run.cancel()
+            if not rt.run.stopping:
+                rt.run.cancel()
+                self.emit("pair-changed", pair_id)      # the window says it is stopping
         elif rt and rt.task is not None and rt.run is None:
             rt.task.cancelled = True        # still preparing: it will not start
 
