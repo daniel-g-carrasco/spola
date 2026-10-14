@@ -1,0 +1,63 @@
+name: Windows
+
+# The Windows port, step 1: what of Spola runs on Windows as it is. The tests
+# and the window, under MSYS2's GTK 4 and libadwaita (the recipe of
+# p7m-extractor and pdf-cropper), with a local folder as the "Koofr" side.
+
+on:
+  push:
+    branches: [windows]
+  workflow_dispatch:
+
+env:
+  RCLONE_VERSION: "1.75.2"
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            unzip
+            gettext
+            mingw-w64-x86_64-gtk4
+            mingw-w64-x86_64-libadwaita
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-python-gobject
+      - name: rclone for Windows
+        run: |
+          curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-windows-amd64.zip"
+          unzip -q rclone.zip
+          echo "SPOLA_RCLONE=$(cygpath -w "$PWD/rclone-v${RCLONE_VERSION}-windows-amd64/rclone.exe")" >> "$GITHUB_ENV"
+      - name: Versions
+        run: |
+          python --version
+          python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); from gi.repository import Gtk, Adw; print('GTK', Gtk.MAJOR_VERSION, Gtk.MINOR_VERSION, 'Adw', Adw.MAJOR_VERSION, Adw.MINOR_VERSION)"
+          "$SPOLA_RCLONE" version | head -1
+      - run: python tools/compile_po.py
+      - name: Tests
+        continue-on-error: true
+        run: python -m unittest discover -s tests -v 2>&1 | tee tests.log
+      - name: The window
+        continue-on-error: true
+        run: |
+          OUT="$(cygpath -w "$PWD/gui")"
+          mkdir -p gui/config gui/state gui/data gui/remote
+          export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
+          export SPOLA_DEV_REMOTE="$OUT\\remote" SPOLA_SCREENSHOT="$OUT\\window.png" SPOLA_SCREENSHOT_DELAY=8
+          timeout 120 python bin/spola 2>&1 | tee gui/run.log
+          ls -la gui
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-probe
+          path: |
+            tests.log
+            gui/
