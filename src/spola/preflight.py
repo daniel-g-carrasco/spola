@@ -46,6 +46,10 @@ def _real(path: str) -> str:
 
 
 def _is_within(child: str, parent: str) -> bool:
+    if os.name == "nt":
+        # C:\Users\me and c:/users/ME are the same folder
+        child, parent = (os.path.normcase(p).rstrip("\\") for p in (child, parent))
+        return child == parent or child.startswith(parent + "\\")
     child, parent = child.rstrip("/") or "/", parent.rstrip("/") or "/"
     return child == parent or child.startswith(parent + "/") or parent == "/"
 
@@ -53,6 +57,27 @@ def _is_within(child: str, parent: str) -> bool:
 def home_dir(environ=None) -> str:
     environ = os.environ if environ is None else environ
     return _real(environ.get("HOME") or os.path.expanduser("~"))
+
+
+# Windows: in the profile, what belongs to the system and to the apps
+PROTECTED_IN_PROFILE = ("appdata", ".koofr", ".ssh", ".config", ".cache")
+
+
+def _check_windows_root(real: str, home: str, path: str) -> list[Problem]:
+    """The same rules as on Linux: inside the profile but not its app data,
+    or on another drive than Windows' own (not a drive's root)."""
+    if _is_within(home, real):
+        return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]
+    if _is_within(real, home):
+        first = os.path.relpath(real, home).split(os.sep)[0].casefold()
+        if first in PROTECTED_IN_PROFILE:
+            return [Problem("protected", _("This folder holds settings and data of the system or of other apps and cannot be synced."), path)]
+        return []
+    drive, rest = os.path.splitdrive(real)
+    system = os.environ.get("SystemDrive", "C:")
+    if drive and drive.casefold() != system.casefold() and rest.strip("\\/"):
+        return []
+    return [Problem("outside-home", _("Only folders inside your home folder or on removable drives can be synced."), path)]
 
 
 def check_local_root(path: str, home: str | None = None) -> list[Problem]:
@@ -66,6 +91,8 @@ def check_local_root(path: str, home: str | None = None) -> list[Problem]:
     if not os.path.isdir(real):
         return [Problem("missing", _("The folder does not exist."), path)]
 
+    if os.name == "nt":
+        return _check_windows_root(real, home, path)
     if _is_within(home, real):
         # "/" , "/var", "/var/home", the home folder itself...
         return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]

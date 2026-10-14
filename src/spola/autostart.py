@@ -2,7 +2,8 @@
 
 In the Flatpak the Background portal writes and removes the autostart entry
 itself. Outside, Spola writes ~/.config/autostart/<app-id>.desktop pointing
-at its own launcher, and only ever removes a file it wrote.
+at its own launcher, and only ever removes a file it wrote. On Windows it is
+the "Spola" value of the user's Run key.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import APP_ID, APP_NAME
+from . import APP_ID, APP_NAME, WINDOWS
 from . import portal
 from .i18n import _
 from .paths import in_flatpak
@@ -56,7 +57,22 @@ def GLib_quote(command: str) -> str:
     return f'"{command}"' if " " in command else command
 
 
+def windows_command() -> str:
+    """The installed Spola.exe, or Python and the launcher of a checkout."""
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --background'
+    return f'"{sys.executable}" "{launcher()}" --background'
+
+
 def apply(enabled: bool, connection=None, environ=None) -> None:
+    if WINDOWS:
+        from . import win32
+        current = win32.autostart_command()
+        if enabled:
+            win32.set_autostart(windows_command())
+        elif current is not None:
+            win32.set_autostart(None)
+        return
     if in_flatpak():
         if connection is not None:
             portal.request_background(connection, _("Spola keeps your folders in sync with Koofr in the background."),

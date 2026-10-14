@@ -5,6 +5,9 @@ their whole job in Spola."""
 
 import tempfile
 import unittest
+
+if __import__("sys").platform == "win32":
+    raise unittest.SkipTest("the file managers' D-Bus service is Linux only")
 from pathlib import Path
 from types import SimpleNamespace
 

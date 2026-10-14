@@ -8,6 +8,9 @@ import os
 import stat
 import tempfile
 import unittest
+
+if __import__("sys").platform == "win32":
+    raise unittest.SkipTest("Nautilus, Nemo, Caja, Dolphin and Thunar are Linux only")
 import xml.etree.ElementTree as ET
 from pathlib import Path
 

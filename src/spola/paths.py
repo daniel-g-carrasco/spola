@@ -1,7 +1,8 @@
 """Where Spola keeps its own files.
 
 Inside the Flatpak the XDG variables already point to ~/.var/app/<app-id>/,
-outside they are the usual ~/.config, ~/.local/state and ~/.local/share.
+outside they are the usual ~/.config, ~/.local/state and ~/.local/share. On
+Windows, %APPDATA%\\Spola for the settings, %LOCALAPPDATA%\\Spola for the rest.
 Nothing here lives in ~/.cache: bisync's listings are the memory of what was
 in sync, and a cache cleaner must not be able to throw them away.
 """
@@ -29,6 +30,13 @@ class Paths:
     @classmethod
     def from_env(cls, environ=None) -> "Paths":
         environ = os.environ if environ is None else environ
+        if os.name == "nt" and not environ.get("XDG_CONFIG_HOME"):
+            # Windows: the settings roam with the profile, the listings and
+            # backups belong to this computer (the XDG variables still win,
+            # for the tests)
+            roaming = Path(environ.get("APPDATA") or Path.home() / "AppData" / "Roaming")
+            local = Path(environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+            return cls(config=roaming / "Spola", state=local / "Spola" / "state", data=local / "Spola" / "data")
         return cls(
             config=_xdg("XDG_CONFIG_HOME", ".config", environ) / "spola",
             state=_xdg("XDG_STATE_HOME", ".local/state", environ) / "spola",
