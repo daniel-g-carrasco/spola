@@ -49,6 +49,14 @@ class TouchedPairsTest(unittest.TestCase):
     def test_web_url(self):
         self.assertEqual(web_url("m-1", "/spola-test/a b"), "https://app.koofr.net/app/storage/m-1?path=%2Fspola-test%2Fa+b")
 
+    def test_share_page_not_the_direct_download(self):
+        # what rclone link answers (Koofr: "Hotlinking not allowed" opened from
+        # elsewhere), and the page to give to someone
+        from spola.koofr_api import share_page
+        direct = "https://app.koofr.net/content/links/c5105097-fe92-4bf3-bc7d-56571582855d/files/get?path=%2F"
+        self.assertEqual(share_page(direct), "https://app.koofr.net/links/c5105097-fe92-4bf3-bc7d-56571582855d")
+        self.assertEqual(share_page("https://example.org/x"), "https://example.org/x")
+
     def test_folder_url_is_the_folder_holding_the_file(self):
         base = "https://app.koofr.net/app/storage/m-1?path="
         self.assertEqual(folder_url("m-1", "/data/imports", "Foto/2025/a.jpg"), base + "%2Fdata%2Fimports%2FFoto%2F2025")

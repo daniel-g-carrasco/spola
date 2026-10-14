@@ -213,8 +213,8 @@ class SpolaApp(Adw.Application):
             Gio.AppInfo.launch_default_for_uri(url, None)
 
     def _copy_link(self, path: str) -> None:
-        from . import explorer
-        from .rclone import koofr_env, no_window, remote_spec
+        from . import explorer, koofr_api
+        from .rclone import default_excluded, koofr_env, no_window, remote_spec
         found = self._in_pair(path)
         creds, rclone = self.engine.creds, self.engine.rclone
         if found is None:
@@ -223,21 +223,26 @@ class SpolaApp(Adw.Application):
             self._tell(_("Not signed in to Koofr"))
             return
         pair, relative = found
+        refusal = explorer.link_refusal(pair, relative, os.path.isdir(path), default_excluded)
+        if refusal:
+            self._tell(refusal)
+            return
         argv = [rclone, "link", remote_spec(explorer.remote_path(pair, relative)),
                 "--config", str(self.engine.paths.rclone_config)]
+        name = os.path.basename(path.rstrip("\\/")) or path
 
         def work() -> str:
             import subprocess
             proc = subprocess.run(argv, env=koofr_env(creds.user, creds.obscured), capture_output=True,
                                   text=True, timeout=60, **no_window())
-            url = proc.stdout.strip() if proc.returncode == 0 else ""
+            url = koofr_api.share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
             if not url:
-                raise OSError((proc.stderr.strip().splitlines() or ["rclone link failed"])[-1])
+                raise OSError(explorer.link_error(name, proc.stderr))
             return url
 
         def done(url, error) -> None:
             if error:
-                self._tell(_("The link could not be made: {error}").format(error=error))
+                self._tell(str(error))
                 return
             Gdk.Display.get_default().get_clipboard().set(url)
             self.tray.notify(_("Koofr link copied"), url)

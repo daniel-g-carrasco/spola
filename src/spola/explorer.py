@@ -57,6 +57,26 @@ def page_url(mount_id: str, pair: Pair, relative: str, is_dir: bool) -> str:
     return web_url(mount_id, remote)
 
 
+def link_refusal(pair: Pair, relative: str, is_dir: bool, excluded) -> str:
+    """Why an item has no share link to make ("" when it may have one):
+    Spola never syncs it (its own marker, an exclusion). Anything else is
+    asked of Koofr, which may have it even before the first alignment."""
+    name = posixpath.basename(relative) or pair.name
+    if relative and excluded(relative + ("/" if is_dir else "")):
+        return _("“{name}” is not synced with Koofr: it has no share link.").format(name=name)
+    return ""
+
+
+def link_error(name: str, stderr: str) -> str:
+    """What to tell when rclone link fails: not on Koofr (yet), in words;
+    anything else, its last line."""
+    text = stderr.lower()
+    if "not found" in text or "got 400" in text or "got 404" in text:
+        return _("“{name}” is not on Koofr yet: it will be after the next sync.").format(name=name)
+    last = (stderr.strip().splitlines() or ["rclone link failed"])[-1]
+    return _("The link could not be made: {error}").format(error=last[:200])
+
+
 def applies_to(pairs: list[Pair]) -> str:
     """The Advanced Query Syntax condition: an item in a synced folder, or
     the synced folder itself. System.ParsingPath: the context menu has no
@@ -67,7 +87,8 @@ def applies_to(pairs: list[Pair]) -> str:
         root = os.path.normpath(pair.local).replace("/", "\\").rstrip("\\")
         terms.append(f'System.ParsingPath:~<"{root}\\"')
         terms.append(f'System.ParsingPath:="{root}"')
-    return " OR ".join(terms)
+    # not on Spola's own files (".spola-root"), which never go to Koofr
+    return f'({" OR ".join(terms)}) AND NOT System.FileName:~<".spola-"'
 
 
 def verbs(exe: str) -> list[tuple[str, str, str]]:
