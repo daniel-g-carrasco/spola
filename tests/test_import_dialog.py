@@ -71,6 +71,15 @@ class ImportDialogTest(unittest.TestCase):
         self.state = State(running=False, at_login=False)
         dialog._refresh()
         self.assertTrue(dialog.next_button.get_sensitive())
+        # icons the theme has (a missing one shows as a placeholder)
+        from gi.repository import Gtk
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        if theme.has_icon("dialog-warning-symbolic"):            # an Adwaita to look into
+            for state in (State(True, True), State(False, False)):
+                self.state = state
+                dialog._refresh()
+                for icon in (dialog.running_icon, dialog.login_icon):
+                    self.assertTrue(theme.has_icon(icon.get_icon_name()), icon.get_icon_name())
 
     def test_the_chosen_folders_are_added(self):
         self.state = State(running=False, at_login=False)
