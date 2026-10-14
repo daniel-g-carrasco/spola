@@ -1920,3 +1920,125 @@ msgstr ""
 #: src/spola/window.py:1488
 msgid "Sync engine"
 msgstr "Motore di sincronizzazione"
+
+#: src/spola/import_dialog.py:37 src/spola/import_dialog.py:86
+#: src/spola/window.py:168
+msgid "Import from Koofr Desktop"
+msgstr "Importa da Koofr Desktop"
+
+#: src/spola/window.py:140
+msgid "Import from Koofr Desktop…"
+msgstr "Importa da Koofr Desktop…"
+
+#: src/spola/import_dialog.py:62
+msgid "Next"
+msgstr "Avanti"
+
+#: src/spola/import_dialog.py:69
+msgid ""
+"Koofr Desktop and Spola must never sync the same folders: two sync engines "
+"on the same files lose files. First quit Koofr Desktop and keep it from "
+"starting at login; then choose the folders Spola takes over."
+msgstr ""
+"Koofr Desktop e Spola non devono mai sincronizzare le stesse cartelle: due "
+"programmi di sincronizzazione sugli stessi file finiscono per perderli. Prima "
+"chiudi Koofr Desktop e impedisci che si avvii all'accesso; poi scegli le "
+"cartelle che passano a Spola."
+
+#: src/spola/import_dialog.py:72
+msgid "Koofr Desktop"
+msgstr "Koofr Desktop"
+
+#: src/spola/import_dialog.py:80
+msgid "Turn Off"
+msgstr "Disattiva"
+
+#: src/spola/import_dialog.py:102
+msgid "Koofr Desktop is running"
+msgstr "Koofr Desktop è in esecuzione"
+
+#: src/spola/import_dialog.py:104
+msgid "Quit it from its icon in the notification area: right click, then Quit."
+msgstr ""
+"Chiudilo dalla sua icona nell'area di notifica: clic destro, poi Esci."
+
+#: src/spola/import_dialog.py:105
+msgid "Quit it from its icon or its window."
+msgstr "Chiudilo dalla sua icona o dalla sua finestra."
+
+#: src/spola/import_dialog.py:107
+msgid "Koofr Desktop is not running"
+msgstr "Koofr Desktop non è in esecuzione"
+
+#: src/spola/import_dialog.py:112
+msgid "Koofr Desktop starts at login"
+msgstr "Koofr Desktop si avvia all'accesso"
+
+#: src/spola/import_dialog.py:114
+msgid "It would sync its folders again at the next login."
+msgstr "Al prossimo accesso tornerebbe a sincronizzare le sue cartelle."
+
+#: src/spola/import_dialog.py:115
+msgid ""
+"Remove it from the apps started at login, in the settings of your desktop."
+msgstr ""
+"Toglilo dalle app avviate all'accesso, nelle impostazioni del tuo desktop."
+
+#: src/spola/import_dialog.py:117
+msgid "Koofr Desktop does not start at login"
+msgstr "Koofr Desktop non si avvia all'accesso"
+
+#: src/spola/import_dialog.py:126
+msgid ""
+"It is set for every user of this computer: turn it off in Task Manager, "
+"under Startup apps."
+msgstr ""
+"È impostato per tutti gli utenti di questo computer: disattivalo da Gestione "
+"attività, in App di avvio."
+
+#: src/spola/import_dialog.py:142
+msgid "Import"
+msgstr "Importa"
+
+#: src/spola/import_dialog.py:149
+msgid "No Folders to Import"
+msgstr "Nessuna cartella da importare"
+
+#: src/spola/import_dialog.py:150
+msgid "Koofr Desktop has no synced folders."
+msgstr "Koofr Desktop non ha cartelle sincronizzate."
+
+#: src/spola/import_dialog.py:152 src/spola/import_dialog.py:177
+msgid "Folders"
+msgstr "Cartelle"
+
+#: src/spola/import_dialog.py:156
+msgid ""
+"None of them syncs before you confirm the preview of its first alignment: "
+"Spola prepares them right away, one folder at a time."
+msgstr ""
+"Nessuna si sincronizza prima che tu abbia confermato l'anteprima del suo "
+"primo allineamento: Spola le prepara subito, una cartella alla volta."
+
+#: src/spola/import_dialog.py:158
+msgid "Folders of Koofr Desktop"
+msgstr "Cartelle di Koofr Desktop"
+
+#: src/spola/import_dialog.py:163
+#, python-brace-format
+msgid "Koofr: {path}"
+msgstr "Koofr: {path}"
+
+#: src/spola/import_dialog.py:167
+msgid "paused in Koofr Desktop: it stays paused"
+msgstr "in pausa in Koofr Desktop: resta in pausa"
+
+#: src/spola/import_dialog.py:202
+#, python-brace-format
+msgid "{n} folder imported: Spola prepares the preview of its first alignment"
+msgid_plural ""
+"{n} folders imported: Spola prepares the previews of their first alignment"
+msgstr[0] ""
+"{n} cartella importata: Spola prepara l'anteprima del suo primo allineamento"
+msgstr[1] ""
+"{n} cartelle importate: Spola prepara le anteprime del loro primo allineamento"

@@ -328,11 +328,11 @@ class Engine(GObject.Object):
         self._start_watcher(pair, rt)
         self._want_preview_ahead(pair, rt)
 
-    def add_pair(self, local: str, remote: str) -> Pair:
+    def add_pair(self, local: str, remote: str, paused: bool = False) -> Pair:
         from .preflight import root_identity
         dev, ino = root_identity(local)
         pair = Pair(Pair.new_id(), os.path.realpath(local), config_mod.normalize_remote(remote),
-                    root_dev=dev, root_ino=ino)
+                    paused=paused, root_dev=dev, root_ino=ino)
         self.cfg.pairs.append(pair)
         self.save_config()
         self._setup_pair(pair)
