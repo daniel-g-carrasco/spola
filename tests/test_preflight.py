@@ -76,6 +76,12 @@ class WindowsRootTest(unittest.TestCase):
         windows = os.environ.get("SystemRoot", "C:\\Windows")
         self.assertEqual(codes(check_local_root(windows, home)), ["outside-home"])
 
+    def test_home_is_the_profile_whatever_home_says(self):
+        from spola.preflight import home_dir
+        profile = os.path.expanduser("~")
+        environ = {"USERPROFILE": profile, "HOME": "C:\\msys64\\home\\someone"}
+        self.assertEqual(os.path.normcase(home_dir(environ)), os.path.normcase(os.path.realpath(profile)))
+
 
 class OverlapTest(unittest.TestCase):
     def test_nested_pairs_are_refused_on_both_sides(self):

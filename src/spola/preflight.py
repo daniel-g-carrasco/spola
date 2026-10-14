@@ -57,6 +57,10 @@ def _is_within(child: str, parent: str) -> bool:
 
 def home_dir(environ=None) -> str:
     environ = os.environ if environ is None else environ
+    if os.name == "nt":
+        # the profile: HOME, when set on Windows, is some tool's own (MSYS2,
+        # Git, an editor), as Python itself holds since 3.8
+        return _real(environ.get("USERPROFILE") or os.path.expanduser("~"))
     return _real(environ.get("HOME") or os.path.expanduser("~"))
 
 
