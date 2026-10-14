@@ -63,7 +63,7 @@ class SpolaApp(Adw.Application):
         self.engine.uninhibit = self.uninhibit
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", lambda *_: self._refresh_tray())
-        self.engine.connect("pairs-changed", self._register_explorer)
+        self.engine.connect("pairs-changed", self.register_explorer)
         self.engine.connect("status-changed", lambda *_: self._refresh_tray())
         self.engine.connect("attention", self._on_attention)
         self._load_credentials()
@@ -103,10 +103,11 @@ class SpolaApp(Adw.Application):
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
-        self._register_explorer()
+        self.register_explorer()
         if WINDOWS and getattr(sys, "frozen", False):
             from .explorer_status import ExplorerStatus
-            self.explorer_status = ExplorerStatus(self.engine, f"{sys.executable},0", __version__)
+            exe = os.path.normpath(sys.executable).replace("/", "\\")
+            self.explorer_status = ExplorerStatus(self.engine, f"{exe},0", __version__)
             self.explorer_status.update()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
         if self.engine.cfg.nautilus_integration and not WINDOWS:
@@ -186,13 +187,13 @@ class SpolaApp(Adw.Application):
 
     # -- File Explorer's entries ---------------------------------------------------
 
-    def _register_explorer(self, *_args) -> None:
+    def register_explorer(self, *_args) -> None:
         """The entries for the pairs of now; only from the installed or the
         portable build (a run from the sources has no Spola.exe to call)."""
         if WINDOWS and getattr(sys, "frozen", False):
             from . import explorer
             try:
-                explorer.register(sys.executable, self.engine.cfg.pairs)
+                explorer.register(sys.executable, self.engine.cfg.pairs if self.engine.cfg.explorer_menu else [])
             except OSError:
                 pass
 

@@ -2291,6 +2291,16 @@ msgstr ""
 "Windows: toglie da Esplora file lo stato e le voci di Spola (lo fa il "
 "programma di disinstallazione)"
 
+#: src/spola/window.py:1335
+msgid "Koofr entries in File Explorer's menu"
+msgstr "Voci di Koofr nel menu di Esplora file"
+
+#: src/spola/window.py:1336
+msgid "“Open on Koofr” and “Copy Koofr Share Link”, in the synced folders"
+msgstr ""
+"«Apri su Koofr» e «Copia il link di condivisione Koofr», nelle cartelle "
+"sincronizzate"
+
 #: src/spola/window.py:1329
 msgid "Show sync status in File Explorer"
 msgstr "Mostra lo stato di sincronizzazione in Esplora file"

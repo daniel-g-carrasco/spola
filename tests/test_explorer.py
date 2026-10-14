@@ -63,7 +63,8 @@ class RegistryTest(unittest.TestCase):
         exe = r"C:\Program Files\Spola\Spola.exe"
         try:
             with mock.patch.object(explorer, "CLASSES", classes):
-                explorer.register(exe, [Pair("p1", os.path.expanduser("~"), "/w")])
+                # as MSYS2's Python writes sys.executable: Explorer cannot start that
+                explorer.register(exe.replace("\\", "/"), [Pair("p1", os.path.expanduser("~"), "/w")])
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\Directory\shell\Spola.OpenOnKoofr") as key:
                     self.assertIn("System.ParsingPath", winreg.QueryValueEx(key, "AppliesTo")[0])
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,

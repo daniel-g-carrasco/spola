@@ -84,6 +84,9 @@ def register(exe: str, pairs: list[Pair]) -> None:
     unregister()
     if not pairs:
         return
+    # with backslashes: Explorer cannot start "C:/.../Spola.exe", which is
+    # how MSYS2's Python, the Windows build's, writes sys.executable
+    exe = os.path.normpath(exe).replace("/", "\\")
     condition = applies_to(pairs)
     for target in TARGETS:
         for key_name, text, command in verbs(exe):

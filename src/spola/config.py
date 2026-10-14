@@ -69,6 +69,7 @@ class Config:
     check_updates: bool = True           # Windows: a newer release, once a day at start
     last_update_check: str = ""          # ISO date of the last check made on its own
     explorer_status: bool = True         # Windows: the sync status in File Explorer (cloudfiles.py)
+    explorer_menu: bool = True           # Windows: "Open on Koofr", "Copy Koofr Share Link" (explorer.py)
 
     @property
     def bwlimit(self) -> str | None:
