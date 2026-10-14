@@ -416,6 +416,25 @@ class Plan:
                     or self.replace_local or self.conflicts or self.moved_remote or self.moved_local)
 
 
+def fold_case_renames(plan: Plan, renames) -> None:
+    """Renames by case alone (preflight.case_renames), done on Koofr before
+    the run: bisync, which cannot tell the two names apart there, plans the
+    files they carry as deleted on Koofr and uploaded again (a preview, which
+    renames nothing), and then does nothing with them. One move each."""
+    if not renames:
+        return
+    tops = [r.new.casefold() for r in renames]
+
+    def renamed(path: str) -> bool:
+        folded = path.casefold()
+        return folded in both and any(folded == top or folded.startswith(top + "/") for top in tops)
+
+    both = {p.casefold() for p in plan.upload} & {p.casefold() for p in plan.delete_remote}
+    plan.upload = [p for p in plan.upload if not renamed(p)]
+    plan.delete_remote = [p for p in plan.delete_remote if not renamed(p)]
+    plan.moved_remote = [(r.old, r.new) for r in renames] + plan.moved_remote
+
+
 def describe(plan: Plan) -> str:
     """One line for the row and the toasts: "3 files to Koofr, 1 deleted"."""
     parts = []

@@ -42,7 +42,7 @@ from .config import Config, Pair
 from .i18n import _, every_translation, ngettext
 from .paths import Paths
 from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, describe, find_rclone,
-                     koofr_env, relative_path)
+                     fold_case_renames, koofr_env, relative_path)
 from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
@@ -154,6 +154,7 @@ class Task:
     reason: str = ""
     callback: Callable[[Outcome | None, str], None] | None = None   # (outcome, error)
     cancelled: bool = False         # Stop while the run was still being prepared
+    case_renames: list = field(default_factory=list)    # preflight.CaseRename, done on Koofr first
 
 
 @dataclass
@@ -956,6 +957,14 @@ class Engine(GObject.Object):
                     os.makedirs(override, exist_ok=True)
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override)
                 result = (job, bisync_args(rclone, job.request), "")
+                if task.mode is Mode.SYNC:
+                    # a rename by case alone: on Koofr first (a preview only says it)
+                    task.case_renames = jobs.case_renames(paths, pair)
+                    if task.case_renames and not task.dry_run:
+                        problem = jobs.rename_on_koofr(rclone, koofr_env(creds.user, creds.obscured), cfg, pair,
+                                                       paths, task.case_renames, override)
+                        if problem:
+                            result = (None, None, problem)
                 if task.dry_run:
                     free = free_space(rclone, paths, creds, override)
             except jobs.NotReady as e:
@@ -1140,6 +1149,7 @@ class Engine(GObject.Object):
             self._inhibit_cookie = 0
         pair = self.cfg.pair(task.pair_id)
         rt = self.runtime.get(task.pair_id)
+        fold_case_renames(outcome.plan, task.case_renames)
         if pair is not None and rt is not None:
             rt.run, rt.task = None, None
             if not task.dry_run:

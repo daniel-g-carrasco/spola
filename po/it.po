@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: spola\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-14 00:09+0200\n"
+"POT-Creation-Date: 2026-10-14 01:57+0200\n"
 "PO-Revision-Date: 2026-10-10 16:00+0200\n"
 "Last-Translator: Daniel Grasso <code@danielgrasso.com>\n"
 "Language-Team: Italian\n"
@@ -185,7 +185,7 @@ msgstr "Crea"
 msgid "Start without opening the window"
 msgstr "Avvia senza aprire la finestra"
 
-#: src/spola/app.py:207 src/spola/dbus_service.py:241 src/spola/engine.py:460
+#: src/spola/app.py:207 src/spola/dbus_service.py:241 src/spola/engine.py:461
 msgid "Not signed in to Koofr"
 msgstr "Accesso a Koofr non effettuato"
 
@@ -320,7 +320,7 @@ msgid "Left out: Koofr does not accept these names (rename them to sync them)"
 msgstr ""
 "Lasciati fuori: Koofr non accetta questi nomi (rinominali per sincronizzarli)"
 
-#: src/spola/cli.py:78 src/spola/engine.py:655 src/spola/window.py:1372
+#: src/spola/cli.py:78 src/spola/engine.py:656 src/spola/window.py:1372
 msgid "Nothing to do: the two folders already match."
 msgstr "Niente da fare: le due cartelle sono già allineate."
 
@@ -331,7 +331,7 @@ msgid_plural "{n} files"
 msgstr[0] "{n} file"
 msgstr[1] "{n} file"
 
-#: src/spola/cli.py:112 src/spola/engine.py:1025
+#: src/spola/cli.py:112 src/spola/engine.py:1034
 msgid "This folder is being synced by another Spola process."
 msgstr ""
 "Questa cartella è già in sincronizzazione da un altro processo di Spola."
@@ -398,7 +398,7 @@ msgstr "sincronizza subito una coppia"
 msgid "go past the safety checks (only after looking at the preview)"
 msgstr "supera i controlli di sicurezza (solo dopo aver guardato l'anteprima)"
 
-#: src/spola/cli.py:169 src/spola/engine.py:931 src/spola/window.py:248
+#: src/spola/cli.py:169 src/spola/engine.py:932 src/spola/window.py:248
 msgid "rclone was not found."
 msgstr "rclone non è stato trovato."
 
@@ -592,7 +592,7 @@ msgstr "Impossibile spostare “{name}” nel cestino: {error}"
 msgid "That version is no longer there."
 msgstr "Quella versione non c'è più."
 
-#: src/spola/conflicts.py:183 src/spola/engine.py:790
+#: src/spola/conflicts.py:183 src/spola/engine.py:791
 #, python-brace-format
 msgid "A file named “{name}” exists now: rename it first."
 msgstr "Adesso esiste un file di nome «{name}»: prima rinominalo."
@@ -612,65 +612,65 @@ msgstr "{stem} (Koofr {date}){ext}"
 msgid "“{name}” is not in a folder synced with Koofr."
 msgstr "«{name}» non è in una cartella sincronizzata con Koofr."
 
-#: src/spola/engine.py:462
+#: src/spola/engine.py:463
 msgid "rclone is missing"
 msgstr "manca rclone"
 
-#: src/spola/engine.py:464 src/spola/engine.py:501 src/spola/ui.py:79
+#: src/spola/engine.py:465 src/spola/engine.py:502 src/spola/ui.py:79
 #: src/spola/window.py:504 src/spola/window.py:508
 msgid "Paused"
 msgstr "In pausa"
 
-#: src/spola/engine.py:466
+#: src/spola/engine.py:467
 msgid "Offline"
 msgstr "Non in linea"
 
-#: src/spola/engine.py:468
+#: src/spola/engine.py:469
 msgid "Paused on a metered connection"
 msgstr "In pausa su una connessione a consumo"
 
-#: src/spola/engine.py:470
+#: src/spola/engine.py:471
 msgid "Paused in power saver mode"
 msgstr "In pausa con il risparmio energetico"
 
-#: src/spola/engine.py:503 src/spola/ui.py:80
+#: src/spola/engine.py:504 src/spola/ui.py:80
 msgid "First alignment to confirm"
 msgstr "Primo allineamento da confermare"
 
-#: src/spola/engine.py:554 src/spola/engine.py:698
+#: src/spola/engine.py:555 src/spola/engine.py:699
 msgid "This folder is no longer synced."
 msgstr "Questa cartella non è più sincronizzata."
 
-#: src/spola/engine.py:597 src/spola/engine.py:640 src/spola/engine.py:934
-#: src/spola/engine.py:1008
+#: src/spola/engine.py:598 src/spola/engine.py:641 src/spola/engine.py:935
+#: src/spola/engine.py:1017
 msgid "Stopped."
 msgstr "Fermato."
 
-#: src/spola/engine.py:642 src/spola/window.py:1345
+#: src/spola/engine.py:643 src/spola/window.py:1345
 msgid "The preview failed"
 msgstr "L'anteprima non è riuscita"
 
-#: src/spola/engine.py:731 src/spola/engine.py:734
+#: src/spola/engine.py:732 src/spola/engine.py:735
 msgid "The exclusions changed"
 msgstr "Le esclusioni sono cambiate"
 
-#: src/spola/engine.py:788
+#: src/spola/engine.py:789
 #, python-brace-format
 msgid "“{name}” is no longer there."
 msgstr "“{name}” non c'è più."
 
-#: src/spola/engine.py:811
+#: src/spola/engine.py:812
 msgid "Wait for the current sync to finish."
 msgstr "Aspetta che finisca la sincronizzazione in corso."
 
-#: src/spola/engine.py:849
+#: src/spola/engine.py:850
 #, python-brace-format
 msgid "{n} conflict resolved: both versions are kept, renamed."
 msgid_plural "{n} conflicts resolved: both versions are kept, renamed."
 msgstr[0] "{n} conflitto risolto: restano entrambe le versioni, rinominate."
 msgstr[1] "{n} conflitti risolti: restano entrambe le versioni, rinominate."
 
-#: src/spola/engine.py:852
+#: src/spola/engine.py:853
 #, python-brace-format
 msgid ""
 "{n} conflict resolved by the folder's rule: the version not kept is in the "
@@ -685,7 +685,7 @@ msgstr[1] ""
 "{n} conflitti risolti con la regola della cartella: le versioni scartate "
 "sono nel cestino."
 
-#: src/spola/engine.py:860
+#: src/spola/engine.py:861
 #, python-brace-format
 msgid "{n} file was changed both here and on Koofr: both versions are kept."
 msgid_plural ""
@@ -695,34 +695,34 @@ msgstr[0] ""
 msgstr[1] ""
 "{n} file sono cambiati sia qui sia su Koofr: restano entrambe le versioni."
 
-#: src/spola/engine.py:929 src/spola/engine.py:1015
+#: src/spola/engine.py:930 src/spola/engine.py:1024
 msgid "Sign in to Koofr first."
 msgstr "Prima accedi a Koofr."
 
-#: src/spola/engine.py:946
+#: src/spola/engine.py:947
 msgid "Preparing…"
 msgstr "Preparazione…"
 
-#: src/spola/engine.py:1040
+#: src/spola/engine.py:1049
 msgid "Syncing with Koofr"
 msgstr "Sincronizzazione con Koofr"
 
-#: src/spola/engine.py:1041
+#: src/spola/engine.py:1050
 msgid "Syncing…"
 msgstr "Sincronizzazione…"
 
-#: src/spola/engine.py:1178
+#: src/spola/engine.py:1188
 #, python-brace-format
 msgid "{n} file is not synced: Koofr does not accept its name."
 msgid_plural "{n} files are not synced: Koofr does not accept their names."
 msgstr[0] "{n} file non è sincronizzato: Koofr non accetta il suo nome."
 msgstr[1] "{n} file non sono sincronizzati: Koofr non accetta i loro nomi."
 
-#: src/spola/engine.py:1222
+#: src/spola/engine.py:1232
 msgid "The sync stopped with an error."
 msgstr "La sincronizzazione si è fermata per un errore."
 
-#: src/spola/engine.py:1224
+#: src/spola/engine.py:1234
 #, python-brace-format
 msgid "Koofr cannot be reached right now: trying again in {n} min."
 msgstr ""
@@ -734,13 +734,18 @@ msgstr "Link di condivisione Koofr…"
 
 #. TRANSLATORS: goes into file names, e.g. report.conflict-local-2026-10-10-1.odt;
 #. use letters and "-" only
-#: src/spola/jobs.py:37
+#: src/spola/jobs.py:39
 msgid "conflict-local"
 msgstr "conflitto-locale"
 
-#: src/spola/jobs.py:37
+#: src/spola/jobs.py:39
 msgid "conflict-koofr"
 msgstr "conflitto-koofr"
+
+#: src/spola/jobs.py:169
+#, python-brace-format
+msgid "Could not rename “{old}” to “{new}” on Koofr: {error}"
+msgstr "Non è stato possibile rinominare “{old}” in “{new}” su Koofr: {error}"
 
 #: src/spola/migrate.py:45
 msgid "Koofr Desktop is running or set to start at login: stop it first."
@@ -834,19 +839,19 @@ msgstr ""
 msgid "The local folder cannot be written: {error}"
 msgstr "Non si riesce a scrivere nella cartella locale: {error}"
 
-#: src/spola/preflight.py:280 src/spola/preflight.py:405
+#: src/spola/preflight.py:344 src/spola/preflight.py:469
 msgid "Koofr does not accept emoji and similar characters in names."
 msgstr "Koofr non accetta emoji e caratteri simili nei nomi."
 
-#: src/spola/preflight.py:282
+#: src/spola/preflight.py:346
 msgid "The name is longer than the 255 characters Koofr accepts."
 msgstr "Il nome supera i 255 caratteri che Koofr accetta."
 
-#: src/spola/preflight.py:284 src/spola/preflight.py:406
+#: src/spola/preflight.py:348 src/spola/preflight.py:470
 msgid "The path is longer than the 1023 characters Koofr accepts."
 msgstr "Il percorso supera i 1023 caratteri che Koofr accetta."
 
-#: src/spola/preflight.py:287
+#: src/spola/preflight.py:351
 #, python-brace-format
 msgid ""
 "Koofr does not tell upper and lower case apart: this name collides with "
@@ -855,11 +860,11 @@ msgstr ""
 "Koofr non distingue maiuscole e minuscole: questo nome si scontra con "
 "«{other}»."
 
-#: src/spola/preflight.py:358
+#: src/spola/preflight.py:422
 msgid "Untitled"
 msgstr "Senza nome"
 
-#: src/spola/preflight.py:403
+#: src/spola/preflight.py:467
 #, python-brace-format
 msgid ""
 "Koofr does not tell upper and lower case apart: “{other}” is synced in its "
@@ -868,7 +873,7 @@ msgstr ""
 "Koofr non distingue maiuscole e minuscole: al suo posto viene sincronizzato "
 "«{other}»."
 
-#: src/spola/preflight.py:407
+#: src/spola/preflight.py:471
 msgid ""
 "Another name in the same folder differs only in upper and lower case, and "
 "Koofr does not tell them apart."
@@ -926,35 +931,35 @@ msgid_plural "about {n} hours left"
 msgstr[0] "manca circa {n} ora"
 msgstr[1] "mancano circa {n} ore"
 
-#: src/spola/rclone.py:423
+#: src/spola/rclone.py:442
 #, python-brace-format
 msgid "{n} file to Koofr"
 msgid_plural "{n} files to Koofr"
 msgstr[0] "{n} file su Koofr"
 msgstr[1] "{n} file su Koofr"
 
-#: src/spola/rclone.py:426
+#: src/spola/rclone.py:445
 #, python-brace-format
 msgid "{n} file from Koofr"
 msgid_plural "{n} files from Koofr"
 msgstr[0] "{n} file da Koofr"
 msgstr[1] "{n} file da Koofr"
 
-#: src/spola/rclone.py:429
+#: src/spola/rclone.py:448
 #, python-brace-format
 msgid "{n} moved"
 msgid_plural "{n} moved"
 msgstr[0] "{n} spostato"
 msgstr[1] "{n} spostati"
 
-#: src/spola/rclone.py:432
+#: src/spola/rclone.py:451
 #, python-brace-format
 msgid "{n} deleted"
 msgid_plural "{n} deleted"
 msgstr[0] "{n} eliminato"
 msgstr[1] "{n} eliminati"
 
-#: src/spola/rclone.py:434
+#: src/spola/rclone.py:453
 #, python-brace-format
 msgid "{n} conflict"
 msgid_plural "{n} conflicts"

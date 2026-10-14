@@ -382,6 +382,27 @@ class EngineTest(unittest.TestCase):
                                        and self.engine.runtime[pair.id].status is Status.OK, 60))
         self.assertFalse(self.engine.confirmed_waiting(first.id))
 
+    def test_a_rename_by_case_alone_is_done_on_koofr_first(self):
+        self.align()
+        (self.local / "Caps").mkdir()
+        for i in range(3):
+            (self.local / "Caps" / f"clip-{i}.txt").write_text(str(i))
+        self.assertTrue(spin_until(lambda: (self.remote / "Caps" / "clip-2.txt").exists()
+                                   and self.engine.active is None and not self.engine.queue, 30))
+        os.rename(self.local / "Caps", self.local / "caps")
+        finished = []
+        self.engine.connect("run-finished", lambda _e, pid, reason: finished.append(reason))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "manual" in finished, 30))
+        self.assertEqual(sorted(p.name for p in self.remote.iterdir() if p.is_dir()), ["caps"])
+        self.assertEqual(len(list((self.remote / "caps").iterdir())), 3)
+        plan = self.engine.runtime["p1"].last_outcome.plan
+        self.assertEqual(plan.moved_remote, [("Caps", "caps")])
+        self.assertEqual(plan.upload + plan.delete_remote + plan.download + plan.delete_local, [])
+        # the rename seen by the folder monitor: one more run, with nothing to do
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
+        self.assertEqual(sorted(p.name for p in self.local.iterdir() if p.is_dir()), ["caps"])
+
     def test_confirming_stops_a_preview_still_running(self):
         kept, got = self.preview_of("p1")
         self.engine.confirm("p1", Mode.RESYNC, False)

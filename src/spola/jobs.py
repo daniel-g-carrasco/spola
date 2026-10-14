@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +20,8 @@ from pathlib import Path
 from . import listings
 from .config import Config, Pair
 from .paths import Paths
-from .preflight import Problem, Refused, check_koofr_desktop, check_root_identity, refused_paths
+from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
+                        check_root_identity, refused_paths)
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
@@ -127,6 +129,60 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
+
+
+def case_renames(paths: Paths, pair: Pair) -> list[CaseRename]:
+    """The renames by case alone made here since the last run (see
+    preflight.case_renames), from the two listings of that run."""
+    workdir = paths.workdir(pair.id)
+    try:
+        before, koofr = listings.load(workdir, 1), listings.load(workdir, 2)
+    except (OSError, ValueError):
+        return []
+    if not before or not koofr:
+        return []
+    return find_case_renames(pair.local, (e.path for e in before), (e.path for e in koofr))
+
+
+def _join(root: str, rel: str) -> str:
+    return root + rel if root.endswith((":", "/")) else f"{root}/{rel}"
+
+
+def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Paths, renames: list[CaseRename],
+                    path2_override: str | None = None) -> str:
+    """The renames by case alone, done on Koofr before the run, on the
+    server (a folder at once). Koofr is asked for the name it has first: a
+    run stopped by a safety check after renaming leaves it done for the next.
+    '' when done, else what went wrong."""
+    root = path2_override or remote_spec(pair.remote)
+    common = ["--config", str(paths.rclone_config), "--color", "NEVER"]
+    if cfg.instance_id:
+        common += ["--user-agent", user_agent(cfg.instance_id)]     # Spola's own change, for the feed
+
+    def rclone_run(*args: str) -> subprocess.CompletedProcess:
+        return subprocess.run([rclone, *args, *common], env=env, capture_output=True, text=True, timeout=600)
+
+    for r in renames:
+        parent, _sep, name = r.koofr.rpartition("/")
+        target_name = r.new.rpartition("/")[2]
+        try:
+            listed = rclone_run("lsf", "--max-depth", "1", _join(root, parent) if parent else root)
+            if listed.returncode != 0:
+                continue        # the folder is gone: bisync will see what happened
+            names = [line.rstrip("/") for line in listed.stdout.splitlines()]
+            current = next((n for n in names if n.casefold() == name.casefold()), None)
+            if current is None or current == target_name:
+                continue        # gone, or renamed already
+            source = f"{parent}/{current}" if parent else current
+            target = f"{parent}/{target_name}" if parent else target_name
+            done = rclone_run("moveto", _join(root, source), _join(root, target))
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return str(e)
+        if done.returncode != 0:
+            lines = [line for line in done.stderr.splitlines() if line.strip()]
+            return _("Could not rename “{old}” to “{new}” on Koofr: {error}").format(
+                old=source, new=target, error=lines[-1] if lines else done.returncode)
+    return ""
 
 
 def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = None) -> int:
