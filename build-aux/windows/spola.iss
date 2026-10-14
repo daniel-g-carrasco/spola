@@ -59,13 +59,23 @@ Name: "{group}\Spola"; Filename: "{app}\Spola.exe"; Comment: "{cm:AppDescription
 Name: "{autodesktop}\Spola"; Filename: "{app}\Spola.exe"; Tasks: desktopicon; AppUserModelID: "io.github.daniel_g_carrasco.spola"
 
 [Run]
-Filename: "{app}\Spola.exe"; Description: "{cm:LaunchProgram,Spola}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Spola.exe"; Description: "{cm:LaunchProgram,Spola}"; Flags: nowait postinstall skipifsilent; Check: not SpolaWasRunning
+; an update (from Spola's own dialog, /SILENT) starts again the Spola it closed
+Filename: "{app}\Spola.exe"; Flags: nowait runasoriginaluser; Check: SpolaWasRunning
 
 [Code]
 const
   WM_CLOSE = $0010;
   TrayWindowClass = 'io.github.daniel_g_carrasco.spola.tray';
   QuitTimeoutMs = 100000;
+
+var
+  WasRunning: Boolean;
+
+function SpolaWasRunning(): Boolean;
+begin
+  Result := WasRunning;
+end;
 
 { The processes started from Spola's folder (Spola.exe, its gdbus.exe), by
   WMI; with Terminate, ended. Only those: another app's gdbus.exe is left
@@ -108,6 +118,7 @@ var
   Waited: Integer;
 begin
   if FindWindowByClassName(TrayWindowClass) <> 0 then begin
+    WasRunning := True;
     Log('Spola is running: asking it to quit');
     PostMessage(FindWindowByClassName(TrayWindowClass), WM_CLOSE, 0, 0);
     Waited := 0;

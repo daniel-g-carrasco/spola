@@ -66,6 +66,8 @@ class Config:
     conflict_rule: str = "ask"           # for new conflicts: "ask", "newer", "both"
     upload_limit_kb: int = 0             # KiB/s to Koofr, 0 = no limit
     download_limit_kb: int = 0           # KiB/s from Koofr, 0 = no limit
+    check_updates: bool = True           # Windows: a newer release, once a day at start
+    last_update_check: str = ""          # ISO date of the last check made on its own
 
     @property
     def bwlimit(self) -> str | None:

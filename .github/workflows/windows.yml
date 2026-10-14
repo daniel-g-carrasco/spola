@@ -8,6 +8,9 @@ name: Windows
 on:
   push:
     branches: [windows]
+    # a release: the installer and the portable zip join the Flatpak that
+    # build.yml publishes (Spola's update check downloads the installer)
+    tags: ["v*"]
   workflow_dispatch:
 
 env:
@@ -80,6 +83,8 @@ jobs:
 
   package:
     runs-on: windows-latest
+    permissions:
+      contents: write         # the release's files, on a tag
     defaults:
       run:
         shell: msys2 {0}
@@ -163,6 +168,23 @@ jobs:
           $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -Wait -PassThru
           Get-Content update.log | Select-String 'Spola is running|Spola quit|Ending|WMI|RestartManager|succeeded|Abort'
           if ($p.ExitCode -ne 0) { Write-Error "update over a running Spola: $($p.ExitCode)"; exit 1 }
+      - name: Attach to the release (a v* tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="$(python -c 'import sys; sys.path.insert(0, "src"); import spola; print(spola.__version__)')"
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
+          fi
+          # build.yml creates the release with the Flatpak, later: wait for it
+          for i in $(seq 1 80); do
+            gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "${GITHUB_REF_NAME}" dist/spola-setup-*.exe dist/spola-*-windows-x64-portable.zip \
+            --repo "${GITHUB_REPOSITORY}" --clobber
       - uses: actions/upload-artifact@v7
         with:
           name: spola-windows

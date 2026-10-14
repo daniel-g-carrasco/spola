@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from pathlib import Path
 
 import gi
@@ -14,17 +15,19 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, WINDOWS, autostart, config, file_managers, portal, recent, secrets  # noqa: E402
+from . import (APP_ID, APP_NAME, WINDOWS, __version__, autostart, config, file_managers, portal, recent,  # noqa: E402
+               secrets)
 from .account import Credentials  # noqa: E402
 from .dbus_service import SyncService  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .ui import progress_text, status_badge, status_text, time_left, tray_icon  # noqa: E402
+from .ui import progress_text, run_in_thread, status_badge, status_text, time_left, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
+UPDATE_CHECK_DELAY_S = 60
 
 
 class SpolaApp(Adw.Application):
@@ -68,6 +71,7 @@ class SpolaApp(Adw.Application):
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
                               ("about", lambda: about_dialog(self._window())),
                               ("import-koofr-desktop", lambda: self._window().import_koofr_desktop()),
+                              ("check-updates", lambda: self.check_updates(manual=True)),
                               ("preferences", lambda: PreferencesDialog(self._window()).present(self._window()))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())
@@ -100,6 +104,47 @@ class SpolaApp(Adw.Application):
                 file_managers.install()      # a newer Spola brings a newer extension
             except (OSError, FileNotFoundError):
                 pass
+        if WINDOWS:
+            # once a day, a while after start: the syncs come first
+            GLib.timeout_add_seconds(UPDATE_CHECK_DELAY_S, self._daily_update_check)
+
+    # -- a newer Spola (Windows: on Linux the Flatpak brings it) ----------------------
+
+    def _daily_update_check(self) -> bool:
+        cfg = self.engine.cfg
+        today = time.strftime("%Y-%m-%d")
+        if cfg.check_updates and cfg.last_update_check != today:
+            cfg.last_update_check = today
+            self.engine.save_config()
+            self.check_updates(manual=False)
+        return False
+
+    def check_updates(self, manual: bool) -> None:
+        from . import updates
+
+        def done(release, error) -> None:
+            if error:
+                if manual:
+                    self._window().toast(_("The check for updates failed: {error}").format(error=error))
+                return
+            if not updates.is_newer(release.version):
+                if manual:
+                    self._window().toast(_("Spola {version} is up to date").format(version=__version__))
+                return
+            if manual or (self.window is not None and self.window.is_active()):
+                self._show_update(release)
+            else:
+                self.tray.notify(_("Spola {version} is available").format(version=release.version),
+                                 _("Click to see what is new and update."), lambda: self._show_update(release),
+                                 tag="update")
+
+        run_in_thread(updates.latest_release, done)
+
+    def _show_update(self, release) -> None:
+        from .update_dialog import UpdateDialog
+        window = self._window()
+        window.present()
+        UpdateDialog(release).present(window)
 
     def _load_credentials(self) -> None:
         if self.engine.dev_remote:
