@@ -2,7 +2,8 @@ name: Windows
 
 # The Windows port, step 1: what of Spola runs on Windows as it is. The tests
 # and the window, under MSYS2's GTK 4 and libadwaita (the recipe of
-# p7m-extractor and pdf-cropper), with a local folder as the "Koofr" side.
+# p7m-extractor and pdf-cropper; UCRT64, the only one with libadwaita),
+# with a local folder as the "Koofr" side.
 
 on:
   push:
@@ -22,15 +23,15 @@ jobs:
       - uses: actions/checkout@v7
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
             unzip
             gettext
-            mingw-w64-x86_64-gtk4
-            mingw-w64-x86_64-libadwaita
-            mingw-w64-x86_64-python
-            mingw-w64-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gobject
       - name: rclone for Windows
         run: |
           curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-windows-amd64.zip"
