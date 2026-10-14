@@ -94,7 +94,8 @@ class ImportDialog(Adw.Dialog):
 
     def _show_state(self, state: preflight.KoofrDesktopState) -> None:
         def mark(icon: Gtk.Image, done: bool) -> None:
-            icon.set_from_icon_name("emblem-ok-symbolic" if done else "dialog-warning-symbolic")
+            # object-select: the tick Adwaita has (no emblem-ok in its theme)
+            icon.set_from_icon_name("object-select-symbolic" if done else "dialog-warning-symbolic")
             icon.set_css_classes(["success"] if done else ["warning"])
 
         mark(self.running_icon, not state.running)
