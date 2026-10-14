@@ -2273,3 +2273,12 @@ msgstr "il file scaricato non corrisponde alla versione pubblicata: non è stato
 #, python-brace-format
 msgid "download failed ({code})"
 msgstr "download non riuscito ({code})"
+
+#: src/spola/app.py:233
+#, python-brace-format
+msgid "The link could not be made: {error}"
+msgstr "Non è stato possibile creare il link: {error}"
+
+#: src/spola/app.py:236
+msgid "Koofr link copied"
+msgstr "Link di Koofr copiato"

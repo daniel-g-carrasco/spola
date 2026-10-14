@@ -157,5 +157,10 @@ begin
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Spola');
     { the name and icon of its toasts, written by Spola itself }
     RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\AppUserModelId\io.github.daniel_g_carrasco.spola');
+    { its entries in File Explorer (explorer.py), written by Spola itself }
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\Spola.OpenOnKoofr');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\*\shell\Spola.CopyKoofrLink');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\Spola.OpenOnKoofr');
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\Directory\shell\Spola.CopyKoofrLink');
   end;
 end;
