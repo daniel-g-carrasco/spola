@@ -73,7 +73,7 @@ const
 function AppProcesses(Terminate: Boolean): Integer;
 var
   Locator, Service, Items, Item: Variant;
-  Dir: String;
+  Dir, Name: String;
   I: Integer;
 begin
   Result := 0;
@@ -87,7 +87,8 @@ begin
     for I := 0 to Items.Count - 1 do begin
       Item := Items.ItemIndex(I);
       if Terminate then begin
-        Log(Format('Ending %s (%d)', [Item.Name, Item.ProcessId]));
+        Name := Item.Name;      { a Variant: Format() does not take it }
+        Log('Ending ' + Name);
         Item.Terminate();
       end;
     end;
