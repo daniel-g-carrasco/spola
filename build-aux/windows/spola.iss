@@ -67,25 +67,64 @@ const
   TrayWindowClass = 'io.github.daniel_g_carrasco.spola.tray';
   QuitTimeoutMs = 100000;
 
+{ The processes started from Spola's folder (Spola.exe, its gdbus.exe), by
+  WMI; with Terminate, ended. Only those: another app's gdbus.exe is left
+  alone. }
+function AppProcesses(Terminate: Boolean): Integer;
+var
+  Locator, Service, Items, Item: Variant;
+  Dir: String;
+  I: Integer;
+begin
+  Result := 0;
+  try
+    Dir := AddBackslash(ExpandConstant('{app}'));
+    StringChangeEx(Dir, '\', '\\', True);
+    Locator := CreateOleObject('WbemScripting.SWbemLocator');
+    Service := Locator.ConnectServer('.', 'root\CIMV2');
+    Items := Service.ExecQuery('SELECT Name, ProcessId FROM Win32_Process WHERE ExecutablePath LIKE ''' + Dir + '%''');
+    Result := Items.Count;
+    for I := 0 to Items.Count - 1 do begin
+      Item := Items.ItemIndex(I);
+      if Terminate then begin
+        Log(Format('Ending %s (%d)', [Item.Name, Item.ProcessId]));
+        Item.Terminate();
+      end;
+    end;
+  except
+    Log('WMI: ' + GetExceptionMessage);
+  end;
+end;
+
 { A running Spola is asked to quit through the window of its icon, and
   quits gracefully: rclone stopped with its state saved (up to 95 s when it
-  has transfers to finish). The Restart Manager alone cannot close it: it
-  lives in the notification area, and its gdbus.exe has no window. }
+  has transfers to finish); the window goes when that is done. The Restart
+  Manager alone cannot close it: it lives in the notification area, and its
+  gdbus.exe has no window. What is left a few seconds after (the process
+  ending, gdbus.exe) is ended. }
 procedure QuitSpola();
 var
   Waited: Integer;
 begin
-  if FindWindowByClassName(TrayWindowClass) = 0 then
-    exit;
-  Log('Spola is running: asking it to quit');
-  PostMessage(FindWindowByClassName(TrayWindowClass), WM_CLOSE, 0, 0);
+  if FindWindowByClassName(TrayWindowClass) <> 0 then begin
+    Log('Spola is running: asking it to quit');
+    PostMessage(FindWindowByClassName(TrayWindowClass), WM_CLOSE, 0, 0);
+    Waited := 0;
+    while (FindWindowByClassName(TrayWindowClass) <> 0) and (Waited < QuitTimeoutMs) do begin
+      Sleep(250);
+      Waited := Waited + 250;
+    end;
+    Log(Format('Spola quit after %d ms', [Waited]));
+  end;
   Waited := 0;
-  while (FindWindowByClassName(TrayWindowClass) <> 0) and (Waited < QuitTimeoutMs) do begin
+  while (AppProcesses(False) > 0) and (Waited < 10000) do begin
     Sleep(250);
     Waited := Waited + 250;
   end;
-  Sleep(1500);    { the process, and its gdbus.exe, end after the window }
-  Log(Format('Spola quit after %d ms', [Waited]));
+  if AppProcesses(False) > 0 then begin
+    AppProcesses(True);
+    Sleep(1000);
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
