@@ -13,7 +13,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
-from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL  # noqa: E402
+from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL, WINDOWS  # noqa: E402
 from . import account, activity, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
@@ -148,6 +148,8 @@ class MainWindow(Adw.ApplicationWindow):
         menu.append_section(None, section)
         section = Gio.Menu()
         section.append(_("Preferences"), "app.preferences")
+        if WINDOWS:     # on Linux the Flatpak brings a newer Spola
+            section.append(_("Check for Updates…"), "app.check-updates")
         section.append(_("About Spola"), "app.about")
         section.append(_("Quit"), "app.quit")
         menu.append_section(None, section)
@@ -1315,6 +1317,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
                              active=cfg.autostart)
         auto.connect("notify::active", lambda r, _p: self._set_autostart(r.get_active()))
         group.add(auto)
+        if WINDOWS:
+            updates = Adw.SwitchRow(title=_("Check for updates"), subtitle=_("Once a day, from Spola's releases"),
+                                    active=cfg.check_updates)
+            updates.connect("notify::active", lambda r, _p: self._set("check_updates", r.get_active()))
+            group.add(updates)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("File Manager"))
