@@ -47,9 +47,10 @@ def _real(path: str) -> str:
 
 def _is_within(child: str, parent: str) -> bool:
     if os.name == "nt":
-        # C:\Users\me and c:/users/ME are the same folder
-        child, parent = (os.path.normcase(p).rstrip("\\") for p in (child, parent))
-        return child == parent or child.startswith(parent + "\\")
+        # C:\Users\me and c:/users/ME are the same folder (MSYS2's Python,
+        # which the Windows build uses, writes "/" itself)
+        child, parent = (p.replace("\\", "/").casefold().rstrip("/") for p in (child, parent))
+        return child == parent or child.startswith(parent + "/")
     child, parent = child.rstrip("/") or "/", parent.rstrip("/") or "/"
     return child == parent or child.startswith(parent + "/") or parent == "/"
 
@@ -69,7 +70,7 @@ def _check_windows_root(real: str, home: str, path: str) -> list[Problem]:
     if _is_within(home, real):
         return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]
     if _is_within(real, home):
-        first = os.path.relpath(real, home).split(os.sep)[0].casefold()
+        first = os.path.relpath(real, home).replace("\\", "/").split("/")[0].casefold()
         if first in PROTECTED_IN_PROFILE:
             return [Problem("protected", _("This folder holds settings and data of the system or of other apps and cannot be synced."), path)]
         return []

@@ -13,6 +13,7 @@ import time
 import unittest
 from pathlib import Path
 
+import _setup
 from _setup import rclone_binary
 
 from spola import jobs
@@ -250,18 +251,20 @@ class BisyncScenarios(unittest.TestCase):
         for i in range(5):
             self.write(self.local, f"f{i}.txt", str(i), age=600)
         self.align()
-        self.write(self.local, "foto \U0001F600 [1]*.jpg", "emoji and glob characters")
+        # glob characters too, where the file system allows them ("*" is not a name on Windows)
+        odd = "foto \U0001F600 [1].jpg" if _setup.WINDOWS else "foto \U0001F600 [1]*.jpg"
+        self.write(self.local, odd, "emoji and glob characters")
         self.write(self.local, "Vacanze \U0001F334/a.jpg", "in a folder with an emoji")
         self.write(self.local, "normale.txt", "this one must still go")
         (self.local / "f0.txt").unlink()                  # and deletions still apply
         job = jobs.prepare(self.cfg, self.pair, self.paths, Mode.SYNC, path2_override=str(self.remote))
-        self.assertEqual(sorted(r.path for r in job.refused), ["Vacanze \U0001F334", "foto \U0001F600 [1]*.jpg"])
+        self.assertEqual(sorted(r.path for r in job.refused), ["Vacanze \U0001F334", odd])
         out = self.bisync()
         self.assertIs(out.result, Result.OK, out.message)
         self.assertEqual(self.files(self.remote), ["f1.txt", "f2.txt", "f3.txt", "f4.txt", "normale.txt"])
-        self.assertTrue((self.local / "foto \U0001F600 [1]*.jpg").exists())     # never touched
+        self.assertTrue((self.local / odd).exists())     # never touched
         # renamed: synced at the next run
-        (self.local / "foto \U0001F600 [1]*.jpg").rename(self.local / "foto.jpg")
+        (self.local / odd).rename(self.local / "foto.jpg")
         out = self.bisync()
         self.assertIs(out.result, Result.OK, out.message)
         self.assertIn("foto.jpg", self.files(self.remote))

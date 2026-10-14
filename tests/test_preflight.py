@@ -10,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-import _setup  # noqa: F401
+import _setup
 
 from spola.config import Config, Pair
 from spola.preflight import (
@@ -24,6 +24,7 @@ def codes(problems):
     return [p.code for p in problems]
 
 
+@unittest.skipIf(_setup.WINDOWS, "Linux folders (Windows: WindowsRootTest)")
 class LocalRootTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -59,6 +60,21 @@ class LocalRootTest(unittest.TestCase):
         self.assertEqual(codes(check_local_root("data/work", str(self.home))), ["not-absolute"])
         os.symlink(self.home / "data", self.home / "link")
         self.assertEqual(self.check("link"), ["symlink-root"])
+
+
+@unittest.skipUnless(_setup.WINDOWS, "Windows only")
+class WindowsRootTest(unittest.TestCase):
+    def test_the_profile_but_not_its_app_data_or_the_system(self):
+        home = os.path.expanduser("~")
+        with tempfile.TemporaryDirectory(dir=home) as tmp:
+            self.assertEqual(check_local_root(tmp, home), [])
+            self.assertEqual(check_local_root(tmp.replace("\\", "/").upper(), home), [])
+        self.assertEqual(codes(check_local_root(os.path.dirname(home), home)), ["too-broad"])
+        appdata = os.path.join(home, "AppData", "Local")
+        if os.path.isdir(appdata):
+            self.assertEqual(codes(check_local_root(appdata, home)), ["protected"])
+        windows = os.environ.get("SystemRoot", "C:\\Windows")
+        self.assertEqual(codes(check_local_root(windows, home)), ["outside-home"])
 
 
 class OverlapTest(unittest.TestCase):
@@ -132,6 +148,7 @@ class KoofrDesktopTest(unittest.TestCase):
             os.utime(log, (old, old))
             self.assertFalse(koofr_desktop_active(auto, logs))
 
+    @unittest.skipIf(_setup.WINDOWS, "the Flatpak is Linux only")
     def test_host_config_dir_inside_the_flatpak(self):
         from spola import preflight
         saved = {k: os.environ.get(k) for k in ("FLATPAK_ID", "XDG_CONFIG_HOME", "HOST_XDG_CONFIG_HOME")}
@@ -177,10 +194,13 @@ class CaseRenameTest(unittest.TestCase):
 
     def test_what_is_not_a_rename_by_case(self):
         root = str(self.root)
-        self.make("a.txt", "Two.txt", "TWO.txt", "done.txt", "Sub/x.txt")
-        # both names were there before; gone; two names to choose from
-        self.assertEqual(case_renames(root, ["A.txt", "a.txt", "gone.txt", "two.txt"],
-                                      ["A.txt", "a.txt", "gone.txt", "two.txt"]), [])
+        self.make("a.txt", "done.txt", "Sub/x.txt")
+        # both names were there before; gone
+        self.assertEqual(case_renames(root, ["A.txt", "a.txt", "gone.txt"], ["A.txt", "a.txt", "gone.txt"]), [])
+        if _setup.case_sensitive(root):
+            # two names to choose from (not on NTFS, where they are one file)
+            self.make("Two.txt", "TWO.txt")
+            self.assertEqual(case_renames(root, ["two.txt"], ["two.txt"]), [])
         # Koofr has the new name already, or not the old one
         self.assertEqual(case_renames(root, ["Done.txt"], ["done.txt"]), [])
         self.assertEqual(case_renames(root, ["Done.txt"], []), [])
@@ -231,10 +251,11 @@ class NameScanTest(unittest.TestCase):
             (t / "ok àèì.txt").write_text("e")
             (t / "sub").mkdir()
             (t / "sub" / "Report.pdf").write_text("f")   # same name, other folder: fine
-            self.assertEqual(sorted(codes(scan_names(tmp))), ["case-collision", "emoji"])
+            both = ["case-collision"] if _setup.case_sensitive(tmp) else []      # one file on NTFS
+            self.assertEqual(sorted(codes(scan_names(tmp))), both + ["emoji"])
             deep = "/" + "/".join(["cartella"] * 95)     # 855 characters
             self.assertEqual(sorted(codes(scan_names(tmp, remote_root=deep))),
-                             ["case-collision", "emoji", "long-path"])
+                             both + ["emoji", "long-path"])
 
     def test_skip_callback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -258,8 +279,10 @@ class RefusedPathsTest(unittest.TestCase):
             got = {(r.path, r.is_dir, r.code) for r in refused_paths(
                 tmp, "/x", skip=lambda rel: rel.startswith("SyncTrash/"))}
             self.assertEqual(got, {("foto \U0001F600.jpg", False, "emoji"),
-                                   ("Vacanze \U0001F334", True, "emoji"),
-                                   ("report.PDF", False, "case-collision")})
+                                   ("Vacanze \U0001F334", True, "emoji")}
+                             | ({("report.PDF", False, "case-collision")} if _setup.case_sensitive(tmp) else set()))
+            if not _setup.case_sensitive(tmp):
+                return          # NTFS: Report.pdf and report.PDF are one file, as on Koofr
             # the name already synced wins the case collision
             got = {r.path for r in refused_paths(tmp, "/x", known=frozenset({"report.PDF"}),
                                                  skip=lambda rel: rel.startswith("SyncTrash/"))}
@@ -281,17 +304,18 @@ class RefusedPathsTest(unittest.TestCase):
             refused = refused_paths(tmp, "/x")
             refused.append(Refused("deep/" + "a" * 50, False, "long-path"))
             got = {item.path: new for item, new in rename_plan(tmp, refused, "/x")}
+            collision = _setup.case_sensitive(tmp)          # one file on NTFS
             self.assertEqual(got, {
                 "foto \U0001F600.jpg": "foto (2).jpg",          # "foto.jpg" would be Foto.jpg on Koofr
                 "Vacanze \U0001F334": "Vacanze",                 # a folder: no extension to keep
                 "\U0001F600.txt": "Untitled.txt",
                 "ok \U0001F44D\ufe0f.txt": "ok.txt",              # the emoji's selector goes too
-                "report.PDF": "report (3).PDF",                  # (2) is taken, upper and lower case aside
+                **({"report.PDF": "report (3).PDF"} if collision else {}),   # (2) is taken, case aside
                 "deep/" + "a" * 50: None,                         # only the user can shorten a path
             })
             # the suggestions are accepted, and do not collide with each other
             self.assertTrue(all(ord(ch) <= 0xFFFF for new in got.values() if new for ch in new))
-            self.assertEqual(len({new.casefold() for new in got.values() if new}), 5)
+            self.assertEqual(len({new.casefold() for new in got.values() if new}), 5 if collision else 4)
         # a path that would grow too long has no suggestion
         long_root = "/" + "r" * 1015          # "a.txt" fits, "a (2).txt" does not
         with tempfile.TemporaryDirectory() as tmp:

@@ -28,7 +28,7 @@ class ListingTest(unittest.TestCase):
         self.assertTrue(entries[0].hash.startswith("md5:"))
 
     def test_quoting(self):
-        entries = listings.parse((FIXTURES / "listing-quoting.lst").read_text())
+        entries = listings.parse((FIXTURES / "listing-quoting.lst").read_text(encoding="utf-8"))
         self.assertEqual([e.path for e in entries], ['con "virgolette" e àccènti.txt', "tab\there"])
         self.assertEqual(listings.go_unquote(r'"\x41è\U0001F600"'), "Aè\U0001F600")
 

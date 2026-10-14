@@ -10,6 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
+import _setup
 from _setup import rclone_binary
 
 from gi.repository import GLib
@@ -280,6 +281,8 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("resolved", told)
 
     def test_left_out_names_renamed_then_synced(self):
+        if not _setup.case_sensitive(self.local):
+            self.skipTest("A.txt and a.txt are one file here (NTFS)")
         self.align()
         (self.local / "A.txt").write_text("upper")
         (self.local / "a.txt").write_text("lower")
@@ -383,6 +386,11 @@ class EngineTest(unittest.TestCase):
         self.assertFalse(self.engine.confirmed_waiting(first.id))
 
     def test_a_rename_by_case_alone_is_done_on_koofr_first(self):
+        if not _setup.case_sensitive(self.remote):
+            # the "Koofr" of the tests is a local folder: on NTFS it is
+            # case-insensitive like Koofr, and rclone moveto cannot rename
+            # a local folder by case alone; on Koofr it can (docs, appendix V)
+            self.skipTest("a local folder as Koofr, on NTFS")
         self.align()
         (self.local / "Caps").mkdir()
         for i in range(3):

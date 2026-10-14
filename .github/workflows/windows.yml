@@ -50,7 +50,11 @@ jobs:
       - run: python tools/compile_po.py
       - name: rclone's logs on Windows (fixtures)
         continue-on-error: true
-        run: env -u MSYSTEM python tools/windows_log_sample.py logs
+        run: |
+          env -u MSYSTEM python tools/windows_log_sample.py logs
+          # as the window runs it: no console (Stop must still be graceful)
+          env -u MSYSTEM python -c "import subprocess, sys; subprocess.run([sys.executable, 'tools/windows_log_sample.py', 'logs-detached'], creationflags=subprocess.DETACHED_PROCESS, timeout=300)"
+          cat logs/interrupted.txt logs-detached/interrupted.txt || true
       - name: Tests
         continue-on-error: true
         run: env -u MSYSTEM python -m unittest discover -s tests -v 2>&1 | tee tests.log
@@ -70,4 +74,5 @@ jobs:
           path: |
             tests.log
             logs/
+            logs-detached/
             gui/
