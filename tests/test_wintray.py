@@ -58,5 +58,19 @@ class QuitTest(unittest.TestCase):
         self.assertEqual(self.asked, [1])
 
 
+class IconTest(unittest.TestCase):
+    def test_a_large_png_for_the_toasts(self):
+        import tempfile
+        from pathlib import Path
+        from gi.repository import GdkPixbuf
+        with tempfile.TemporaryDirectory() as tmp:
+            tray = wintray.WinTray("io.github.daniel_g_carrasco.spola", "Spola", on_activate=lambda: None,
+                                   icon_theme_path=str(_setup.ROOT / "data" / "icons"), cache=Path(tmp))
+            png = tray._png("io.github.daniel_g_carrasco.spola", wintray.TOAST_ICON_SIZE)
+            self.assertTrue(png.endswith("-256.png"))
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file(png)
+            self.assertEqual((pixbuf.get_width(), pixbuf.get_height()), (256, 256))
+
+
 if __name__ == "__main__":
     unittest.main()
