@@ -71,6 +71,28 @@ class IconTest(unittest.TestCase):
             pixbuf = GdkPixbuf.Pixbuf.new_from_file(png)
             self.assertEqual((pixbuf.get_width(), pixbuf.get_height()), (256, 256))
 
+    def test_the_svg_also_when_the_theme_has_pngs_of_the_icon(self):
+        # the app's own icon is installed as SVG and as PNGs (64, 128, 256):
+        # the theme's lookup returns a PNG, the .ico and the toast's icon
+        # are drawn from the SVG
+        import shutil
+        import tempfile
+        from pathlib import Path
+        from gi.repository import Gdk, Gtk
+        name = "io.example.spola-icon-test"
+        source = _setup.ROOT / "data" / "icons" / "hicolor" / "scalable" / "apps" / "io.github.daniel_g_carrasco.spola.svg"
+        with tempfile.TemporaryDirectory() as tmp:
+            for folder in ("scalable", "64x64"):
+                (Path(tmp) / "hicolor" / folder / "apps").mkdir(parents=True)
+            svg = Path(tmp) / "hicolor" / "scalable" / "apps" / f"{name}.svg"
+            shutil.copy(source, svg)
+            from gi.repository import GdkPixbuf
+            GdkPixbuf.Pixbuf.new_from_file_at_size(str(svg), 64, 64).savev(
+                str(Path(tmp) / "hicolor" / "64x64" / "apps" / f"{name}.png"), "png", [], [])
+            Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(tmp)
+            tray = wintray.WinTray(name, "Test", on_activate=lambda: None, cache=Path(tmp) / "cache")
+            self.assertEqual(Path(tray._svg(name)), svg)
+
 
 if __name__ == "__main__":
     unittest.main()

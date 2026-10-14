@@ -295,11 +295,14 @@ class WinTray:
         return str(png)
 
     def _svg(self, name: str) -> str | None:
-        if self.icon_theme_path:
-            candidate = Path(self.icon_theme_path) / "hicolor" / "scalable" / "apps" / f"{name}.svg"
+        """The SVG of an icon: in the scalable folder of the theme's paths
+        first (where an icon also has PNGs, as the app's own, the lookup
+        returns a PNG of the size asked), then as the theme finds it."""
+        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+        for base in ([self.icon_theme_path] if self.icon_theme_path else []) + list(theme.get_search_path() or []):
+            candidate = Path(base) / "hicolor" / "scalable" / "apps" / f"{name}.svg"
             if candidate.is_file():
                 return str(candidate)
-        theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
         paintable = theme.lookup_icon(name, None, 64, 1, Gtk.TextDirection.NONE, 0)
         file = paintable.get_file() if paintable else None
         path = file.get_path() if isinstance(file, Gio.File) else None
