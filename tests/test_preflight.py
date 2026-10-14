@@ -319,6 +319,8 @@ class RefusedPathsTest(unittest.TestCase):
         # a path that would grow too long has no suggestion
         long_root = "/" + "r" * 1015          # "a.txt" fits, "a (2).txt" does not
         with tempfile.TemporaryDirectory() as tmp:
+            if not _setup.case_sensitive(tmp):
+                return          # NTFS: a.txt and A.txt are one file
             (Path(tmp) / "a.txt").write_text("x")
             (Path(tmp) / "A.txt").write_text("x")
             (item,) = refused_paths(tmp, long_root)

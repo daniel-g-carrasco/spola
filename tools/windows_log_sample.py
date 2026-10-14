@@ -80,5 +80,10 @@ def interrupted(name):
 
 
 from spola import win32  # noqa: E402
-interrupted("console" if win32.has_console() else "no-console")
+try:
+    interrupted("console" if win32.has_console() else "no-console")
+except Exception:
+    import traceback
+    (out / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
+    raise
 shutil.rmtree(base, ignore_errors=True)

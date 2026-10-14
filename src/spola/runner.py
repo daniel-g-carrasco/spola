@@ -71,6 +71,9 @@ class BisyncRun:
                 # our own process group: a Ctrl+C in the terminal that started
                 # Spola must not reach rclone behind our back
                 **(win32.popen_options() if WINDOWS else {"start_new_session": True}))
+            if WINDOWS:
+                # how interrupt() reaches it: its console is ours, or its own
+                self._proc.spola_shared_console = win32.has_console()
         except BaseException:
             self._release_lock()
             raise
