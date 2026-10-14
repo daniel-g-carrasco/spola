@@ -1,0 +1,14 @@
+# The GitHub Actions of the workflows, kept current by Dependabot. Not the
+# rest, on purpose: MSYS2's packages are not pinned (every build takes the
+# latest), and rclone, the engine that touches the files, is pinned in
+# build.yml, windows.yml and the Flatpak manifest and moved by hand after
+# a trial (tests/test_listings.py checks bisync's listings did not change).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
