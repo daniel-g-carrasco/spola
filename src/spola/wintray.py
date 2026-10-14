@@ -112,6 +112,7 @@ kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 kernel32.GetModuleHandleW.restype = wintypes.HMODULE
 
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64)
+TOAST_ICON_SIZE = 256
 
 
 def ico_from_svg(svg: str, ico: Path) -> None:
@@ -187,9 +188,9 @@ class WinTray:
         self._toasts = None
         try:
             from . import wintoast
-            self._icon(self.app_id)                 # its .ico, for the notification centre
-            icon = self.cache / f"{self.app_id}.ico"
-            wintoast.register_app(self.app_id, self.title, str(icon) if icon.exists() else "")
+            # a large PNG for the toasts: from an .ico Windows takes a small
+            # image and enlarges it (blurred at 200%)
+            wintoast.register_app(self.app_id, self.title, self._png(self.app_id, TOAST_ICON_SIZE))
             self._toasts = wintoast.Toasts(self.app_id)
         except OSError:
             pass                                    # an old Windows: the icon's balloons
@@ -278,6 +279,20 @@ class WinTray:
                 handle = 0
         self._icons[name] = handle
         return handle
+
+    def _png(self, name: str, size: int) -> str:
+        """A PNG of an icon of the theme, in the cache ("" if there is none)."""
+        svg = self._svg(name)
+        if not svg:
+            return ""
+        png = self.cache / f"{name}-{size}.png"
+        try:
+            if not png.exists() or png.stat().st_mtime < os.stat(svg).st_mtime:
+                png.parent.mkdir(parents=True, exist_ok=True)
+                GdkPixbuf.Pixbuf.new_from_file_at_size(svg, size, size).savev(str(png), "png", [], [])
+        except (OSError, GLib.Error):
+            return ""
+        return str(png)
 
     def _svg(self, name: str) -> str | None:
         if self.icon_theme_path:
