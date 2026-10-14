@@ -15,7 +15,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import preflight, remote_folders, secrets  # noqa: E402
 from .i18n import _  # noqa: E402
@@ -126,6 +126,11 @@ class AddFolderDialog(Adw.Dialog):
 
     def _choose_local(self) -> None:
         dialog = Gtk.FileDialog(title=_("Choose a Folder"), modal=True)
+        # from the folder chosen before, if any, else from the home folder
+        # (Windows would start from the last folder of any app, or Documents)
+        start = os.path.dirname(self.local) if self.local else os.path.expanduser("~")
+        if os.path.isdir(start):
+            dialog.set_initial_folder(Gio.File.new_for_path(start))
 
         def done(d, result):
             try:
