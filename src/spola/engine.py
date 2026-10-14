@@ -329,10 +329,11 @@ class Engine(GObject.Object):
         self._want_preview_ahead(pair, rt)
 
     def add_pair(self, local: str, remote: str, paused: bool = False) -> Pair:
-        from .preflight import root_identity
+        from .preflight import claim_root, root_identity
         dev, ino = root_identity(local)
         pair = Pair(Pair.new_id(), os.path.realpath(local), config_mod.normalize_remote(remote),
                     paused=paused, root_dev=dev, root_ino=ino)
+        claim_root(pair)
         self.cfg.pairs.append(pair)
         self.save_config()
         self._setup_pair(pair)
@@ -357,6 +358,8 @@ class Engine(GObject.Object):
                     GLib.source_remove(source)
         self.cfg.pairs.remove(pair)
         self.save_config()
+        from .preflight import release_root
+        release_root(pair)
         self.recent.forget_pair(pair_id)
         self.emit("pairs-changed")
 

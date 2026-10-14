@@ -242,6 +242,7 @@ def main(argv: list[str]) -> int:
             return 1
         dev, ino = preflight.root_identity(local)
         pair = config.Pair(config.Pair.new_id(), local, remote, root_dev=dev, root_ino=ino)
+        preflight.claim_root(pair)
         cfg.pairs.append(pair)
         config.save(cfg, paths.config_file)
         print(_("Added [{id}]. Next: spola align {id}").format(id=pair.id))
@@ -254,6 +255,7 @@ def main(argv: list[str]) -> int:
     if args.command == "remove":
         cfg.pairs.remove(pair)
         config.save(cfg, paths.config_file)
+        preflight.release_root(pair)
         print(_("Removed. No file was deleted."))
         return 0
 

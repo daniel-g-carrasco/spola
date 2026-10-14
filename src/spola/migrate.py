@@ -18,8 +18,8 @@ from pathlib import Path
 from . import config as config_mod
 from .config import Config, Pair
 from .i18n import _
-from .preflight import (Problem, check_local_root, check_overlap, koofr_desktop_active, koofr_desktop_config,
-                        koofr_desktop_syncs, root_identity, scan_names)
+from .preflight import (Problem, check_local_root, check_overlap, claim_root, koofr_desktop_active,
+                        koofr_desktop_config, koofr_desktop_syncs, root_identity, scan_names)
 from .rclone import default_excluded
 
 
@@ -86,7 +86,9 @@ def candidates(cfg: Config, config_path: Path | None = None, home: str | None = 
 
 def new_pair(candidate: Candidate) -> Pair:
     dev, ino = root_identity(candidate.local)
-    return Pair(Pair.new_id(), candidate.local, candidate.remote, paused=candidate.paused, root_dev=dev, root_ino=ino)
+    pair = Pair(Pair.new_id(), candidate.local, candidate.remote, paused=candidate.paused, root_dev=dev, root_ino=ino)
+    claim_root(pair)
+    return pair
 
 
 def import_koofr_desktop(cfg: Config, config_path: Path | None = None,

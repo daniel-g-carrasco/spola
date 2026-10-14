@@ -353,6 +353,21 @@ class EngineTest(unittest.TestCase):
         (self.remote_root / name).mkdir()
         return self.engine.add_pair(str(local), f"/{name}")
 
+    def test_a_folder_removed_and_added_again_is_not_replaced(self):
+        # the pair removed left its marker; the new pair, another id, took it
+        # for the sign of a folder replaced and refused its preview
+        pair = self.other_pair()
+        self.assertTrue(spin_until(lambda: os.path.exists(preflight.marker_path(pair)), 5))
+        self.engine.remove_pair(pair.id)
+        self.assertFalse(os.path.exists(preflight.marker_path(pair)))
+        # a marker of a pair removed by an older Spola, which left it there
+        Path(preflight.marker_path(pair)).write_text("removed00000\n")
+        again = self.engine.add_pair(pair.local, pair.remote)
+        self.assertEqual(preflight.check_root_identity(again), [])
+        _kept, got = self.preview_of(again.id)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(got[0][1], "")
+
     def preview_of(self, pair_id, mode=Mode.RESYNC, force=False, **kw):
         got = []
         kept = self.engine.preview(pair_id, mode, force, lambda out, err: got.append((out, err)), **kw)
