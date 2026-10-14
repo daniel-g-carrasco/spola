@@ -349,8 +349,9 @@ class SpolaApp(Adw.Application):
             "refused": _("Some files in “{name}” are not synced"),
         }
         if WINDOWS:
-            # GLib has no notifications on Windows: a toast from the tray icon
-            self.tray.notify(titles.get(kind, "{name}").format(name=name), message, lambda: self._review(pair_id))
+            # GLib has no notifications on Windows: a toast of Spola's own
+            self.tray.notify(titles.get(kind, "{name}").format(name=name), message, lambda: self._review(pair_id),
+                             tag=f"{kind}-{pair_id}")
             return
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)

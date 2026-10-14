@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+"""The toasts of Windows: their text, the COM object that hears a click,
+the notifier of the Windows Runtime."""
+
+import ctypes
+import sys
+import unittest
+
+import _setup  # noqa: F401
+
+if sys.platform != "win32":
+    raise unittest.SkipTest("the toasts of Windows")
+
+from spola import wintoast  # noqa: E402
+
+
+def vtable_function(obj, slot, prototype):
+    vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    return prototype(vtable[slot])
+
+
+class ToastTest(unittest.TestCase):
+    def test_text_is_escaped(self):
+        xml = wintoast.toast_xml("“A & B” <ok>", "x > y")
+        self.assertIn("<text>“A &amp; B” &lt;ok&gt;</text>", xml)
+        self.assertIn("<text>x &gt; y</text>", xml)
+        self.assertTrue(xml.startswith("<toast>") and xml.endswith("</toast>"))
+
+    def test_the_click_handler_is_a_com_object(self):
+        clicked = []
+        handler = wintoast._ActivatedHandler(lambda: clicked.append(1))
+        query = vtable_function(handler.pointer, 0, wintoast._QI)
+        out = ctypes.c_void_p()
+        for iid in (wintoast.IID_ActivatedHandler, wintoast.IID_IUnknown, wintoast.IID_IAgileObject):
+            self.assertEqual(query(handler.pointer, ctypes.byref(iid), ctypes.byref(out)), wintoast.S_OK)
+            self.assertEqual(out.value, handler.pointer.value)
+        other = wintoast._guid("11111111-2222-3333-4444-555555555555")
+        self.assertEqual(query(handler.pointer, ctypes.byref(other), ctypes.byref(out)), wintoast.E_NOINTERFACE)
+        invoke = vtable_function(handler.pointer, 3, wintoast._INVOKE)
+        self.assertEqual(invoke(handler.pointer, None, None), wintoast.S_OK)
+        self.assertEqual(clicked, [1])
+
+    def test_a_failing_callback_stays_on_this_side(self):
+        handler = wintoast._ActivatedHandler(lambda: 1 / 0)
+        invoke = vtable_function(handler.pointer, 3, wintoast._INVOKE)
+        self.assertEqual(invoke(handler.pointer, None, None), wintoast.S_OK)
+
+    def test_the_notifier_of_the_windows_runtime(self):
+        toasts = wintoast.Toasts("io.example.spola-test")
+        self.assertTrue(toasts._notifier)
+        self.assertTrue(toasts._toast_factory)
+
+
+if __name__ == "__main__":
+    unittest.main()
