@@ -120,7 +120,7 @@ class ApiTest(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-        def urlopen(request, timeout):
+        def urlopen(request, timeout, context=None):
             requests.append(request)
             files = [{"name": "b", "type": "dir"}, {"name": "A", "type": "dir"}, {"name": "x.txt", "type": "file"}]
             return Response(json.dumps({"files": files}).encode())
