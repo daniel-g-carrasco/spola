@@ -94,6 +94,8 @@ def pair_status_text(engine: Engine, pair_id: str) -> str:
         return ""
     if rt.status is Status.PENDING and engine.confirmed_waiting(pair_id):
         return _("Confirmed")
+    if rt.status is Status.SYNCING and rt.run is not None and rt.run.stopping:
+        return _("Stopping…")
     return status_text(rt.status)
 
 
