@@ -36,6 +36,7 @@ class SpolaApp(Adw.Application):
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None
         self._quitting = False
+        self._quit_done = False
         self._last_summary = ""
 
     # -- start-up -------------------------------------------------------------------
@@ -78,7 +79,8 @@ class SpolaApp(Adw.Application):
         if WINDOWS:
             # the notification area; no file manager speaks D-Bus there
             from .wintray import WinTray
-            self.tray = WinTray(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
+            self.tray = WinTray(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path,
+                                on_quit=self._quit, has_quit=lambda: self._quit_done)
             self.tray.start()
             self.sync_service = None
         else:
@@ -375,6 +377,7 @@ class SpolaApp(Adw.Application):
                 self.sync_service.stop()
             self.release()
             self.quit()
+            self._quit_done = True
 
         if self.window:
             self.window.save_state()

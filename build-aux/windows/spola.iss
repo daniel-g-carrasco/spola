@@ -61,6 +61,44 @@ Name: "{autodesktop}\Spola"; Filename: "{app}\Spola.exe"; Tasks: desktopicon
 Filename: "{app}\Spola.exe"; Description: "{cm:LaunchProgram,Spola}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+const
+  WM_CLOSE = $0010;
+  TrayWindowClass = 'io.github.daniel_g_carrasco.spola.tray';
+  QuitTimeoutMs = 100000;
+
+{ A running Spola is asked to quit through the window of its icon, and
+  quits gracefully: rclone stopped with its state saved (up to 95 s when it
+  has transfers to finish). The Restart Manager alone cannot close it: it
+  lives in the notification area, and its gdbus.exe has no window. }
+procedure QuitSpola();
+var
+  Waited: Integer;
+begin
+  if FindWindowByClassName(TrayWindowClass) = 0 then
+    exit;
+  Log('Spola is running: asking it to quit');
+  PostMessage(FindWindowByClassName(TrayWindowClass), WM_CLOSE, 0, 0);
+  Waited := 0;
+  while (FindWindowByClassName(TrayWindowClass) <> 0) and (Waited < QuitTimeoutMs) do begin
+    Sleep(250);
+    Waited := Waited + 250;
+  end;
+  Sleep(1500);    { the process, and its gdbus.exe, end after the window }
+  Log(Format('Spola quit after %d ms', [Waited]));
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  QuitSpola();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  QuitSpola();
+  Result := True;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
