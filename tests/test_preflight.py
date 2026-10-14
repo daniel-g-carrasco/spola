@@ -140,6 +140,44 @@ class KoofrDesktopTest(unittest.TestCase):
         self.assertTrue(any(name.startswith("python") for name in names), sorted(names)[:20])
         self.assertIsInstance(win32.login_commands(), list)
 
+    @unittest.skipUnless(_setup.WINDOWS, "Windows only")
+    def test_windows_startup_folder(self):
+        # Koofr Desktop's installer puts Koofr.lnk in the Startup folder; a
+        # shortcut renamed still points to storagegui.exe, and one turned off
+        # in Task Manager (StartupApproved, first byte odd) starts nothing
+        from spola import win32
+        target = r"C:\Users\u\AppData\Local\koofr\storagegui.exe"
+        lnk = b"L\x00\x00\x00" + b"\x00" * 72 + target.encode("utf-16-le") + b"\x00\x00"
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Avvio.lnk").write_bytes(lnk)
+            (Path(tmp) / "desktop.ini").write_text("[.ShellClassInfo]")
+            entries = win32.startup_folder_entries(tmp, {})
+            self.assertEqual(len(entries), 1)
+            self.assertIn("storagegui", entries[0].casefold())
+            on, off = b"\x02" + b"\x00" * 11, b"\x03" + b"\x00" * 11
+            self.assertEqual(len(win32.startup_folder_entries(tmp, {"avvio.LNK": on})), 1)
+            self.assertEqual(win32.startup_folder_entries(tmp, {"avvio.LNK": off}), [])
+        self.assertTrue(win32.approved(None))
+        self.assertTrue(win32.approved(b"\x06" + b"\x00" * 11))
+        self.assertFalse(win32.approved(b"\x07" + b"\x00" * 11))
+
+    def test_koofr_desktop_config_path(self):
+        from spola import preflight
+        saved = os.environ.get("APPDATA")
+        try:
+            os.environ["APPDATA"] = os.path.join(tempfile.gettempdir(), "Roaming")
+            if _setup.WINDOWS:
+                expected = Path(os.environ["APPDATA"]) / "koofr" / "config.json"
+            else:
+                expected = Path.home() / ".koofr" / "config.json"
+            self.assertEqual(preflight.koofr_desktop_config(), expected)
+        finally:
+            if saved is None:
+                os.environ.pop("APPDATA", None)
+            else:
+                os.environ["APPDATA"] = saved
+
+    @unittest.skipIf(_setup.WINDOWS, "on Windows its processes are in sight: the logs do not count")
     def test_koofr_desktop_logs_written_lately_mean_it_runs(self):
         # inside the Flatpak the host's processes are not visible: its logs are
         from spola.preflight import KOOFR_DESKTOP_LOG_FRESH_S, koofr_desktop_active

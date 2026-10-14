@@ -225,28 +225,74 @@ def process_names() -> set[str]:
     return names
 
 
-def login_commands() -> list[str]:
-    """What starts at login for this user: the Run keys (the user's and the
-    machine's) and the Startup folders, as text to look into."""
+APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
+RUN32_KEY = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _values(root, path: str) -> dict[str, object]:
+    found = {}
+    try:
+        with winreg.OpenKey(root, path) as key:
+            i = 0
+            while True:
+                try:
+                    name, value, _kind = winreg.EnumValue(key, i)
+                except OSError:
+                    break
+                found[name] = value
+                i += 1
+    except OSError:
+        pass
+    return found
+
+
+def approved(data) -> bool:
+    """A StartupApproved value: the first byte odd is an entry turned off in
+    Task Manager or in Settings (3), even is on (2, 6); none is on."""
+    return not (isinstance(data, bytes) and data and data[0] & 1)
+
+
+def shortcut_text(path: str) -> str:
+    """What a shortcut (.lnk) holds, as text to look into: its target is
+    stored both as ANSI and as UTF-16 strings."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read(64 * 1024)
+    except OSError:
+        return ""
+    return data.decode("latin-1") + " " + data.decode("utf-16-le", errors="replace")
+
+
+def startup_folder_entries(folder: str, approvals: dict[str, object]) -> list[str]:
+    """The files of a Startup folder that are not turned off, each as its
+    name and, for a shortcut, what it points to."""
+    off = {name.casefold() for name, data in approvals.items() if not approved(data)}
     found = []
-    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        try:
-            with winreg.OpenKey(root, RUN_KEY) as key:
-                i = 0
-                while True:
-                    try:
-                        name, value, _kind = winreg.EnumValue(key, i)
-                    except OSError:
-                        break
-                    found.append(f"{name} {value}")
-                    i += 1
-        except OSError:
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return found
+    for name in names:
+        if name.casefold() in off or name.casefold() == "desktop.ini":
             continue
-    for base in (os.environ.get("APPDATA"), os.environ.get("ProgramData")):
+        path = os.path.join(folder, name)
+        found.append(f"{name} {shortcut_text(path)}" if name.casefold().endswith(".lnk") else name)
+    return found
+
+
+def login_commands() -> list[str]:
+    """What starts at login for this user and is not turned off: the Run
+    keys (the user's and the machine's, 64 and 32 bit) and the Startup
+    folders, as text to look into."""
+    found = []
+    for root, run, approval in ((winreg.HKEY_CURRENT_USER, RUN_KEY, "Run"),
+                                (winreg.HKEY_LOCAL_MACHINE, RUN_KEY, "Run"),
+                                (winreg.HKEY_LOCAL_MACHINE, RUN32_KEY, "Run32")):
+        approvals = _values(root, APPROVED_KEY + "\\" + approval)
+        found += [f"{name} {value}" for name, value in _values(root, run).items() if approved(approvals.get(name))]
+    for base, root in ((os.environ.get("APPDATA"), winreg.HKEY_CURRENT_USER),
+                       (os.environ.get("ProgramData"), winreg.HKEY_LOCAL_MACHINE)):
         if base:
             startup = os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-            try:
-                found += os.listdir(startup)
-            except OSError:
-                pass
+            found += startup_folder_entries(startup, _values(root, APPROVED_KEY + "\\StartupFolder"))
     return found

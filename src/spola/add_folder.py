@@ -10,7 +10,6 @@ yet is created only when the user clicks Add, after the checks.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import gi
 
@@ -143,7 +142,7 @@ class AddFolderDialog(Adw.Dialog):
         self.local_row.set_subtitle(escape(display_path(self.local)))
         problems = preflight.check_local_root(self.local) \
             + [p for p in preflight.check_overlap(self.local, "/", self.engine.cfg) if p.code == "local-overlap"] \
-            + preflight.check_koofr_desktop(self.local, Path.home() / ".koofr" / "config.json")
+            + preflight.check_koofr_desktop(self.local, preflight.koofr_desktop_config())
         self._show_problems(problems)
         self._set_suggestions([])
         if not self.browsed:
@@ -241,7 +240,7 @@ class AddFolderDialog(Adw.Dialog):
             return
         problems = (preflight.check_local_root(local)
                     + preflight.check_overlap(local, remote, self.engine.cfg)
-                    + preflight.check_koofr_desktop(local, Path.home() / ".koofr" / "config.json"))
+                    + preflight.check_koofr_desktop(local, preflight.koofr_desktop_config()))
         _kind, reason = blocked(remote, self.engine.cfg.pairs)
         if reason:
             problems.append(preflight.Problem("remote", reason, remote))

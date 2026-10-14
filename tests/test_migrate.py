@@ -45,6 +45,27 @@ class ImportTest(unittest.TestCase):
                              sorted([f"{tmp}/already", f"{tmp}/nested/inside", f"{tmp}/missing", f"{tmp}/data/work"]))
             self.assertEqual(len(cfg.pairs), 4)
 
+    def test_other_mounts_are_left_out(self):
+        # Koofr Desktop syncs also folders shared with the account and the
+        # services connected to Koofr: another mount, not the same path in
+        # the account's own storage
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            for d in ("own", "shared", "unknown"):
+                (t / d).mkdir()
+            conf = t / "config.json"
+            conf.write_text(json.dumps({"users": {"u": {"syncs": [
+                {"localPath": f"{tmp}/own", "remotePath": "/own", "mountId": "primary"},
+                {"localPath": f"{tmp}/shared", "remotePath": "/shared", "mountId": "other"},
+                {"localPath": f"{tmp}/unknown", "remotePath": "/unknown"},
+            ]}}}))
+            report = import_koofr_desktop(Config(mount_id="primary"), conf, active=False, home=tmp)
+            self.assertEqual(sorted(Path(i.pair.local).name for i in report.added), ["own", "unknown"])
+            self.assertEqual([Path(local).name for local, _why in report.skipped], ["shared"])
+            # the primary mount not known yet: as before
+            report = import_koofr_desktop(Config(), conf, active=False, home=tmp)
+            self.assertEqual(len(report.added), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,13 +15,12 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from . import listings
 from .config import Config, Pair
 from .paths import Paths
 from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
-                        check_root_identity, refused_paths)
+                        check_root_identity, koofr_desktop_config, refused_paths)
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
@@ -89,7 +88,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     problems = check_root_identity(pair, [e.path for e in known[:50]])
     # before every run, not only when the pair was added: Koofr Desktop may
     # have come back (an autostart entry it rewrote, a session that runs it)
-    problems += check_koofr_desktop(pair.local, Path.home() / ".koofr" / "config.json")
+    problems += check_koofr_desktop(pair.local, koofr_desktop_config())
     if problems:
         raise NotReady(problems)
     if mode is Mode.SYNC and not pair.initialized:

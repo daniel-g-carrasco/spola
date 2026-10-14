@@ -124,8 +124,21 @@ def check_overlap(local: str, remote: str, cfg: Config, ignore_id: str | None = 
     return problems
 
 
+def koofr_desktop_dir() -> Path:
+    """Where Koofr Desktop keeps its config.json and its logs: ~/.koofr, on
+    Windows %APPDATA%\\koofr (its programs are in %LOCALAPPDATA%\\koofr)."""
+    if os.name == "nt" and os.environ.get("APPDATA"):
+        return Path(os.environ["APPDATA"]) / "koofr"
+    return Path.home() / ".koofr"
+
+
+def koofr_desktop_config() -> Path:
+    return koofr_desktop_dir() / "config.json"
+
+
 def koofr_desktop_syncs(config_path: Path) -> list[dict]:
-    """The folder pairs configured in Koofr Desktop (~/.koofr/config.json)."""
+    """The folder pairs configured in Koofr Desktop (its config.json): each
+    with localPath, remotePath, mountId, paused."""
     try:
         with open(config_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -182,15 +195,16 @@ def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | No
     way it would sync its folders again. Inside the Flatpak the host's
     processes cannot be seen: its logs, written while it runs, tell."""
     if os.name == "nt":
-        # Windows: its programs (the names of Linux, or any "koofr"), what
-        # starts at login (the Run keys, the Startup folders), then its logs
+        # Windows: its programs (storagegui, storagesync... or any "koofr")
+        # and what starts at login and is not turned off (its installer puts
+        # Koofr.lnk in the Startup folder). Not its logs: the processes are
+        # in sight, and server.log, written as it quits, would keep it
+        # "running" for a quarter of an hour after.
         from . import win32
         names = win32.process_names()
         if names & set(KOOFR_DESKTOP_PROCESSES) or any("koofr" in name for name in names):
             return True
-        if any("koofr" in line.casefold() or "storagegui" in line.casefold() for line in win32.login_commands()):
-            return True
-        return _fresh_koofr_logs(koofr_dir, now)
+        return any("koofr" in line.casefold() or "storagegui" in line.casefold() for line in win32.login_commands())
     try:
         for entry in os.scandir("/proc"):
             if entry.name.isdigit():
@@ -210,7 +224,7 @@ def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | No
 def _fresh_koofr_logs(koofr_dir: Path | None, now: float | None) -> bool:
     now = time.time() if now is None else now
     try:
-        for entry in os.scandir(koofr_dir or Path.home() / ".koofr" / "log"):
+        for entry in os.scandir(koofr_dir or koofr_desktop_dir() / "log"):
             if entry.name.endswith(".log") and now - entry.stat().st_mtime < KOOFR_DESKTOP_LOG_FRESH_S:
                 return True
     except OSError:

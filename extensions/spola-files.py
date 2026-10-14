@@ -347,7 +347,8 @@ class SpolaProvider(GObject.GObject, *_providers()):
         return self._menu_items([args[-1]], True)
 
     def get_name_and_desc(self):
-        return [f"Spola:::{_('Sync status of the folders synced with Koofr')}"]
+        desc = _("Sync status of the folders synced with Koofr")     # outside the f-string: every xgettext finds it
+        return [f"Spola:::{desc}"]
 
     @staticmethod
     def _open_url(reply):
