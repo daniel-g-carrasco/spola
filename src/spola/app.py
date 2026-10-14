@@ -67,6 +67,7 @@ class SpolaApp(Adw.Application):
                               ("sync-all", lambda: self.engine.sync_all("manual")),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
                               ("about", lambda: about_dialog(self._window())),
+                              ("import-koofr-desktop", lambda: self._window().import_koofr_desktop()),
                               ("preferences", lambda: PreferencesDialog(self._window()).present(self._window()))):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _a, _p, h=handler: h())

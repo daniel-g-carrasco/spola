@@ -78,9 +78,13 @@ class MainWindow(Adw.ApplicationWindow):
         signed_in = self.engine.creds is not None
         if not signed_in:
             self.nav.pop_to_tag("folders")
+        empty = signed_in and not self.engine.cfg.pairs
         self.stack.set_visible_child_name("list" if signed_in and self.engine.cfg.pairs
                                           else "empty" if signed_in else "login")
         self.add_button.set_visible(signed_in)
+        if empty:
+            from .import_dialog import koofr_desktop_has_folders
+            self.import_button.set_visible(koofr_desktop_has_folders())
         self.update_overall()
 
     def toast(self, text: str) -> None:
@@ -140,6 +144,9 @@ class MainWindow(Adw.ApplicationWindow):
         section.append(_("Pause All"), "app.pause-all")
         menu.append_section(None, section)
         section = Gio.Menu()
+        section.append(_("Import from Koofr Desktop…"), "app.import-koofr-desktop")
+        menu.append_section(None, section)
+        section = Gio.Menu()
         section.append(_("Preferences"), "app.preferences")
         section.append(_("About Spola"), "app.about")
         section.append(_("Quit"), "app.quit")
@@ -157,7 +164,14 @@ class MainWindow(Adw.ApplicationWindow):
                                              "to keep identical to it."))
         add = Gtk.Button(label=_("Add Folder"), halign=Gtk.Align.CENTER, css_classes=["suggested-action", "pill"])
         add.connect("clicked", lambda *_: self.add_folder())
-        empty.set_child(add)
+        # coming from Koofr Desktop: its folders, taken over in one go
+        self.import_button = Gtk.Button(label=_("Import from Koofr Desktop"), halign=Gtk.Align.CENTER,
+                                        css_classes=["pill"], visible=False)
+        self.import_button.connect("clicked", lambda *_: self.import_koofr_desktop())
+        buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, halign=Gtk.Align.CENTER)
+        buttons.append(add)
+        buttons.append(self.import_button)
+        empty.set_child(buttons)
         self.stack.add_named(empty, "empty")
         self.list_page = Adw.PreferencesPage()
         self.overall = OverallStatus(self)
@@ -178,6 +192,13 @@ class MainWindow(Adw.ApplicationWindow):
     def add_folder(self) -> None:
         from .add_folder import AddFolderDialog
         AddFolderDialog(self).present(self)
+
+    def import_koofr_desktop(self) -> None:
+        if self.engine.creds is None:
+            self.toast(_("Sign in to Koofr first."))
+            return
+        from .import_dialog import ImportDialog
+        ImportDialog(self).present(self)
 
     def _rebuild_rows(self) -> None:
         for group in self.groups:

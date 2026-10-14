@@ -39,34 +39,66 @@ class KoofrDesktopActive(Exception):
     pass
 
 
+@dataclass
+class Candidate:
+    """One of Koofr Desktop's pairs, as it would become Spola's."""
+    local: str
+    remote: str             # normalised; as Koofr Desktop has it when it cannot be
+    paused: bool
+    problem: str = ""       # why it cannot be taken over ("" when it can)
+
+
+def problem_of(cfg: Config, local: str, remote: str, home: str | None = None) -> str:
+    """Why this pair cannot join Spola's pairs as they are now ("" if it can)."""
+    if any(os.path.realpath(p.local) == local for p in cfg.pairs):
+        return _("already in Spola")
+    problems = check_local_root(local, home) + check_overlap(local, remote, cfg)
+    if remote == "/":
+        problems.append(Problem("remote-root", _("Choose a folder on Koofr, not the whole Koofr storage."), "/"))
+    return problems[0].message if problems else ""
+
+
+def candidates(cfg: Config, config_path: Path | None = None, home: str | None = None) -> list[Candidate]:
+    """Koofr Desktop's pairs, each with what keeps it out, if anything. Of
+    two that overlap, the first in Koofr Desktop's order can be taken."""
+    found: list[Candidate] = []
+    scratch = Config(pairs=list(cfg.pairs), mount_id=cfg.mount_id)      # with the ones taken so far
+    for s in koofr_desktop_syncs(config_path or koofr_desktop_config()):
+        local = os.path.realpath(s["localPath"])
+        paused = bool(s.get("paused"))
+        if s.get("mountId") and cfg.mount_id and s["mountId"] != cfg.mount_id:
+            # a folder shared with this account, or a service connected to
+            # Koofr: Spola syncs with the account's own storage only
+            found.append(Candidate(local, s.get("remotePath") or "/", paused,
+                                   _("not in your own Koofr storage (a shared folder or a connected service)")))
+            continue
+        try:
+            remote = config_mod.normalize_remote(s.get("remotePath") or "/")
+        except ValueError as e:
+            found.append(Candidate(local, s.get("remotePath") or "/", paused, str(e)))
+            continue
+        candidate = Candidate(local, remote, paused, problem_of(scratch, local, remote, home))
+        if not candidate.problem:
+            scratch.pairs.append(Pair("candidate", local, remote))
+        found.append(candidate)
+    return found
+
+
+def new_pair(candidate: Candidate) -> Pair:
+    dev, ino = root_identity(candidate.local)
+    return Pair(Pair.new_id(), candidate.local, candidate.remote, paused=candidate.paused, root_dev=dev, root_ino=ino)
+
+
 def import_koofr_desktop(cfg: Config, config_path: Path | None = None,
                          active: bool | None = None, home: str | None = None) -> Report:
     if koofr_desktop_active() if active is None else active:
         raise KoofrDesktopActive(_("Koofr Desktop is running or set to start at login: stop it first."))
     report = Report()
-    for s in koofr_desktop_syncs(config_path or koofr_desktop_config()):
-        local = os.path.realpath(s["localPath"])
-        if s.get("mountId") and cfg.mount_id and s["mountId"] != cfg.mount_id:
-            # a folder shared with this account, or a service connected to
-            # Koofr: Spola syncs with the account's own storage only
-            report.skipped.append((local, _("not in your own Koofr storage (a shared folder or a connected service)")))
+    for candidate in candidates(cfg, config_path, home):
+        if candidate.problem:
+            report.skipped.append((candidate.local, candidate.problem))
             continue
-        try:
-            remote = config_mod.normalize_remote(s.get("remotePath") or "/")
-        except ValueError as e:
-            report.skipped.append((local, str(e)))
-            continue
-        if any(os.path.realpath(p.local) == local for p in cfg.pairs):
-            report.skipped.append((local, _("already in Spola")))
-            continue
-        problems = check_local_root(local, home) + check_overlap(local, remote, cfg)
-        if remote == "/":
-            problems.append(Problem("remote-root", _("Choose a folder on Koofr, not the whole Koofr storage."), "/"))
-        if problems:
-            report.skipped.append((local, problems[0].message))
-            continue
-        dev, ino = root_identity(local)
-        pair = Pair(Pair.new_id(), local, remote, paused=bool(s.get("paused")), root_dev=dev, root_ino=ino)
+        pair = new_pair(candidate)
         cfg.pairs.append(pair)
-        report.added.append(Imported(pair, scan_names(local, remote, skip=default_excluded)))
+        report.added.append(Imported(pair, scan_names(pair.local, pair.remote, skip=default_excluded)))
     return report

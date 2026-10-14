@@ -167,6 +167,31 @@ class KoofrDesktopTest(unittest.TestCase):
         self.assertTrue(win32.approved(b"\x06" + b"\x00" * 11))
         self.assertFalse(win32.approved(b"\x07" + b"\x00" * 11))
 
+    @unittest.skipUnless(_setup.WINDOWS, "Windows only")
+    def test_windows_turn_off_as_task_manager_does(self):
+        # a value of our own in the user's StartupApproved\Run, removed after
+        import winreg
+        from spola import win32
+        name = f"spola-test-{os.getpid()}"
+        entry = win32.LoginEntry("x", winreg.HKEY_CURRENT_USER, "Run", name)
+        path = win32.APPROVED_KEY + "\\Run"
+        try:
+            win32.turn_off(entry, now=0)
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+                data, kind = winreg.QueryValueEx(key, name)
+            self.assertEqual(kind, winreg.REG_BINARY)
+            self.assertEqual(len(data), 12)
+            self.assertFalse(win32.approved(data))
+        finally:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE) as key:
+                winreg.DeleteValue(key, name)
+
+    def test_koofr_desktop_state(self):
+        from spola.preflight import KoofrDesktopState
+        self.assertFalse(KoofrDesktopState(False, False).active)
+        self.assertTrue(KoofrDesktopState(True, False).active)
+        self.assertTrue(KoofrDesktopState(False, True).active)
+
     def test_koofr_desktop_config_path(self):
         from spola import preflight
         saved = os.environ.get("APPDATA")

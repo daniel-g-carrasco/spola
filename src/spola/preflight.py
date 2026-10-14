@@ -193,11 +193,26 @@ def _autostart_starts_koofr(autostart_dir: Path) -> bool:
     return False
 
 
-def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | None = None,
-                         now: float | None = None) -> bool:
-    """Is Koofr Desktop running, or set to start at the next login? Either
-    way it would sync its folders again. Inside the Flatpak the host's
-    processes cannot be seen: its logs, written while it runs, tell."""
+@dataclass(frozen=True)
+class KoofrDesktopState:
+    running: bool
+    at_login: bool          # set to start at the next login
+
+    @property
+    def active(self) -> bool:
+        return self.running or self.at_login
+
+
+def _starts_koofr_desktop(text: str) -> bool:
+    text = text.casefold()
+    return "koofr" in text or "storagegui" in text
+
+
+def koofr_desktop_state(autostart_dir: Path | None = None, koofr_dir: Path | None = None,
+                        now: float | None = None) -> KoofrDesktopState:
+    """Is Koofr Desktop running, and is it set to start at the next login?
+    Inside the Flatpak the host's processes cannot be seen: its logs,
+    written while it runs, tell."""
     if os.name == "nt":
         # Windows: its programs (storagegui, storagesync... or any "koofr")
         # and what starts at login and is not turned off (its installer puts
@@ -206,23 +221,46 @@ def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | No
         # "running" for a quarter of an hour after.
         from . import win32
         names = win32.process_names()
-        if names & set(KOOFR_DESKTOP_PROCESSES) or any("koofr" in name for name in names):
-            return True
-        return any("koofr" in line.casefold() or "storagegui" in line.casefold() for line in win32.login_commands())
+        running = bool(names & set(KOOFR_DESKTOP_PROCESSES)) or any("koofr" in name for name in names)
+        return KoofrDesktopState(running, any(_starts_koofr_desktop(line) for line in win32.login_commands()))
+    running = False
     try:
         for entry in os.scandir("/proc"):
             if entry.name.isdigit():
                 try:
                     with open(f"/proc/{entry.name}/comm", encoding="utf-8", errors="replace") as f:
                         if f.read().strip() in KOOFR_DESKTOP_PROCESSES:
-                            return True
+                            running = True
+                            break
                 except OSError:
                     continue
     except OSError:
         pass
-    if _autostart_starts_koofr(autostart_dir or _host_config_dir() / "autostart"):
-        return True
-    return _fresh_koofr_logs(koofr_dir, now)
+    at_login = _autostart_starts_koofr(autostart_dir or _host_config_dir() / "autostart")
+    return KoofrDesktopState(running or _fresh_koofr_logs(koofr_dir, now), at_login)
+
+
+def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | None = None,
+                         now: float | None = None) -> bool:
+    """Is Koofr Desktop running, or set to start at the next login? Either
+    way it would sync its folders again."""
+    return koofr_desktop_state(autostart_dir, koofr_dir, now).active
+
+
+# Turning off Koofr Desktop's start at login is Windows' Task Manager's own
+# reversible switch; on Linux the user does it (the Flatpak cannot write the
+# host's autostart folder)
+CAN_TURN_OFF_KOOFR_DESKTOP_LOGIN = os.name == "nt"
+
+
+def turn_off_koofr_desktop_login() -> int:
+    """Windows: turn off what starts Koofr Desktop at login, as Task Manager
+    does. How many entries; PermissionError for one of the machine's."""
+    from . import win32
+    entries = [e for e in win32.login_entries() if _starts_koofr_desktop(e.text)]
+    for entry in entries:
+        win32.turn_off(entry)
+    return len(entries)
 
 
 def _fresh_koofr_logs(koofr_dir: Path | None, now: float | None) -> bool:

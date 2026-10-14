@@ -9,7 +9,7 @@ from pathlib import Path
 import _setup  # noqa: F401
 
 from spola.config import Config, Pair
-from spola.migrate import KoofrDesktopActive, import_koofr_desktop
+from spola.migrate import KoofrDesktopActive, candidates, import_koofr_desktop, problem_of
 
 
 class ImportTest(unittest.TestCase):
@@ -65,6 +65,30 @@ class ImportTest(unittest.TestCase):
             # the primary mount not known yet: as before
             report = import_koofr_desktop(Config(), conf, active=False, home=tmp)
             self.assertEqual(len(report.added), 3)
+
+    def test_candidates_before_anything_is_added(self):
+        # the window shows Koofr Desktop's pairs first, each with what keeps
+        # it out; of two that overlap, the first can be taken
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            for d in ("work", "work/inner", "photos", "mine"):
+                (t / d).mkdir(parents=True)
+            conf = t / "config.json"
+            conf.write_text(json.dumps({"users": {"u": {"syncs": [
+                {"localPath": f"{tmp}/work", "remotePath": "/work"},
+                {"localPath": f"{tmp}/work/inner", "remotePath": "/inner"},
+                {"localPath": f"{tmp}/photos", "remotePath": "/photos", "paused": True},
+                {"localPath": f"{tmp}/mine", "remotePath": "/mine"},
+            ]}}}))
+            cfg = Config(pairs=[Pair("p0", f"{tmp}/mine", "/mine")])
+            found = {Path(c.local).name: c for c in candidates(cfg, conf, home=tmp)}
+            self.assertEqual(found["work"].problem, "")
+            self.assertNotEqual(found["inner"].problem, "")         # inside "work", taken first
+            self.assertTrue(found["photos"].paused)
+            self.assertEqual(found["photos"].problem, "")
+            self.assertNotEqual(found["mine"].problem, "")          # already in Spola
+            self.assertEqual(len(cfg.pairs), 1)                     # nothing added yet
+            self.assertEqual(problem_of(cfg, found["work"].local, "/work", home=tmp), "")
 
 
 if __name__ == "__main__":

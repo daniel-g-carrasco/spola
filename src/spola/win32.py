@@ -17,9 +17,12 @@ import ctypes
 import msvcrt
 import os
 import signal
+import struct
 import subprocess
+import time
 import winreg
 from ctypes import wintypes
+from dataclasses import dataclass
 
 from . import APP_ID, APP_NAME
 
@@ -263,9 +266,8 @@ def shortcut_text(path: str) -> str:
     return data.decode("latin-1") + " " + data.decode("utf-16-le", errors="replace")
 
 
-def startup_folder_entries(folder: str, approvals: dict[str, object]) -> list[str]:
-    """The files of a Startup folder that are not turned off, each as its
-    name and, for a shortcut, what it points to."""
+def _folder_entries(folder: str, approvals: dict[str, object]) -> list[tuple[str, str]]:
+    """(file name, text) of the files of a Startup folder not turned off."""
     off = {name.casefold() for name, data in approvals.items() if not approved(data)}
     found = []
     try:
@@ -276,23 +278,54 @@ def startup_folder_entries(folder: str, approvals: dict[str, object]) -> list[st
         if name.casefold() in off or name.casefold() == "desktop.ini":
             continue
         path = os.path.join(folder, name)
-        found.append(f"{name} {shortcut_text(path)}" if name.casefold().endswith(".lnk") else name)
+        found.append((name, f"{name} {shortcut_text(path)}" if name.casefold().endswith(".lnk") else name))
     return found
 
 
-def login_commands() -> list[str]:
+def startup_folder_entries(folder: str, approvals: dict[str, object]) -> list[str]:
+    """The files of a Startup folder that are not turned off, each as its
+    name and, for a shortcut, what it points to."""
+    return [text for _name, text in _folder_entries(folder, approvals)]
+
+
+@dataclass(frozen=True)
+class LoginEntry:
+    """Something started at login, not turned off."""
+    text: str           # what it starts, to look into
+    root: int           # the hive of its StartupApproved value
+    approval: str       # "Run", "Run32" or "StartupFolder"
+    name: str           # the name of its value: the Run value's, the file's
+
+
+def login_entries() -> list[LoginEntry]:
     """What starts at login for this user and is not turned off: the Run
     keys (the user's and the machine's, 64 and 32 bit) and the Startup
-    folders, as text to look into."""
+    folders."""
     found = []
     for root, run, approval in ((winreg.HKEY_CURRENT_USER, RUN_KEY, "Run"),
                                 (winreg.HKEY_LOCAL_MACHINE, RUN_KEY, "Run"),
                                 (winreg.HKEY_LOCAL_MACHINE, RUN32_KEY, "Run32")):
         approvals = _values(root, APPROVED_KEY + "\\" + approval)
-        found += [f"{name} {value}" for name, value in _values(root, run).items() if approved(approvals.get(name))]
+        found += [LoginEntry(f"{name} {value}", root, approval, name)
+                  for name, value in _values(root, run).items() if approved(approvals.get(name))]
     for base, root in ((os.environ.get("APPDATA"), winreg.HKEY_CURRENT_USER),
                        (os.environ.get("ProgramData"), winreg.HKEY_LOCAL_MACHINE)):
         if base:
             startup = os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-            found += startup_folder_entries(startup, _values(root, APPROVED_KEY + "\\StartupFolder"))
+            found += [LoginEntry(text, root, "StartupFolder", name)
+                      for name, text in _folder_entries(startup, _values(root, APPROVED_KEY + "\\StartupFolder"))]
     return found
+
+
+def login_commands() -> list[str]:
+    """The entries of login_entries(), as text to look into."""
+    return [entry.text for entry in login_entries()]
+
+
+def turn_off(entry: LoginEntry, now: float | None = None) -> None:
+    """Turned off as Task Manager does it: the entry stays where it is and
+    Windows skips it; Task Manager or Settings turn it on again. One of the
+    machine's needs an administrator (PermissionError)."""
+    filetime = int(((time.time() if now is None else now) + 11644473600) * 10_000_000)
+    with winreg.CreateKeyEx(entry.root, APPROVED_KEY + "\\" + entry.approval, 0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, entry.name, 0, winreg.REG_BINARY, struct.pack("<IQ", 3, filetime))
