@@ -694,6 +694,9 @@ class PairPage(Adw.NavigationPage):
                                           _("What the next sync would do, without changing anything"))
         self.exclusions_row = self._link_row(group, _("Exclusions"),
                                              lambda: ExclusionsDialog(self.window, self.pair_id).present(self.window))
+        self.trash_row = self._link_row(group, _("Restore from Koofr's Trash"),
+                                        lambda: TrashDialog(self.window, self.pair_id).present(self.window),
+                                        _("Files of this folder deleted on Koofr in the last 30 days"))
         page.add(group)
 
         group = Adw.PreferencesGroup()
@@ -766,6 +769,8 @@ class PairPage(Adw.NavigationPage):
                                                        "{n} names Koofr does not accept",
                                                        len(rt.refused)).format(n=len(rt.refused))))
         self.preview_row.set_visible(pair.initialized)
+        self.trash_row.set_visible(pair.initialized)
+        self.trash_row.set_sensitive(signed_in)
         self.preview_row.set_sensitive(rt.status is not Status.SYNCING and signed_in)
         patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
                     if line.strip() and not line.lstrip().startswith("#")]
@@ -971,6 +976,129 @@ class ResolveAllDialog(Adw.Dialog):
             return
         self.close()
         self.on_done(done, errors)
+
+
+class TrashDialog(Adw.Dialog):
+    """What was deleted on Koofr in this folder and is still in Koofr's
+    trash, one row per deletion (the files deleted together): the one chosen
+    comes back, never the whole trash. Closing it lets the restore go on."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Restore from Koofr's Trash"), content_width=560, content_height=520)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        self.chosen = None
+        self.running = self.closed = False
+        self.connect("closed", lambda *_: setattr(self, "closed", True))
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.restore = Gtk.Button(label=_("Restore"), css_classes=["suggested-action"], sensitive=False)
+        self.restore.connect("clicked", lambda *_: self._restore())
+        header.pack_end(self.restore)
+        view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
+        self.set_child(view)
+        self.group = Adw.PreferencesGroup()
+        row = Adw.ActionRow(title=_("Reading Koofr's trash…"))
+        row.add_prefix(Adw.Spinner())
+        self.group.add(row)
+        self.page.add(self.group)
+        self.engine.trash_deletions(pair_id, self._listed)
+
+    def _replace(self, group: Adw.PreferencesGroup) -> None:
+        self.page.remove(self.group)
+        self.group = group
+        self.page.add(group)
+
+    def _listed(self, found: list, error: str) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        group = Adw.PreferencesGroup(description=_(
+            "Files of this folder deleted on Koofr and still in its trash, grouped by when they were deleted. "
+            "Only the deletion you choose comes back."))
+        if error:
+            group.add(Adw.ActionRow(title=_("Koofr's trash could not be read"), subtitle=escape(error)))
+        elif not found:
+            group.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
+        first = None
+        for deletion in found:
+            moment = GLib.DateTime.new_from_unix_local(deletion.deleted // 1000).format("%-d %b %Y, %H:%M")
+            n = len(deletion.entries)
+            parts = [ngettext("{n} file", "{n} files", n).format(n=count(n)), GLib.format_size(deletion.size)]
+            folders = deletion.folders(pair.remote)
+            if folders:
+                parts.append(", ".join(folders) + (" …" if len(folders) == 3 else ""))
+            row = Adw.ActionRow(title=moment, subtitle=escape(" · ".join(parts)), activatable=True)
+            check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
+            first = first or check
+            check.connect("toggled", lambda c, d=deletion: self._choose(d) if c.get_active() else None)
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            group.add(row)
+        self._replace(group)
+
+    def _choose(self, deletion) -> None:
+        self.chosen = deletion
+        self.restore.set_sensitive(not self.running)
+
+    def _restore(self) -> None:
+        deletion = self.chosen
+        if deletion is None:
+            return
+        started = self.engine.restore_from_trash(self.pair_id, deletion.entries, self._progress, self._done)
+        if not started:
+            tell(self.toasts, _("Wait for the sync of this folder to finish, then try again."), [])
+            return
+        self.running = True
+        self.restore.set_sensitive(False)
+        group = Adw.PreferencesGroup(description=_(
+            "Koofr restores about a thousand files a minute. You can close this window: the restore goes on, "
+            "and the folder does not sync until it is done."))
+        self.progress_row = Adw.ActionRow(title=_("Restoring…"))
+        self.progress_row.add_prefix(Adw.Spinner())
+        group.add(self.progress_row)
+        self.bar = Gtk.ProgressBar(margin_top=12, margin_bottom=12, margin_start=12, margin_end=12)
+        group.add(Adw.PreferencesRow(child=self.bar, activatable=False, focusable=False))
+        stop = Adw.ButtonRow(title=_("Stop"))
+        stop.connect("activated", lambda *_: self.engine.cancel_restore(self.pair_id))
+        group.add(stop)
+        self._replace(group)
+
+    def _progress(self, done: int, total: int) -> None:
+        if self.running and total:
+            self.bar.set_fraction(done / total)
+            self.progress_row.set_title(escape(_("Restoring: {n} of {total} files").format(
+                n=count(done), total=count(total))))
+
+    def _done(self, result, reuploads: int, error: str) -> None:
+        self.running = False
+        lines = []
+        if error:
+            lines.append(_("The restore stopped: {error}").format(error=error))
+        if result is not None:
+            lines.append(ngettext("{n} file restored.", "{n} files restored.", result.restored)
+                         .format(n=count(result.restored)))
+            if result.left:
+                lines.append(ngettext("{n} file is still in the trash: try again.",
+                                      "{n} files are still in the trash: try again.", len(result.left))
+                             .format(n=count(len(result.left))))
+            if result.cancelled:
+                lines.append(_("Stopped: the rest is still in the trash."))
+        if reuploads:
+            lines.append(ngettext(
+                "Koofr gives restored files today's date. The {n} file identical to the one on this computer is "
+                "uploaded again with its own date: if it is the whole folder, Spola asks you to confirm first.",
+                "Koofr gives restored files today's date. The {n} files identical to those on this computer are "
+                "uploaded again with their own dates: if they are the whole folder, Spola asks you to confirm "
+                "first.", reuploads).format(n=count(reuploads)))
+        group = Adw.PreferencesGroup()
+        for line in lines:
+            group.add(Adw.ActionRow(title=escape(line), title_lines=0))
+        self._replace(group)
+        if self.closed and lines:       # closed meanwhile: the window says it
+            self.window.toast(lines[0])
 
 
 class LeftOutDialog(Adw.Dialog):

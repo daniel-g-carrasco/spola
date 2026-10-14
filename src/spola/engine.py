@@ -20,9 +20,11 @@ Rules, from docs/progetto.md (5.3, 5.4, appendix P):
 from __future__ import annotations
 
 import enum
+import json
 import os
 import re
 import shutil
+import subprocess
 import threading
 import time
 from collections import deque
@@ -34,15 +36,16 @@ from gi.repository import Gio, GLib, GObject
 from . import config as config_mod
 from . import conflicts as conflicts_mod
 from . import jobs, koofr_api, listings
+from . import trash as trash_mod
 from .recent import Recent
 from . import activity as activity_mod
 from . import account as account_mod
 from .account import Credentials
 from .config import Config, Pair
-from .i18n import _, every_translation, ngettext
+from .i18n import _, count, every_translation, ngettext
 from .paths import Paths
 from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, describe, find_rclone,
-                     fold_case_renames, koofr_env, relative_path)
+                     fold_case_renames, koofr_env, relative_path, remote_spec)
 from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
@@ -178,6 +181,8 @@ class PairRuntime:
     before_run: tuple = (None, "")          # (status, message) before a run that may not start
     preview: Preview | None = None
     ahead_source: int = 0                   # timer before preparing the preview ahead
+    restoring: bool = False                 # files coming back from Koofr's trash: no run meanwhile
+    restore_cancel: threading.Event | None = None
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     activity: activity_mod.RunActivity = field(default_factory=activity_mod.RunActivity)
@@ -213,6 +218,8 @@ class Engine(GObject.Object):
         self.dev_remote = os.environ.get("SPOLA_DEV_REMOTE") or None
         self._conflict_name = conflict_name_pattern()
         self.trash = conflicts_mod.move_to_trash      # where a version not kept goes (tests replace it)
+        # Koofr's trash, for restore_from_trash (tests give their own)
+        self.koofr_trash = lambda creds: trash_mod.KoofrTrash(creds.user, creds.password)
         # Koofr's activity feed as a doorbell: None = not tried yet
         self.feed_ok: bool | None = None
         self.feed_enabled = self.dev_remote is None
@@ -472,6 +479,8 @@ class Engine(GObject.Object):
         return ""
 
     def _idle_status(self, pair: Pair, rt: PairRuntime) -> Status:
+        if rt.restoring:
+            return Status.SYNCING           # its message says how the restore is going
         if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION) and rt.run is None:
             return rt.status
         if pair.paused or self.cfg.paused_all:
@@ -707,6 +716,135 @@ class Engine(GObject.Object):
         if rt.task is None or rt.task.dry_run:
             self._set_status(pair, rt, Status.PENDING)
 
+    # -- Koofr's trash ---------------------------------------------------------------------
+
+    def trash_deletions(self, pair_id: str, done: Callable[[list, str], None]) -> None:
+        """What was deleted on Koofr in this folder and is in the trash, as
+        deletions (trash.Deletion, newest first); read in a thread."""
+        pair = self.cfg.pair(pair_id)
+        if pair is None or self.creds is None:
+            GLib.idle_add(lambda: done([], _("Sign in to Koofr first.")) and False)
+            return
+        api, mount_id, root = self.koofr_trash(self.creds), self.cfg.mount_id, pair.remote
+
+        def work():
+            try:
+                found = trash_mod.deletions(trash_mod.read(api, mount_id, root))
+                result = (found, "")
+            except Exception as e:      # shown to the user
+                result = ([], str(e))
+            GLib.idle_add(lambda: done(*result) and False)
+        threading.Thread(target=work, name=f"trash-{pair_id}", daemon=True).start()
+
+    def restore_from_trash(self, pair_id: str, entries: list, progress: Callable[[int, int], None],
+                           done: Callable[[trash_mod.Result | None, int, str], None]) -> bool:
+        """Bring back from Koofr's trash the chosen files of this folder, with
+        no run of the folder meanwhile. Then: the folders that were in the
+        last listing and are empty are made again on Koofr (the trash does not
+        hold folders), and, since Koofr gives every restored file today's
+        date and sets a date only on upload, the files identical to this
+        computer's (same size, unchanged here) get Koofr's new date in both
+        of bisync's listings: the next run sees them changed here and uploads
+        them again with their own date, and both listings agree at the end
+        (bisync checks it). `done(result, reuploads, error)`. False when the
+        folder is busy."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None or self.creds is None or not entries:
+            return False
+        if rt.task is not None or rt.restoring or any(t.pair_id == pair_id and not t.dry_run for t in self.queue):
+            return False
+        self.cancel_preview(pair_id)
+        rt.restoring = True
+        rt.preview = None
+        self._set_status(pair, rt, Status.SYNCING, _("Restoring from Koofr's trash…"))
+        api, creds, paths, rclone = self.koofr_trash(self.creds), self.creds, self.paths, self.rclone
+        override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
+        root = pair.remote.rstrip("/")
+        cancelled = threading.Event()
+        rt.restore_cancel = cancelled
+
+        def tell(n, total):
+            GLib.idle_add(lambda: progress(n, total) and False)
+            message = _("Restoring from Koofr's trash: {n} of {total}").format(n=count(n), total=count(total))
+            GLib.idle_add(lambda: self._restore_message(pair_id, message) and False)
+
+        def work():
+            reuploads, error = 0, ""
+            try:
+                result = trash_mod.restore(api, entries, tell, cancelled.is_set)
+                if not result.cancelled and pair.initialized:
+                    reuploads = self._after_restore(pair, root, entries, rclone, creds, paths, override)
+            except Exception as e:      # shown to the user
+                result, error = None, str(e)
+            GLib.idle_add(lambda: self._restore_done(pair_id, result, reuploads, error, done) and False)
+        threading.Thread(target=work, name=f"restore-{pair_id}", daemon=True).start()
+        return True
+
+    def cancel_restore(self, pair_id: str) -> None:
+        rt = self.runtime.get(pair_id)
+        cancel = rt.restore_cancel if rt else None
+        if cancel is not None:
+            cancel.set()
+
+    def _restore_message(self, pair_id: str, message: str) -> None:
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is not None and rt is not None and rt.restoring:
+            self._set_status(pair, rt, Status.SYNCING, message)
+
+    def _after_restore(self, pair: Pair, root: str, entries: list, rclone: str, creds: Credentials,
+                       paths: Paths, override: str | None) -> int:
+        """(In the restore's thread.) Empty folders made again, dates set for
+        the upload that puts them back: how many files will go up again."""
+        workdir = paths.workdir(pair.id)
+        lst1, lst2 = listings.find(workdir, 1), listings.find(workdir, 2)
+        if lst1 is None or lst2 is None:
+            return 0
+        before = {e.path: e for e in listings.load(workdir, 2) or []}
+        here = {e.path: e for e in listings.load(workdir, 1) or []}
+        remote = override or remote_spec(pair.remote)
+        env = koofr_env(creds.user, creds.obscured)
+        listed = subprocess.run([rclone, "lsjson", "-R", remote, "--config", str(paths.rclone_config),
+                                 "--checkers", "16"], env=env, capture_output=True, text=True, timeout=3600)
+        if listed.returncode != 0:
+            raise OSError(_("Koofr could not be listed after the restore: {error}").format(
+                error=(listed.stderr.strip().splitlines() or ["?"])[-1]))
+        now = {f["Path"]: f for f in json.loads(listed.stdout or "[]")}
+        # the folders of the last listing that are not on Koofr any more, empty there
+        for rel, entry in before.items():
+            if entry.is_dir and rel not in now and os.path.isdir(os.path.join(pair.local, rel)):
+                subprocess.run([rclone, "mkdir", f"{remote.rstrip('/')}/{rel}", "--config", str(paths.rclone_config)],
+                               env=env, capture_output=True, timeout=120)
+        times = {}
+        for e in entries:
+            rel = e.path[len(root) + 1:] if root else e.path.lstrip("/")
+            was, mine, there = before.get(rel), here.get(rel), now.get(rel)
+            if was is None or mine is None or there is None or was.is_dir or there.get("IsDir"):
+                continue
+            local = os.path.join(pair.local, rel)
+            try:
+                same_here = os.path.getsize(local) == mine.size == was.size == there.get("Size")
+            except OSError:
+                same_here = False
+            if same_here:
+                times[rel] = listings.bisync_time(there["ModTime"])
+        if times:
+            listings.retime(lst2, times)
+            listings.retime(lst1, times)
+        return len(times)
+
+    def _restore_done(self, pair_id: str, result, reuploads: int, error: str, done) -> None:
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if rt is not None:
+            rt.restoring = False
+            rt.restore_cancel = None
+        if pair is not None and rt is not None:
+            self._set_status(pair, rt, self._idle_status(pair, rt))
+            self.invalidate_preview(pair_id)
+            if not error:
+                self.request_sync(pair_id, "manual")        # the uploads that put the dates back
+        done(result, reuploads, error)
+        GLib.idle_add(self._next)
+
     def confirmed_waiting(self, pair_id: str) -> bool:
         """A run the user confirmed, queued behind the sync in progress."""
         return any(t.pair_id == pair_id and t.reason == "confirmed" and not t.dry_run for t in self.queue)
@@ -904,7 +1042,7 @@ class Engine(GObject.Object):
 
     def _pair_free(self, pair_id: str) -> bool:
         rt = self.runtime.get(pair_id)
-        return rt is None or rt.task is None
+        return rt is None or (rt.task is None and not rt.restoring)
 
     def _set_lane(self, task: Task, value: Task | None) -> None:
         if task.dry_run:
