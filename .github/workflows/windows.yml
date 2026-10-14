@@ -44,6 +44,9 @@ jobs:
           python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); from gi.repository import Gtk, Adw; print('GTK', Gtk.MAJOR_VERSION, Gtk.MINOR_VERSION, 'Adw', Adw.MAJOR_VERSION, Adw.MINOR_VERSION)"
           "$SPOLA_RCLONE" version | head -1
       - run: python tools/compile_po.py
+      - name: rclone's logs on Windows (fixtures)
+        continue-on-error: true
+        run: python tools/windows_log_sample.py logs
       - name: Tests
         continue-on-error: true
         run: python -m unittest discover -s tests -v 2>&1 | tee tests.log
@@ -62,4 +65,5 @@ jobs:
           name: windows-probe
           path: |
             tests.log
+            logs/
             gui/
