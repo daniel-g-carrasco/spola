@@ -63,6 +63,10 @@ class UpdateDialog(Adw.Dialog):
         box.append(buttons)
         view.set_content(box)
         self.set_child(view)
+        # the focus on the action, not on the first widget that takes it:
+        # a selectable label given the focus has all its text selected
+        self.set_default_widget(self.action)
+        self.set_focus(self.action)
 
     def _open_page(self) -> None:
         Gio.AppInfo.launch_default_for_uri(self.release.url, None)
