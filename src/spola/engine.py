@@ -1034,6 +1034,8 @@ class Engine(GObject.Object):
             return fail(_("This folder is being synced by another Spola process."), Status.PENDING)
         except OSError as e:
             return fail(str(e))
+        except Exception as e:      # said, never a lane taken for good
+            return fail(f"{type(e).__name__}: {e}")
         self._set_lane(task, task)
         rt.run, rt.task = run, task
         rt.pending_refused = job.refused

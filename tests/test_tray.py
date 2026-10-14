@@ -6,6 +6,9 @@ state flips quickly, and the menu works."""
 import time
 import unittest
 
+if __import__("sys").platform == "win32":
+    raise unittest.SkipTest("the StatusNotifierItem tray is D-Bus, Linux only (Windows: wintray)")
+
 import _setup  # noqa: F401
 import gi
 

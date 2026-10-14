@@ -5,6 +5,9 @@ forgets everything when Spola goes away."""
 
 import importlib.util
 import unittest
+
+if __import__("sys").platform == "win32":
+    raise unittest.SkipTest("the Files extension is Linux only")
 from pathlib import Path
 
 import _setup  # noqa: F401

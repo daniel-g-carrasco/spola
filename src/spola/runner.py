@@ -8,12 +8,12 @@ A pair is protected by our own flock (bisync's lock file has a known race,
 rclone issue #9793), held for the whole life of the child. Cancelling sends
 SIGINT, which bisync turns into a graceful stop (finish or cancel transfers,
 save state); a second cancel sends a second SIGINT, which stops at once and
-leaves the next run to --recover.
+leaves the next run to --recover. On Windows the lock is msvcrt's and the
+signal a Ctrl+Break (see win32.py).
 """
 
 from __future__ import annotations
 
-import fcntl
 import os
 import signal
 import subprocess
@@ -22,7 +22,13 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from . import WINDOWS
 from .rclone import Event, Outcome, Result, parse_line, summarize
+
+if WINDOWS:
+    from . import win32
+else:
+    import fcntl
 
 KEEP_LOGS = 20
 
@@ -64,7 +70,7 @@ class BisyncRun:
                 text=True, encoding="utf-8", errors="replace", bufsize=1,
                 # our own process group: a Ctrl+C in the terminal that started
                 # Spola must not reach rclone behind our back
-                start_new_session=True)
+                **(win32.popen_options() if WINDOWS else {"start_new_session": True}))
         except BaseException:
             self._release_lock()
             raise
@@ -75,6 +81,11 @@ class BisyncRun:
         """First call: graceful stop. Second call: stop now."""
         if self._proc and self._proc.poll() is None:
             self._interrupts += 1
+            if WINDOWS:
+                # the second call, or an event that cannot be sent: at once
+                if self._interrupts > 1 or not win32.interrupt(self._proc):
+                    self._proc.kill()
+                return
             try:
                 self._proc.send_signal(signal.SIGINT)
             except ProcessLookupError:
@@ -96,19 +107,28 @@ class BisyncRun:
 
     def _take_lock(self) -> None:
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC, 0o600)
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | (os.O_NOINHERIT if WINDOWS else os.O_CLOEXEC), 0o600)
+        if WINDOWS:
+            taken = win32.lock(fd)
+        else:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                taken = True
+            except BlockingIOError:
+                taken = False
+        if not taken:
             os.close(fd)
-            raise PairBusy(str(self.lock_path)) from None
+            raise PairBusy(str(self.lock_path))
         os.ftruncate(fd, 0)
         os.write(fd, f"{os.getpid()}\n".encode())
         self._lock_fd = fd
 
     def _release_lock(self) -> None:
         if self._lock_fd is not None:
-            fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
+            if WINDOWS:
+                win32.unlock(self._lock_fd)
+            else:
+                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
             os.close(self._lock_fd)
             self._lock_fd = None
 

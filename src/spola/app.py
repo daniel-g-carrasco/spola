@@ -14,14 +14,14 @@ gi.require_version("Adw", "1")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, APP_NAME, autostart, config, file_managers, portal, recent, secrets  # noqa: E402
+from . import APP_ID, APP_NAME, WINDOWS, autostart, config, file_managers, portal, recent, secrets  # noqa: E402
 from .account import Credentials  # noqa: E402
 from .dbus_service import SyncService  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .ui import progress_text, status_text, time_left, tray_icon  # noqa: E402
+from .ui import progress_text, status_badge, status_text, time_left, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
@@ -75,17 +75,24 @@ class SpolaApp(Adw.Application):
         self.set_accels_for_action("window.close", ["<Control>w"])
 
         icon_path = str(SOURCE_ICONS) if not in_flatpak() and SOURCE_ICONS.is_dir() else ""
-        self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
-        self.tray.start(self.get_dbus_connection())
-        self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
-                                        else self.activate(),
-                                        open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
-                                        show_link=self._show_link, tell=self._tell)
-        self.sync_service.start(self.get_dbus_connection())
+        if WINDOWS:
+            # the notification area; no file manager speaks D-Bus there
+            from .wintray import WinTray
+            self.tray = WinTray(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
+            self.tray.start()
+            self.sync_service = None
+        else:
+            self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
+            self.tray.start(self.get_dbus_connection())
+            self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
+                                            else self.activate(),
+                                            open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
+                                            show_link=self._show_link, tell=self._tell)
+            self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
-        if self.engine.cfg.nautilus_integration:
+        if self.engine.cfg.nautilus_integration and not WINDOWS:
             try:
                 file_managers.install()      # a newer Spola brings a newer extension
             except (OSError, FileNotFoundError):
@@ -221,11 +228,13 @@ class SpolaApp(Adw.Application):
             if (left := time_left((rt.stats or {}).get("eta"))):
                 parts.append(left)
             progress = " · ".join(parts)
-        self.tray.set_icon(tray_icon(overall))
+        # the Windows taskbar has no symbolic recolouring: the coloured badge always
+        self.tray.set_icon(status_badge(overall) if WINDOWS else tray_icon(overall))
         self.tray.set_tooltip(APP_NAME, summary + (f"\n{progress}" if progress else ""))
         if summary != self._last_summary:
             self._last_summary = summary
-            portal.set_status(self.get_dbus_connection(), summary)
+            if not WINDOWS:
+                portal.set_status(self.get_dbus_connection(), summary)
         paused = engine.cfg.paused_all
         files = []
         transferring = self._transferring()
@@ -308,6 +317,9 @@ class SpolaApp(Adw.Application):
         dialog.present(window)
 
     def _tell(self, message: str) -> None:
+        if WINDOWS:
+            self.tray.notify(APP_NAME, message)
+            return
         note = Gio.Notification.new(APP_NAME)
         note.set_body(message)
         self.send_notification("file-manager", note)
@@ -334,6 +346,10 @@ class SpolaApp(Adw.Application):
             "error": _("“{name}” cannot be synced"),
             "refused": _("Some files in “{name}” are not synced"),
         }
+        if WINDOWS:
+            # GLib has no notifications on Windows: a toast from the tray icon
+            self.tray.notify(titles.get(kind, "{name}").format(name=name), message, lambda: self._review(pair_id))
+            return
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)
         note.set_default_action_and_target("app.review", GLib.Variant("s", pair_id))
@@ -355,7 +371,8 @@ class SpolaApp(Adw.Application):
         def done():
             if self.tray:
                 self.tray.stop()
-            self.sync_service.stop()
+            if self.sync_service:
+                self.sync_service.stop()
             self.release()
             self.quit()
 
