@@ -18,6 +18,7 @@ from _setup import rclone_binary
 from gi.repository import GLib
 
 from spola import engine as engine_mod
+from spola import trash as trash_mod
 from spola import koofr_api
 from spola.account import Credentials, Quota
 from spola.config import Config, Pair
@@ -463,6 +464,70 @@ class EngineTest(unittest.TestCase):
         self.assertIs(self.status(), Status.PENDING)
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK, 60))
         self.assertEqual(len(self.remote_files()), 30)
+
+    def test_restore_from_trash_puts_files_folders_and_dates_back(self):
+        # a folder deleted on Koofr by mistake, Spola not run since: back from
+        # the trash with today's dates (as Koofr does), its empty folder made
+        # again, the files uploaded once more with their own dates
+        self.align()
+        (self.local / "sub" / "empty").mkdir(parents=True)
+        for i in range(5):
+            (self.local / "sub" / f"s{i}.txt").write_text(f"s{i}")
+            os.utime(self.local / "sub" / f"s{i}.txt", (1_600_000_000 + i, 1_600_000_000 + i))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: (self.remote / "sub" / "empty").is_dir()
+                                   and self.engine.active is None and not self.engine.queue, 30))
+        bin_ = self.tmp / "koofr-trash"
+        bin_.mkdir()
+        mount = self.engine.cfg.mount_id
+        deleted = int(time.time() * 1000)
+        entries = []
+        for f in sorted((self.remote / "sub").iterdir()):
+            if f.is_file():
+                shutil.move(str(f), bin_ / f.name)
+                entries.append(trash_mod.Entry(mount, f"/test/sub/{f.name}", 2, deleted))
+        shutil.rmtree(self.remote / "sub")
+
+        class Bin:
+            def page(self, cursor):
+                return list(entries), None
+
+            def undelete(self, chosen):
+                assert chosen
+                for e in chosen:
+                    name = e.path.rsplit("/", 1)[1]
+                    target = Path(str(bin_.parent / "remote") + "/test/sub") / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(bin_ / name), target)
+                    os.utime(target)                    # Koofr: today's date
+                    entries.remove(e)
+                return "job"
+
+            def job_done(self, job_id):
+                return True
+        self.engine.koofr_trash = lambda creds: Bin()
+        found = []
+        self.engine.trash_deletions("p1", lambda d, err: found.append((d, err)))
+        self.assertTrue(spin_until(lambda: found, 10))
+        (deletion,), error = found[0]
+        self.assertEqual((len(deletion.entries), error), (5, ""))
+        finished, outcome = [], []
+        self.engine.connect("run-finished", lambda _e, pid, reason: finished.append(reason))
+        self.assertTrue(self.engine.restore_from_trash("p1", deletion.entries, lambda n, t: None,
+                                                       lambda r, up, err: outcome.append((r, up, err))))
+        self.assertIs(self.status(), Status.SYNCING)
+        self.engine.request_sync("p1", "manual")               # waits: no run while restoring
+        self.assertTrue(spin_until(lambda: outcome, 30))
+        result, reuploads, error = outcome[0]
+        self.assertEqual((result.restored, result.left, reuploads, error), (5, [], 5, ""))
+        self.assertTrue((self.remote / "sub" / "empty").is_dir())
+        self.assertTrue(spin_until(lambda: "manual" in finished and self.engine.active is None
+                                   and not self.engine.queue, 60))
+        last = self.engine.runtime["p1"].last_outcome
+        self.assertIs(last.result, Result.OK, last.message)
+        for i in range(5):
+            self.assertAlmostEqual((self.remote / "sub" / f"s{i}.txt").stat().st_mtime, 1_600_000_000 + i, delta=0.01)
+        self.assertIs(self.status(), Status.OK)
 
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")

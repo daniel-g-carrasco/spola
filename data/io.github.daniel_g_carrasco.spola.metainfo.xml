@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.10" date="2026-10-14" type="development">
+      <description>
+        <p>Restore from Koofr's trash, on a folder's page: what was deleted on Koofr in that folder, grouped by when, and the deletion you choose comes back, never the whole trash. Spola makes again the folders left empty, which the trash does not keep, and, since Koofr gives restored files today's date, uploads again the files identical to this computer's to put their dates back.</p>
+      </description>
+    </release>
     <release version="0.3.9" date="2026-10-14" type="development">
       <description>
         <p>Fixed: a folder or a file renamed here by case alone ("Screencasts" to "screencasts") was not renamed on Koofr, which does not tell the two names apart. The preview counted its files as deleted on Koofr and uploaded again, and after the sync the files moved into it came back here in a second folder with the old name, and the folder stopped for a repair. Nothing was lost, but now Spola renames it on Koofr first, on the server, and the preview shows it as one move.</p>
