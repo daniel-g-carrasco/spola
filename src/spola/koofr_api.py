@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import json
 import posixpath
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -181,6 +182,18 @@ def activity(user: str, password: str, mount_id: str, since_ms: int) -> list[Act
         except (KeyError, TypeError, ValueError):
             continue
     return out
+
+
+_LINK_CONTENT = re.compile(r"/content/links/([0-9A-Za-z-]+)/files/get\b")
+
+
+def share_page(url: str) -> str:
+    """The page of a share link, to give to someone: rclone link answers
+    with the link's direct download (.../content/links/<id>/files/get),
+    which Koofr refuses when opened from elsewhere ("Hotlinking not
+    allowed"); the page is .../links/<id>. Any other URL as it is."""
+    m = _LINK_CONTENT.search(url)
+    return f"{KOOFR_WEB}/links/{m.group(1)}" if m else url
 
 
 def web_url(mount_id: str | None, path: str) -> str:

@@ -249,7 +249,7 @@ class SyncService:
                 proc = subprocess.run([rclone, "link", remote_spec(remote), "--config", str(paths.rclone_config)],
                                       env=koofr_env(creds.user, creds.obscured), capture_output=True, text=True,
                                       timeout=60)
-                url = proc.stdout.strip() if proc.returncode == 0 else ""
+                url = koofr_api.share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
                 error = "" if url else (proc.stderr.strip().splitlines() or ["rclone link failed"])[-1]
             except (OSError, subprocess.SubprocessError) as e:
                 url, error = "", str(e)

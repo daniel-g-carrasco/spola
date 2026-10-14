@@ -45,6 +45,20 @@ class LocateTest(unittest.TestCase):
         self.assertEqual(file_page, folder_page)                # a file: the folder that holds it
         self.assertIn("m1", folder_page)
 
+    def test_no_link_for_what_is_not_synced(self):
+        from spola.rclone import default_excluded
+        self.assertNotEqual(explorer.link_refusal(self.pair, ".spola-root", False, default_excluded), "")
+        self.assertEqual(explorer.link_refusal(self.pair, "Sub dir/a.txt", False, default_excluded), "")
+        self.assertEqual(explorer.link_refusal(self.pair, "", True, default_excluded), "")     # the folder itself
+
+    def test_link_errors_in_words(self):
+        rclone_400 = ("2026/10/14 23:19:23 NOTICE: Failed to link: Invalid response status! Got 400, "
+                      "expected [200 201]; headers: map[Cache-Control:[no-cache]]")
+        self.assertIn("a.txt", explorer.link_error("a.txt", rclone_400))
+        self.assertNotIn("Cache-Control", explorer.link_error("a.txt", rclone_400))
+        other = explorer.link_error("a.txt", "line one\nconnection refused")
+        self.assertIn("connection refused", other)
+
     def test_applies_to(self):
         condition = explorer.applies_to([Pair("p1", "C:/Users/me/Work", "/w"), Pair("p2", "D:\\Photos\\", "/p")])
         self.assertIn('System.ParsingPath:~<"', condition)
@@ -98,22 +112,24 @@ class ShellTest(unittest.TestCase):
                 tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as outside:
             for folder in (inside, outside):
                 (Path(folder) / "f.txt").write_text("x")
+            (Path(inside) / ".spola-root").write_text("p\n")
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
                 winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, verb)
                 winreg.SetValueEx(key, "AppliesTo", 0, winreg.REG_SZ, explorer.applies_to([Pair("p", inside, "/x")]))
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path + r"\command") as key:
                 winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "cmd /c exit")
             try:
-                folders = ", ".join("'%s'" % os.path.normpath(f).replace("/", "\\") for f in (inside, outside))
-                script = ("$sh = New-Object -ComObject Shell.Application; foreach ($d in @(%s)) { "
-                          "[bool]($sh.Namespace($d).ParseName('f.txt').Verbs() | Where-Object { $_.Name -eq '%s' }) }"
-                          % (folders, verb))
+                items = ", ".join("@('%s', '%s')" % (os.path.normpath(f).replace("/", "\\"), name)
+                                  for f, name in ((inside, "f.txt"), (inside, ".spola-root"), (outside, "f.txt")))
+                script = ("$sh = New-Object -ComObject Shell.Application; foreach ($i in @(%s)) { "
+                          "[bool]($sh.Namespace($i[0]).ParseName($i[1]).Verbs() | Where-Object { $_.Name -eq '%s' }) }"
+                          % (items, verb))
                 out = subprocess.run(["powershell", "-NoProfile", "-Command", script],
                                      capture_output=True, text=True, timeout=60).stdout.split()
             finally:
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path + r"\command")
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)
-        self.assertEqual(out, ["True", "False"])
+        self.assertEqual(out, ["True", "False", "False"])     # inside; Spola's own file; outside
 
 
 if __name__ == "__main__":
