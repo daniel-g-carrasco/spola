@@ -373,8 +373,13 @@ msgid "take over the folder pairs of Koofr Desktop (stopped first)"
 msgstr "rileva le coppie di cartelle di Koofr Desktop (prima va fermato)"
 
 #: src/spola/cli.py:151
-msgid "Koofr Desktop's config.json (default: ~/.koofr/config.json)"
-msgstr "il config.json di Koofr Desktop (predefinito: ~/.koofr/config.json)"
+#, python-format
+msgid ""
+"Koofr Desktop's config.json (default: ~/.koofr/config.json; on Windows, "
+"koofr\\config.json in %%APPDATA%%)"
+msgstr ""
+"il config.json di Koofr Desktop (predefinito: ~/.koofr/config.json; su "
+"Windows, koofr\\config.json in %%APPDATA%%)"
 
 #: src/spola/cli.py:152
 msgid "show what the next sync would do"
@@ -753,7 +758,12 @@ msgstr ""
 "Koofr Desktop è in esecuzione o impostato per avviarsi all'accesso: prima "
 "fermalo."
 
-#: src/spola/migrate.py:55
+#: src/spola/migrate.py:52
+msgid "not in your own Koofr storage (a shared folder or a connected service)"
+msgstr ""
+"non è nel tuo spazio Koofr (una cartella condivisa o un servizio collegato)"
+
+#: src/spola/migrate.py:60
 msgid "already in Spola"
 msgstr "già in Spola"
 

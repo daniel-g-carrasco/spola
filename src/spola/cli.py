@@ -148,7 +148,7 @@ def main(argv: list[str]) -> int:
     p = sub.add_parser("remove", help=_("forget a folder pair (no file is deleted)"))
     p.add_argument("pair")
     p = sub.add_parser("import-koofr-desktop", help=_("take over the folder pairs of Koofr Desktop (stopped first)"))
-    p.add_argument("--config", default=None, help=_("Koofr Desktop's config.json (default: ~/.koofr/config.json)"))
+    p.add_argument("--config", default=None, help=_("Koofr Desktop's config.json (default: ~/.koofr/config.json; on Windows, koofr\\config.json in %%APPDATA%%)"))
     for name, text in (("preview", _("show what the next sync would do")),
                        ("align", _("first alignment of a new pair (preview, then asks)")),
                        ("repair", _("new alignment after a critical error (preview, then asks)")),
@@ -201,7 +201,7 @@ def main(argv: list[str]) -> int:
     if args.command == "import-koofr-desktop":
         from . import migrate
         try:
-            report = migrate.import_koofr_desktop(cfg, Path(args.config) if args.config else migrate.KOOFR_DESKTOP_CONFIG)
+            report = migrate.import_koofr_desktop(cfg, Path(args.config) if args.config else None)
         except migrate.KoofrDesktopActive as e:
             return _fail(str(e))
         config.save(cfg, paths.config_file)
@@ -232,7 +232,7 @@ def main(argv: list[str]) -> int:
         local = str(Path(args.local).expanduser().resolve())
         remote = config.normalize_remote(args.remote)
         problems = (preflight.check_local_root(local) + preflight.check_overlap(local, remote, cfg)
-                    + preflight.check_koofr_desktop(local, Path.home() / ".koofr" / "config.json"))
+                    + preflight.check_koofr_desktop(local, preflight.koofr_desktop_config()))
         if remote == "/":
             problems.append(preflight.Problem("remote-root", _("Choose a folder on Koofr, not the whole Koofr storage."), "/"))
         problems = problems or preflight.scan_names(local, remote, skip=default_excluded)

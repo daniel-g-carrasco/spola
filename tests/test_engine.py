@@ -3,12 +3,14 @@
 "Koofr" side (SPOLA_DEV_REMOTE): first alignment, a local change picked up by
 the monitor, a mass delete that stops and waits, pause, shutdown."""
 
+import json
 import os
 import shutil
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup
 from _setup import rclone_binary
@@ -22,6 +24,7 @@ from spola.config import Config, Pair
 from spola.conflicts import decide
 from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
 from spola.paths import Paths
+from spola import preflight
 from spola.preflight import rename_plan, root_identity
 from spola import jobs
 from spola.rclone import Mode, Result
@@ -514,15 +517,22 @@ class EngineTest(unittest.TestCase):
     def test_koofr_desktop_on_the_same_folder_stops_every_run(self):
         self.align()
         home = self.tmp / "home"
-        (home / ".koofr" / "log").mkdir(parents=True)
-        (home / ".koofr" / "config.json").write_text(
-            '{"users": {"u": {"syncs": [{"localPath": "%s", "remotePath": "/test"}]}}}' % self.local)
-        (home / ".koofr" / "log" / "sync_x.log").write_text("running")      # written just now
-        for var in ("HOME", "USERPROFILE"):        # Path.home() reads USERPROFILE on Windows
+        # Path.home() reads USERPROFILE on Windows, Koofr Desktop's folder is in APPDATA there
+        for var, value in (("HOME", home), ("USERPROFILE", home), ("APPDATA", home / "AppData" / "Roaming")):
             saved = os.environ.get(var)
-            os.environ[var] = str(home)
+            os.environ[var] = str(value)
             self.addCleanup(lambda v=var, s=saved: os.environ.__setitem__(v, s) if s is not None
                             else os.environ.pop(v, None))
+        koofr = preflight.koofr_desktop_dir()
+        (koofr / "log").mkdir(parents=True)
+        (koofr / "config.json").write_text(
+            json.dumps({"users": {"u": {"syncs": [{"localPath": str(self.local), "remotePath": "/test"}]}}}))
+        if _setup.WINDOWS:          # its processes and what starts at login tell, not its logs
+            patcher = mock.patch.object(preflight, "koofr_desktop_active", return_value=True)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        else:
+            (koofr / "log" / "sync_x.log").write_text("running")      # written just now
         told = []
         self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
         (self.local / "new.txt").write_text("x")
