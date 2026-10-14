@@ -313,6 +313,27 @@ def write_marker(pair: Pair) -> None:
         f.write(f"{pair.id}\n")
 
 
+def claim_root(pair: Pair) -> None:
+    """A new pair marks its folder at once: the marker of a pair removed from
+    the same folder before would say the folder had been replaced. (One of a
+    pair still configured cannot be there: two pairs on a folder are refused.)"""
+    try:
+        write_marker(pair)
+    except OSError:
+        pass            # the check before the first run says why
+
+
+def release_root(pair: Pair) -> None:
+    """A pair removed takes its marker away, if the marker is its own."""
+    try:
+        with open(marker_path(pair), encoding="utf-8") as f:
+            if f.read().strip() != pair.id:
+                return
+        os.remove(marker_path(pair))
+    except OSError:
+        pass
+
+
 def check_root_identity(pair: Pair, known_entries: Iterable[str] = ()) -> list[Problem]:
     """Before every run: is the local root still the very folder we paired?
     The marker decides. A root paired before markers existed gets one now,
