@@ -55,22 +55,32 @@ class LocateTest(unittest.TestCase):
 @unittest.skipUnless(_setup.WINDOWS, "Windows only")
 class RegistryTest(unittest.TestCase):
     def test_written_for_the_pairs_and_removed(self):
+        # under a key of the test's own: the real entries of an installed
+        # Spola on the machine that runs the tests stay as they are
         import winreg
-        saved = [(t, v) for t in explorer.TARGETS for v in explorer.VERBS]
+        from unittest import mock
+        classes = rf"Software\SpolaTest-{os.getpid()}\Classes"
         exe = r"C:\Program Files\Spola\Spola.exe"
         try:
-            explorer.register(exe, [Pair("p1", os.path.expanduser("~"), "/w")])
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Classes\Directory\shell\Spola.OpenOnKoofr") as key:
-                self.assertIn("System.ItemPathDisplay", winreg.QueryValueEx(key, "AppliesTo")[0])
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                                r"Software\Classes\*\shell\Spola.CopyKoofrLink\command") as key:
-                self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --copy-link "%1"')
-            explorer.register(exe, [])                          # no pairs: no entries
-            for target, verb in saved:
-                with self.assertRaises(OSError):
-                    winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{target}\shell\{verb}")
+            with mock.patch.object(explorer, "CLASSES", classes):
+                explorer.register(exe, [Pair("p1", os.path.expanduser("~"), "/w")])
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\Directory\shell\Spola.OpenOnKoofr") as key:
+                    self.assertIn("System.ItemPathDisplay", winreg.QueryValueEx(key, "AppliesTo")[0])
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                    rf"{classes}\*\shell\Spola.CopyKoofrLink\command") as key:
+                    self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --copy-link "%1"')
+                explorer.register(exe, [])                          # no pairs: no entries
+                for target in explorer.TARGETS:
+                    for verb in explorer.VERBS:
+                        with self.assertRaises(OSError):
+                            winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\{target}\shell\{verb}")
         finally:
-            explorer.unregister()
+            for sub in [rf"{classes}\{t}\shell" for t in explorer.TARGETS] + [rf"{classes}\{t}" for t in explorer.TARGETS] \
+                    + [classes, rf"Software\SpolaTest-{os.getpid()}"]:
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, sub)
+                except OSError:
+                    pass
 
 
 if __name__ == "__main__":
