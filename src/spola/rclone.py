@@ -111,6 +111,25 @@ def exclude_lines(refused) -> str:
     return "\n".join(lines) + ("\n" if lines else "")
 
 
+# Windows 10 (before build 22000) takes CON, PRN, AUX, NUL, COM1-9 and
+# LPT1-9, with any extension, for devices in every folder: such a file, which
+# Koofr accepts, rclone can still write (through \\?\ paths), but other
+# programs can neither open nor delete it. Windows 11 takes them for devices
+# only as bare relative names: in a folder they are ordinary files. The
+# characters Windows refuses (: * ? " < > |, a final dot or space) rclone
+# writes as their full-width look-alikes and back, on every Windows.
+WINDOWS_RESERVED = r"{{(?i:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:[ ]*\.[^/]*)?}}"
+
+
+def windows_reserved_names_matter() -> bool:
+    return sys.platform == "win32" and sys.getwindowsversion().build < 22000
+
+
+def reserved_exclude_lines() -> str:
+    """--exclude-from lines leaving them out, files and folders, anywhere."""
+    return f"{WINDOWS_RESERVED}\n{WINDOWS_RESERVED}/**\n"
+
+
 def find_rclone() -> str | None:
     override = os.environ.get("SPOLA_RCLONE")
     if override:

@@ -24,7 +24,8 @@ from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
-                     effective_max_delete, exclude_lines, no_window, remote_spec)
+                     effective_max_delete, exclude_lines, no_window, remote_spec, reserved_exclude_lines,
+                     windows_reserved_names_matter)
 
 
 def conflict_words(language: str = "") -> tuple[str, str]:
@@ -105,10 +106,13 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     known = frozenset(e.path for e in previous or [])
     refused = refused_paths(pair.local, pair.remote, known, skip=default_excluded)
     exclude_file = None
-    if refused:
+    lines = exclude_lines(refused)
+    if windows_reserved_names_matter():
+        lines += reserved_exclude_lines()       # Windows 10's device names, on both sides
+    if lines:
         exclude_file = paths.state / "exclude" / f"{pair.id}.txt"
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
-        exclude_file.write_text(exclude_lines(refused), encoding="utf-8")
+        exclude_file.write_text(lines, encoding="utf-8", newline="\n")
 
     path2 = path2_override or remote_spec(pair.remote)
     request = BisyncRequest(
