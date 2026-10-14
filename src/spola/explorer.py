@@ -59,12 +59,14 @@ def page_url(mount_id: str, pair: Pair, relative: str, is_dir: bool) -> str:
 
 def applies_to(pairs: list[Pair]) -> str:
     """The Advanced Query Syntax condition: an item in a synced folder, or
-    the synced folder itself."""
+    the synced folder itself. System.ParsingPath: the context menu has no
+    System.ItemPathDisplay to compare (tried: never matched); the
+    comparison ignores case, as NTFS does."""
     terms = []
     for pair in pairs:
         root = os.path.normpath(pair.local).replace("/", "\\").rstrip("\\")
-        terms.append(f'System.ItemPathDisplay:~<"{root}\\"')
-        terms.append(f'System.ItemPathDisplay:="{root}"')
+        terms.append(f'System.ParsingPath:~<"{root}\\"')
+        terms.append(f'System.ParsingPath:="{root}"')
     return " OR ".join(terms)
 
 
