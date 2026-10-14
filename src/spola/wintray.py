@@ -132,6 +132,21 @@ def ico_from_svg(svg: str, ico: Path) -> None:
     ico.write_bytes(header + entries + payload)
 
 
+def allow_dark_menus() -> None:
+    """The icon's menu in the dark when Windows is: uxtheme's
+    SetPreferredAppMode(AllowDark) and FlushMenuThemes, by ordinal (135,
+    136), not documented but what Explorer's own menus rely on (Windows 10
+    1903 and later; before, 135 is AllowDarkModeForApp(TRUE), the same)."""
+    try:
+        uxtheme = ctypes.WinDLL("uxtheme")
+        set_preferred_app_mode, flush_menu_themes = uxtheme[135], uxtheme[136]
+        set_preferred_app_mode.argtypes = [ctypes.c_int]
+        set_preferred_app_mode(1)
+        flush_menu_themes()
+    except (OSError, AttributeError):
+        pass
+
+
 class WinTray:
     """on_quit starts a graceful quit (rclone stopped, its state saved) and
     has_quit tells when it is over: Windows asks through the icon's window,
@@ -152,6 +167,7 @@ class WinTray:
         self.tooltip = title
         self._icons: dict[str, int] = {}
         self._on_balloon: Callable[[], None] | None = None
+        self._toasts = None
         self._hwnd = None
         self._added = False
         self._wndproc = WNDPROC(self._window_proc)      # kept: Windows calls it
@@ -166,7 +182,17 @@ class WinTray:
                          hInstance=instance, lpszClassName=name)
         user32.RegisterClassExW(ctypes.byref(wc))
         self._hwnd = user32.CreateWindowExW(0, name, self.title, 0, 0, 0, 0, 0, None, None, instance, None)
+        allow_dark_menus()
         self._add()
+        self._toasts = None
+        try:
+            from . import wintoast
+            self._icon(self.app_id)                 # its .ico, for the notification centre
+            icon = self.cache / f"{self.app_id}.ico"
+            wintoast.register_app(self.app_id, self.title, str(icon) if icon.exists() else "")
+            self._toasts = wintoast.Toasts(self.app_id)
+        except OSError:
+            pass                                    # an old Windows: the icon's balloons
 
     def stop(self) -> None:
         if self._added:
@@ -193,8 +219,16 @@ class WinTray:
     def set_menu(self, items: list[MenuItem]) -> None:
         self.items = items          # built into a menu when it is opened
 
-    def notify(self, title: str, body: str, on_click: Callable[[], None] | None = None) -> None:
-        """A toast from the icon; on_click when the user clicks it."""
+    def notify(self, title: str, body: str, on_click: Callable[[], None] | None = None, tag: str = "") -> None:
+        """A toast, which replaces the one with the same tag; on_click when
+        the user clicks it."""
+        if self._toasts is not None:
+            clicked = None if on_click is None else (lambda: GLib.idle_add(lambda: on_click() and False))
+            try:
+                self._toasts.show(title, body, tag, clicked)
+                return
+            except OSError:
+                pass
         if not self._added:
             return
         self._on_balloon = on_click

@@ -54,8 +54,9 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 Source: "..\..\dist\Spola\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Spola"; Filename: "{app}\Spola.exe"; Comment: "{cm:AppDescription}"
-Name: "{autodesktop}\Spola"; Filename: "{app}\Spola.exe"; Tasks: desktopicon
+; the AppUserModelID Spola sets for itself: its toasts, its taskbar button
+Name: "{group}\Spola"; Filename: "{app}\Spola.exe"; Comment: "{cm:AppDescription}"; AppUserModelID: "io.github.daniel_g_carrasco.spola"
+Name: "{autodesktop}\Spola"; Filename: "{app}\Spola.exe"; Tasks: desktopicon; AppUserModelID: "io.github.daniel_g_carrasco.spola"
 
 [Run]
 Filename: "{app}\Spola.exe"; Description: "{cm:LaunchProgram,Spola}"; Flags: nowait postinstall skipifsilent
@@ -101,6 +102,9 @@ end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
-  if CurUninstallStep = usPostUninstall then
+  if CurUninstallStep = usPostUninstall then begin
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Spola');
+    { the name and icon of its toasts, written by Spola itself }
+    RegDeleteKeyIncludingSubkeys(HKEY_CURRENT_USER, 'Software\Classes\AppUserModelId\io.github.daniel_g_carrasco.spola');
+  end;
 end;
