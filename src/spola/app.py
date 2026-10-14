@@ -35,6 +35,9 @@ class SpolaApp(Adw.Application):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self.add_main_option("background", 0, GLib.OptionFlags.NONE, GLib.OptionArg.NONE,
                              _("Start without opening the window"), None)
+        # File Explorer's entries (explorer.py), to the running Spola
+        self.add_main_option("open-on-koofr", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
+        self.add_main_option("copy-link", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.engine: Engine | None = None
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None
@@ -59,6 +62,7 @@ class SpolaApp(Adw.Application):
         self.engine.uninhibit = self.uninhibit
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", lambda *_: self._refresh_tray())
+        self.engine.connect("pairs-changed", self._register_explorer)
         self.engine.connect("status-changed", lambda *_: self._refresh_tray())
         self.engine.connect("attention", self._on_attention)
         self._load_credentials()
@@ -98,6 +102,7 @@ class SpolaApp(Adw.Application):
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
+        self._register_explorer()
         autostart.apply(self.engine.cfg.autostart, self.get_dbus_connection())
         if self.engine.cfg.nautilus_integration and not WINDOWS:
             try:
@@ -164,9 +169,74 @@ class SpolaApp(Adw.Application):
                 pass
 
     def do_command_line(self, command_line):
-        if not command_line.get_options_dict().contains("background"):
+        options = command_line.get_options_dict()
+        for name, handler in (("open-on-koofr", self._open_on_koofr), ("copy-link", self._copy_link)):
+            value = options.lookup_value(name, GLib.VariantType.new("s"))
+            if value is not None:
+                handler(value.get_string())
+                return 0
+        if not options.contains("background"):
             self.activate()
         return 0
+
+    # -- File Explorer's entries ---------------------------------------------------
+
+    def _register_explorer(self, *_args) -> None:
+        """The entries for the pairs of now; only from the installed or the
+        portable build (a run from the sources has no Spola.exe to call)."""
+        if WINDOWS and getattr(sys, "frozen", False):
+            from . import explorer
+            try:
+                explorer.register(sys.executable, self.engine.cfg.pairs)
+            except OSError:
+                pass
+
+    def _in_pair(self, path: str):
+        from . import explorer
+        found = explorer.locate(self.engine.cfg.pairs, path)
+        if found is None:
+            self._tell(_("“{name}” is not in a folder synced with Koofr.").format(name=os.path.basename(path) or path))
+        return found
+
+    def _open_on_koofr(self, path: str) -> None:
+        from . import explorer
+        found = self._in_pair(path)
+        if found is not None:
+            pair, relative = found
+            url = explorer.page_url(self.engine.cfg.mount_id, pair, relative, os.path.isdir(path))
+            Gio.AppInfo.launch_default_for_uri(url, None)
+
+    def _copy_link(self, path: str) -> None:
+        from . import explorer
+        from .rclone import koofr_env, no_window, remote_spec
+        found = self._in_pair(path)
+        creds, rclone = self.engine.creds, self.engine.rclone
+        if found is None:
+            return
+        if creds is None or rclone is None:
+            self._tell(_("Not signed in to Koofr"))
+            return
+        pair, relative = found
+        argv = [rclone, "link", remote_spec(explorer.remote_path(pair, relative)),
+                "--config", str(self.engine.paths.rclone_config)]
+
+        def work() -> str:
+            import subprocess
+            proc = subprocess.run(argv, env=koofr_env(creds.user, creds.obscured), capture_output=True,
+                                  text=True, timeout=60, **no_window())
+            url = proc.stdout.strip() if proc.returncode == 0 else ""
+            if not url:
+                raise OSError((proc.stderr.strip().splitlines() or ["rclone link failed"])[-1])
+            return url
+
+        def done(url, error) -> None:
+            if error:
+                self._tell(_("The link could not be made: {error}").format(error=error))
+                return
+            Gdk.Display.get_default().get_clipboard().set(url)
+            self.tray.notify(_("Koofr link copied"), url)
+
+        run_in_thread(work, done)
 
     def do_activate(self):
         self._window().present()
