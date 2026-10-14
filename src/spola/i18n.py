@@ -23,6 +23,20 @@ def _locale_dirs():
         yield Path(prefix) / "share" / "locale"
 
 
+def _system_languages() -> list[str]:
+    """Windows sets none of the variables: the language of its interface
+    ("it_IT"), as GTK reads it for its own strings."""
+    if os.name != "nt":
+        return []
+    try:
+        import ctypes
+        import locale
+        name = locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage())
+    except (AttributeError, OSError):
+        return []
+    return [name] if name else []
+
+
 def setup() -> None:
     """Load the catalogue for the desktop language, if we have one."""
     global _translation
@@ -32,6 +46,9 @@ def setup() -> None:
         if value:
             languages = [part.split(".")[0] for part in value.split(":") if part]
             break
+    else:
+        languages = _system_languages()
+    _translation = gettext.NullTranslations()
     for directory in _locale_dirs():
         if gettext.find(TEXTDOMAIN, str(directory), languages=languages or None):
             _translation = gettext.translation(TEXTDOMAIN, str(directory), languages=languages or None)
