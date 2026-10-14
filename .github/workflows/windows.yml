@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 env:
-  RCLONE_VERSION: "1.75.2"
+  SPOLA_RCLONE_RELEASE: "1.75.2"
 
 jobs:
   probe:
@@ -34,9 +34,9 @@ jobs:
             mingw-w64-ucrt-x86_64-python-gobject
       - name: rclone for Windows
         run: |
-          curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-windows-amd64.zip"
+          curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${SPOLA_RCLONE_RELEASE}/rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64.zip"
           unzip -q rclone.zip
-          echo "SPOLA_RCLONE=$(cygpath -w "$PWD/rclone-v${RCLONE_VERSION}-windows-amd64/rclone.exe")" >> "$GITHUB_ENV"
+          echo "SPOLA_RCLONE=$(cygpath -w "$PWD/rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64/rclone.exe")" >> "$GITHUB_ENV"
       - name: Versions
         run: |
           python --version
