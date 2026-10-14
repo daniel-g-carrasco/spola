@@ -1332,6 +1332,11 @@ class PreferencesDialog(Adw.PreferencesDialog):
                                    active=cfg.explorer_status)
             status.connect("notify::active", lambda r, _p: self._set_explorer_status(r.get_active()))
             group.add(status)
+            menu = Adw.SwitchRow(title=_("Koofr entries in File Explorer's menu"),
+                                 subtitle=_("“Open on Koofr” and “Copy Koofr Share Link”, in the synced folders"),
+                                 active=cfg.explorer_menu)
+            menu.connect("notify::active", lambda r, _p: self._set_explorer_menu(r.get_active()))
+            group.add(menu)
         else:
             try:
                 available = bool(file_managers.source_dir())
@@ -1390,6 +1395,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.engine.save_config()
         if conditions:
             self.engine.conditions_changed()
+
+    def _set_explorer_menu(self, enabled: bool) -> None:
+        self._set("explorer_menu", enabled)
+        app = getattr(self.engine, "app", None)
+        if app is not None and hasattr(app, "register_explorer"):
+            app.register_explorer()         # written, or taken out, at once
 
     def _set_explorer_status(self, enabled: bool) -> None:
         self._set("explorer_status", enabled)
