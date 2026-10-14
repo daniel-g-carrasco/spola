@@ -31,6 +31,7 @@ STARTF_USESHOWWINDOW = 0x1
 SW_HIDE = 0
 
 kernel32.GetConsoleWindow.restype = wintypes.HWND
+kernel32.GetConsoleCP.restype = wintypes.UINT
 kernel32.AttachConsole.argtypes = [wintypes.DWORD]
 kernel32.SetConsoleCtrlHandler.argtypes = [ctypes.c_void_p, wintypes.BOOL]
 kernel32.GenerateConsoleCtrlEvent.argtypes = [wintypes.DWORD, wintypes.DWORD]
@@ -60,7 +61,9 @@ def unlock(fd: int) -> None:
 # -- rclone as a child -------------------------------------------------------------
 
 def has_console() -> bool:
-    return bool(kernel32.GetConsoleWindow())
+    """Attached to a console, with a window or not (a terminal, a service
+    runner); the window built without one has none."""
+    return bool(kernel32.GetConsoleCP())
 
 
 def popen_options() -> dict:
@@ -77,7 +80,7 @@ def popen_options() -> dict:
 def interrupt(proc: subprocess.Popen) -> bool:
     """Ctrl+Break to rclone: the graceful stop. False if it could not be sent
     (the caller then stops the process)."""
-    if has_console():
+    if getattr(proc, "spola_shared_console", False):
         try:
             proc.send_signal(signal.CTRL_BREAK_EVENT)
             return True
