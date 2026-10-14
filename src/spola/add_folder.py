@@ -48,6 +48,7 @@ class AddFolderDialog(Adw.Dialog):
         super().__init__(title=_("Add Folder"), content_width=480, content_height=640)
         self.window, self.engine = window, window.engine
         self.local: str | None = None
+        self.local_refused = False           # the local folder has a problem: nothing to add until another
         self.remote: str | None = None
         self.remote_exists = True
         self.browsed = False                 # the Koofr folder comes from the browser, not a suggestion
@@ -149,9 +150,11 @@ class AddFolderDialog(Adw.Dialog):
             + [p for p in preflight.check_overlap(self.local, "/", self.engine.cfg) if p.code == "local-overlap"] \
             + preflight.check_koofr_desktop(self.local, preflight.koofr_desktop_config())
         self._show_problems(problems)
+        self.local_refused = bool(problems)
         self._set_suggestions([])
         if not self.browsed:
             self._select(None)
+        self._update_add_button()
         if problems:
             return
         self._search += 1
@@ -205,7 +208,10 @@ class AddFolderDialog(Adw.Dialog):
                 self.browse_check.set_active(True)
         self.browse_row.set_title(escape(path) if self.browsed else _("Other Folder"))
         self.browse_row.set_subtitle(_("Chosen on Koofr") if self.browsed else _("Browse the folders on Koofr"))
-        self.add_button.set_sensitive(bool(self.local and self.remote))
+        self._update_add_button()
+
+    def _update_add_button(self) -> None:
+        self.add_button.set_sensitive(bool(self.local and self.remote) and not self.local_refused)
 
     # -- browsing Koofr --------------------------------------------------------------------
 
@@ -230,7 +236,8 @@ class AddFolderDialog(Adw.Dialog):
             self.problems.remove(row)
         self.problem_rows = []
         for p in problems[:MAX_PROBLEMS]:
-            row = Adw.ActionRow(title=escape(p.message), subtitle=escape(p.path), subtitle_lines=2, title_lines=3)
+            # the whole message, however long (what to do is at its end)
+            row = Adw.ActionRow(title=escape(p.message), subtitle=escape(p.path), subtitle_lines=2, title_lines=0)
             self.problems.add(row)
             self.problem_rows.append(row)
         if len(problems) > MAX_PROBLEMS:
@@ -264,7 +271,7 @@ class AddFolderDialog(Adw.Dialog):
 
         def done(result, error):
             self.add_button.set_label(_("Add"))
-            self.add_button.set_sensitive(True)
+            self._update_add_button()
             if error:
                 self._show_problems([preflight.Problem("scan", str(error), local)])
                 return
