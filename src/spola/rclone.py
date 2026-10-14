@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -116,6 +117,11 @@ def find_rclone() -> str | None:
         return override
     if os.path.exists("/app/bin/rclone"):
         return "/app/bin/rclone"
+    if getattr(sys, "frozen", False):
+        # the Windows build: rclone.exe next to Spola's own files
+        bundled = Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))) / "rclone.exe"
+        if bundled.is_file():
+            return str(bundled)
     return shutil.which("rclone")
 
 

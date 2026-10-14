@@ -77,3 +77,83 @@ jobs:
             logs/
             logs-detached/
             gui/
+
+  package:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            unzip
+            zip
+            gettext
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-pyinstaller
+            mingw-w64-ucrt-x86_64-ca-certificates
+      - name: rclone for Windows, checked against the release's SHA256SUMS
+        run: |
+          base="https://github.com/rclone/rclone/releases/download/v${SPOLA_RCLONE_RELEASE}"
+          zip="rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64.zip"
+          curl -fsSL -o "$zip" "$base/$zip"
+          curl -fsSL -o SHA256SUMS "$base/SHA256SUMS"
+          grep " $zip\$" SHA256SUMS | sha256sum -c -
+          unzip -q "$zip"
+          echo "SPOLA_RCLONE=$(cygpath -w "$PWD/rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64/rclone.exe")" >> "$GITHUB_ENV"
+      - name: Build with PyInstaller
+        run: |
+          python tools/compile_po.py
+          python tools/make_ico.py
+          pyinstaller --noconfirm build-aux/windows/spola.spec
+      - name: Slim the bundle, icon themes and schemas in
+        run: |
+          I=dist/Spola/_internal
+          mkdir -p "$I/share/glib-2.0/schemas" "$I/share/icons"
+          [ -f "$I/share/glib-2.0/schemas/gschemas.compiled" ] || cp /ucrt64/share/glib-2.0/schemas/gschemas.compiled "$I/share/glib-2.0/schemas/"
+          cp -rn /ucrt64/share/icons/Adwaita "$I/share/icons/" || true
+          cp -rn /ucrt64/share/icons/hicolor "$I/share/icons/" || true
+          [ -d "$I/share/locale" ] && find "$I/share/locale" -mindepth 1 -maxdepth 1 ! -name it ! -name 'en*' -exec rm -rf {} + || true
+          rm -rf "$I/share/icons/AdwaitaLegacy" "$I/share/icons/Adwaita/cursors"
+          gtk4-update-icon-cache -q -t -f "$I/share/icons/Adwaita"
+          gtk4-update-icon-cache -q -t -f "$I/share/icons/hicolor"
+          test -f "$I/rclone.exe" -o -f dist/Spola/rclone.exe
+          test -f "$I/gdbus.exe" -o -f dist/Spola/gdbus.exe
+          test -f "$I/share/locale/it/LC_MESSAGES/spola.mo"
+          du -sm dist/Spola | cut -f1 | xargs -I{} echo "bundle: {} MB"
+      - name: Smoke test (the real Spola.exe, a screenshot of its window)
+        run: |
+          mkdir -p smoke/config smoke/state smoke/data smoke/remote
+          OUT="$(cygpath -w "$PWD/smoke")"
+          export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
+          export SPOLA_DEV_REMOTE="$OUT\\remote" SPOLA_SCREENSHOT="$OUT\\window.png" SPOLA_SCREENSHOT_DELAY=8
+          env -u MSYSTEM -u SPOLA_RCLONE timeout 120 ./dist/Spola/Spola.exe || true
+          test -f smoke/window.png
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          case "$VERSION" in v*) ;; *) VERSION=dev ;; esac
+          cd dist && zip -qr "spola-${VERSION}-windows-x64-portable.zip" Spola
+      - name: Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          $version = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { 'dev' }
+          & $iscc "/DAppVersion=$version" "build-aux\windows\spola.iss"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: spola-windows
+          path: |
+            dist/spola-setup-*.exe
+            dist/spola-*-windows-x64-portable.zip
+            smoke/window.png

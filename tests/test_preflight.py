@@ -108,6 +108,7 @@ class KoofrDesktopTest(unittest.TestCase):
             # Koofr Desktop stopped and not starting at login: its folders are free
             self.assertEqual(check_koofr_desktop(f"{tmp}/data/work", conf, active=False), [])
 
+    @unittest.skipIf(_setup.WINDOWS, "the .desktop autostart is Linux only (Windows: test_windows_processes)")
     def test_koofr_desktop_autostart_counts_as_active(self):
         from spola.preflight import koofr_desktop_active
         entry = "[Desktop Entry]\nName=Koofr\nExec=/home/u/.koofr-dist/storagegui -silent\n"
@@ -131,6 +132,13 @@ class KoofrDesktopTest(unittest.TestCase):
             (auto / "koofr.desktop.disabled-by-spola").unlink()
             (auto / "kooky.desktop").write_text("[Desktop Entry]\nExec=kooky\n")
             self.assertFalse(koofr_desktop_active(auto, logs))
+
+    @unittest.skipUnless(_setup.WINDOWS, "Windows only")
+    def test_windows_processes_and_login_commands(self):
+        from spola import win32
+        names = win32.process_names()
+        self.assertTrue(any(name.startswith("python") for name in names), sorted(names)[:20])
+        self.assertIsInstance(win32.login_commands(), list)
 
     def test_koofr_desktop_logs_written_lately_mean_it_runs(self):
         # inside the Flatpak the host's processes are not visible: its logs are
