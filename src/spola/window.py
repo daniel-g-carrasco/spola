@@ -1325,16 +1325,24 @@ class PreferencesDialog(Adw.PreferencesDialog):
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("File Manager"))
-        try:
-            available = bool(file_managers.source_dir())
-        except FileNotFoundError:
-            available = False
-        files = Adw.SwitchRow(title=_("Show sync status in the file manager"),
-                              subtitle=_("Emblems and a Koofr menu in Files, Nemo and Caja; the Koofr menu in "
-                                         "Dolphin and Thunar. Restart the file manager to apply."),
-                              active=file_managers.installed(), sensitive=available)
-        files.connect("notify::active", lambda r, _p: self._set_files(r.get_active()))
-        group.add(files)
+        if WINDOWS:
+            status = Adw.SwitchRow(title=_("Show sync status in File Explorer"),
+                                   subtitle=_("A tick on what is in sync, arrows on what waits for a sync, as for "
+                                              "OneDrive; the synced folders in the navigation pane"),
+                                   active=cfg.explorer_status)
+            status.connect("notify::active", lambda r, _p: self._set_explorer_status(r.get_active()))
+            group.add(status)
+        else:
+            try:
+                available = bool(file_managers.source_dir())
+            except FileNotFoundError:
+                available = False
+            files = Adw.SwitchRow(title=_("Show sync status in the file manager"),
+                                  subtitle=_("Emblems and a Koofr menu in Files, Nemo and Caja; the Koofr menu in "
+                                             "Dolphin and Thunar. Restart the file manager to apply."),
+                                  active=file_managers.installed(), sensitive=available)
+            files.connect("notify::active", lambda r, _p: self._set_files(r.get_active()))
+            group.add(files)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Backups"))
@@ -1382,6 +1390,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.engine.save_config()
         if conditions:
             self.engine.conditions_changed()
+
+    def _set_explorer_status(self, enabled: bool) -> None:
+        self._set("explorer_status", enabled)
+        status = getattr(getattr(self.engine, "app", None), "explorer_status", None)
+        if status is not None:
+            status.update()         # registered and marked, or taken out, at once
 
     def _set_files(self, enabled: bool) -> None:
         try:

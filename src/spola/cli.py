@@ -26,7 +26,7 @@ from .rclone import Mode, Outcome, Result, bisync_args, default_excluded, find_r
 from .runner import BisyncRun, PairBusy
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync",
-            "import-koofr-desktop")
+            "import-koofr-desktop", "forget-windows")
 # Developer aid, as in the app: the Koofr side becomes a local folder
 DEV_REMOTE = os.environ.get("SPOLA_DEV_REMOTE") or None
 
@@ -135,6 +135,24 @@ def _ask(question: str) -> bool:
         return False
 
 
+def _forget_windows() -> int:
+    """For the uninstaller: Spola's sync roots of this user and its entries,
+    out of File Explorer (the folders and their files stay as they are)."""
+    if os.name != "nt":
+        return 0
+    from . import cloudfiles, explorer
+    explorer.unregister()
+    try:
+        cloudfiles.winrt_thread()
+        prefix = cloudfiles.root_id(cloudfiles.user_sid(), "")
+        for identity in cloudfiles.registered():
+            if identity.startswith(prefix):
+                cloudfiles.unregister(identity)
+    except OSError as e:
+        return _fail(str(e))
+    return 0
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(prog="spola", description=_("Keep folders in sync with Koofr."))
     parser.add_argument("--version", action="version", version=f"Spola {__version__}")
@@ -149,6 +167,8 @@ def main(argv: list[str]) -> int:
     p.add_argument("pair")
     p = sub.add_parser("import-koofr-desktop", help=_("take over the folder pairs of Koofr Desktop (stopped first)"))
     p.add_argument("--config", default=None, help=_("Koofr Desktop's config.json (default: ~/.koofr/config.json; on Windows, koofr\\config.json in %%APPDATA%%)"))
+    sub.add_parser("forget-windows", help=_("Windows: take Spola's status and entries out of File Explorer "
+                                            "(the uninstaller does it)"))
     for name, text in (("preview", _("show what the next sync would do")),
                        ("align", _("first alignment of a new pair (preview, then asks)")),
                        ("repair", _("new alignment after a critical error (preview, then asks)")),
@@ -161,6 +181,8 @@ def main(argv: list[str]) -> int:
         if name == "sync":
             p.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
+    if args.command == "forget-windows":
+        return _forget_windows()
 
     paths = Paths.from_env()
     cfg = config.load(paths.config_file)

@@ -2282,3 +2282,24 @@ msgstr "Non è stato possibile creare il link: {error}"
 #: src/spola/app.py:236
 msgid "Koofr link copied"
 msgstr "Link di Koofr copiato"
+
+#: src/spola/cli.py:170
+msgid ""
+"Windows: take Spola's status and entries out of File Explorer (the "
+"uninstaller does it)"
+msgstr ""
+"Windows: toglie da Esplora file lo stato e le voci di Spola (lo fa il "
+"programma di disinstallazione)"
+
+#: src/spola/window.py:1329
+msgid "Show sync status in File Explorer"
+msgstr "Mostra lo stato di sincronizzazione in Esplora file"
+
+#: src/spola/window.py:1330
+msgid ""
+"A tick on what is in sync, arrows on what waits for a sync, as for OneDrive; "
+"the synced folders in the navigation pane"
+msgstr ""
+"Una spunta su ciò che è sincronizzato, frecce su ciò che aspetta una "
+"sincronizzazione, come per OneDrive; le cartelle sincronizzate nel riquadro "
+"di spostamento"
