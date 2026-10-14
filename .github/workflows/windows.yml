@@ -150,6 +150,19 @@ jobs:
           $version = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { 'dev' }
           & $iscc "/DAppVersion=$version" "build-aux\windows\spola.iss"
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Update over a running Spola (Setup asks it to quit, ends what is left)
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist -Filter 'spola-setup-*.exe' | Select-Object -First 1).FullName
+          $opts = '/VERYSILENT', '/CURRENTUSER', '/SUPPRESSMSGBOXES', '/NORESTART'
+          $p = Start-Process $setup -ArgumentList $opts -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Error "install: $($p.ExitCode)"; exit 1 }
+          Start-Process "$env:LOCALAPPDATA\Programs\Spola\Spola.exe" -ArgumentList '--background'
+          Start-Sleep 20
+          if (-not (Get-Process Spola -ErrorAction SilentlyContinue)) { Write-Error 'Spola did not start'; exit 1 }
+          $p = Start-Process $setup -ArgumentList ($opts + '/LOG=update.log') -Wait -PassThru
+          Get-Content update.log | Select-String 'Spola is running|Spola quit|Ending|WMI|RestartManager|succeeded|Abort'
+          if ($p.ExitCode -ne 0) { Write-Error "update over a running Spola: $($p.ExitCode)"; exit 1 }
       - uses: actions/upload-artifact@v7
         with:
           name: spola-windows
