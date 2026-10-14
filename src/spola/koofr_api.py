@@ -44,6 +44,22 @@ class Activity:
     user_agent: str
 
 
+def _ssl_context():
+    """The frozen Windows build ships a CA bundle: MSYS2's OpenSSL does not
+    always see the Windows certificate store (as in p7m-extractor)."""
+    import ssl
+    import sys
+    from pathlib import Path
+    context = ssl.create_default_context()
+    bundled = Path(getattr(sys, "_MEIPASS", "")) / "certs" / "ca-bundle.crt"
+    if getattr(sys, "frozen", False) and bundled.is_file():
+        try:
+            context.load_verify_locations(cafile=str(bundled))
+        except (ssl.SSLError, OSError):
+            pass
+    return context
+
+
 def _get(user: str, password: str, path: str, params: dict | None = None) -> dict:
     url = KOOFR_WEB + path + ("?" + urllib.parse.urlencode(params) if params else "")
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
@@ -51,7 +67,7 @@ def _get(user: str, password: str, path: str, params: dict | None = None) -> dic
         "Authorization": f"Basic {token}", "Accept": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+        with urllib.request.urlopen(request, timeout=TIMEOUT, context=_ssl_context()) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as e:
         raise ApiError(f"HTTP {e.code} for {path}") from None
@@ -66,7 +82,7 @@ def _post(user: str, password: str, path: str, params: dict, body: dict) -> None
         "Authorization": f"Basic {token}", "Content-Type": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT):
+        with urllib.request.urlopen(request, timeout=TIMEOUT, context=_ssl_context()):
             pass
     except urllib.error.HTTPError as e:
         raise ApiError(f"HTTP {e.code} for {path}") from None

@@ -9,3 +9,4 @@ build-dir/
 .flatpak-builder/
 .ruff_cache/
 build-dolphin/
+build-aux/windows/spola.ico

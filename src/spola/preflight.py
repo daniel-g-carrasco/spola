@@ -181,6 +181,16 @@ def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | No
     """Is Koofr Desktop running, or set to start at the next login? Either
     way it would sync its folders again. Inside the Flatpak the host's
     processes cannot be seen: its logs, written while it runs, tell."""
+    if os.name == "nt":
+        # Windows: its programs (the names of Linux, or any "koofr"), what
+        # starts at login (the Run keys, the Startup folders), then its logs
+        from . import win32
+        names = win32.process_names()
+        if names & set(KOOFR_DESKTOP_PROCESSES) or any("koofr" in name for name in names):
+            return True
+        if any("koofr" in line.casefold() or "storagegui" in line.casefold() for line in win32.login_commands()):
+            return True
+        return _fresh_koofr_logs(koofr_dir, now)
     try:
         for entry in os.scandir("/proc"):
             if entry.name.isdigit():
@@ -194,6 +204,10 @@ def koofr_desktop_active(autostart_dir: Path | None = None, koofr_dir: Path | No
         pass
     if _autostart_starts_koofr(autostart_dir or _host_config_dir() / "autostart"):
         return True
+    return _fresh_koofr_logs(koofr_dir, now)
+
+
+def _fresh_koofr_logs(koofr_dir: Path | None, now: float | None) -> bool:
     now = time.time() if now is None else now
     try:
         for entry in os.scandir(koofr_dir or Path.home() / ".koofr" / "log"):

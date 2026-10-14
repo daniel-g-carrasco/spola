@@ -5,6 +5,7 @@ Flatpak). Source strings are English; Italian is the first translation."""
 from __future__ import annotations
 
 import gettext
+import sys
 import os
 from pathlib import Path
 
@@ -16,6 +17,8 @@ _translation: gettext.NullTranslations = gettext.NullTranslations()
 def _locale_dirs():
     root = Path(__file__).resolve().parent.parent.parent
     yield root / "locale"                     # source checkout
+    if getattr(sys, "frozen", False):          # the Windows build
+        yield Path(getattr(sys, "_MEIPASS", "")) / "share" / "locale"
     for prefix in ("/app", "/usr/local", "/usr"):
         yield Path(prefix) / "share" / "locale"
 

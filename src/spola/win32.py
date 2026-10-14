@@ -183,3 +183,70 @@ def autostart_command() -> str | None:
             return winreg.QueryValueEx(key, APP_NAME)[0]
     except FileNotFoundError:
         return None
+
+
+# -- Koofr Desktop: is it running, or started at login? -----------------------------------
+
+TH32CS_SNAPPROCESS = 0x2
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+
+class PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
+kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+
+def process_names() -> set[str]:
+    """The programs running now, lower case, without ".exe"."""
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snapshot or snapshot == INVALID_HANDLE_VALUE:
+        return set()
+    names = set()
+    try:
+        entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
+        found = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while found:
+            name = entry.szExeFile.casefold()
+            names.add(name[:-4] if name.endswith(".exe") else name)
+            found = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return names
+
+
+def login_commands() -> list[str]:
+    """What starts at login for this user: the Run keys (the user's and the
+    machine's) and the Startup folders, as text to look into."""
+    found = []
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        try:
+            with winreg.OpenKey(root, RUN_KEY) as key:
+                i = 0
+                while True:
+                    try:
+                        name, value, _kind = winreg.EnumValue(key, i)
+                    except OSError:
+                        break
+                    found.append(f"{name} {value}")
+                    i += 1
+        except OSError:
+            continue
+    for base in (os.environ.get("APPDATA"), os.environ.get("ProgramData")):
+        if base:
+            startup = os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
+            try:
+                found += os.listdir(startup)
+            except OSError:
+                pass
+    return found
