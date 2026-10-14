@@ -18,7 +18,7 @@ from . import account, activity, autostart, conflicts, file_managers, jobs, koof
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, count, ngettext, pgettext  # noqa: E402
-from .rclone import Mode, Outcome, Result, describe  # noqa: E402
+from .rclone import Mode, Outcome, Result, describe, windows_reserved_names_matter  # noqa: E402
 from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
                  pair_status_text, place_name, status_badge, status_css, status_detail, status_icon, status_line,
                  status_text, syncing_for_real, when)
@@ -718,6 +718,10 @@ class PairPage(Adw.NavigationPage):
         self.trash_row = self._link_row(group, _("Restore from Koofr's Trash"),
                                         lambda: TrashDialog(self.window, self.pair_id).present(self.window),
                                         _("Files of this folder deleted on Koofr in the last 30 days"))
+        if windows_reserved_names_matter():
+            group.add(Adw.ActionRow(title=_("Names Windows 10 Reserves"), subtitle_lines=0, subtitle=escape(_(
+                "Files and folders named CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, with any extension, "
+                "stay on Koofr only: Windows 10 takes these names for devices."))))
         page.add(group)
 
         group = Adw.PreferencesGroup()

@@ -2154,3 +2154,17 @@ msgstr[0] ""
 "{n} cartella importata: Spola prepara l'anteprima del suo primo allineamento"
 msgstr[1] ""
 "{n} cartelle importate: Spola prepara le anteprime del loro primo allineamento"
+
+#: src/spola/window.py:723
+msgid "Names Windows 10 Reserves"
+msgstr "Nomi riservati da Windows 10"
+
+#: src/spola/window.py:724
+msgid ""
+"Files and folders named CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, "
+"with any extension, stay on Koofr only: Windows 10 takes these names for "
+"devices."
+msgstr ""
+"File e cartelle che si chiamano CON, PRN, AUX, NUL, da COM1 a COM9 o da LPT1 "
+"a LPT9, con qualsiasi estensione, restano solo su Koofr: Windows 10 usa "
+"questi nomi per i dispositivi."
