@@ -38,6 +38,27 @@ kernel32.SetConsoleCtrlHandler.argtypes = [ctypes.c_void_p, wintypes.BOOL]
 kernel32.GenerateConsoleCtrlEvent.argtypes = [wintypes.DWORD, wintypes.DWORD]
 
 
+# -- the title bar -----------------------------------------------------------------
+
+def dark_title_bars(dark: bool) -> None:
+    """The system title bars of this process's windows, dark or light, as
+    the content is (Windows 10 1809 and later; ignored elsewhere)."""
+    user32, dwmapi = ctypes.windll.user32, ctypes.windll.dwmapi
+    pid, value = os.getpid(), ctypes.c_int(1 if dark else 0)
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            for attribute in (20, 19):      # DWMWA_USE_IMMERSIVE_DARK_MODE, then its 1809 number
+                if dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                    break
+        return True
+
+    user32.EnumWindows(visit, 0)
+
+
 # -- the lock on a pair ----------------------------------------------------------
 
 def lock(fd: int) -> bool:

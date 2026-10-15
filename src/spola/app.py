@@ -517,4 +517,8 @@ class SpolaApp(Adw.Application):
 
 
 def main(argv=None) -> int:
+    if WINDOWS:
+        # the system title bar on the main window, before GTK starts (see
+        # MainWindow): with GTK's own, Windows does not snap the window
+        os.environ.setdefault("GTK_CSD", "0")
     return SpolaApp().run(sys.argv if argv is None else argv)
