@@ -5,11 +5,11 @@ apartment, one job after the other: the shell's calls block, and a whole
 tree marked in sync takes a while. The jobs:
 
   * the sync roots made to match the pairs: one registered and connected
-    per pair (its whole tree marked in sync the first time), Spola's ones
-    without a pair unregistered; all of them when the preference is off;
-  * after a run that went well, what it touched (and the folders above)
-    marked in sync: Windows itself shows the rest, what changed here since,
-    as waiting.
+    per aligned pair, Spola's ones without a pair unregistered; all of them
+    when the preference is off;
+  * marked in sync, at each connection and after each run that went well:
+    what bisync's last listing holds, which is what both sides agree on.
+    Windows itself shows the rest, what changed here since, as waiting.
 
 A folder that cannot be a sync root (not NTFS, inside OneDrive's...) just
 shows no status.
@@ -17,13 +17,12 @@ shows no status.
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 
-from gi.repository import GLib
-
-from . import cloudfiles
-from .rclone import Result, default_excluded
+from . import cloudfiles, listings
+from .rclone import Result
 
 
 class ExplorerStatus:
@@ -31,6 +30,7 @@ class ExplorerStatus:
         self.engine, self.icon, self.version = engine, icon, version
         self._jobs: queue.Queue = queue.Queue()
         self._connected: dict[str, int] = {}        # pair id -> connection key
+        self._marked: dict[str, set[str]] = {}       # pair id -> what was marked in sync this session
         self._sid = ""
         self._thread = threading.Thread(target=self._work, name="explorer-status", daemon=True)
         self._thread.start()
@@ -59,9 +59,23 @@ class ExplorerStatus:
         plan = rt.last_outcome.plan
         touched = (plan.upload + plan.download + plan.replace_local + plan.conflicts
                    + [to for _from, to in plan.moved_remote + plan.moved_local])
-        if touched:
-            paths = cloudfiles.paths_and_parents(pair.local, touched)
-            self._jobs.put(lambda: [cloudfiles.mark_in_sync(p) for p in paths])
+        workdir = self.engine.paths.workdir(pair_id)
+        self._jobs.put(lambda: self._mark(pair_id, pair.local, workdir, touched))
+
+    def _mark(self, pair_id: str, root: str, workdir, touched=()) -> None:
+        """In sync: what bisync's last listing holds, which is what both
+        sides agree on (never what is left out). Each item once in a
+        session, but what the run touched again: a file downloaded replaces
+        its placeholder."""
+        if not listings.find(workdir, 1):
+            return
+        done = self._marked.setdefault(pair_id, set())
+        done.difference_update(touched)
+        todo = [e.path for e in listings.load(workdir, 1) or [] if e.path not in done]
+        for rel in sorted(todo, key=lambda r: (-r.count("/"), r)):        # a folder after what it holds
+            if cloudfiles.mark_in_sync(os.path.join(root, *rel.split("/"))):
+                done.add(rel)
+        cloudfiles.mark_in_sync(root)
 
     # -- the worker -------------------------------------------------------------------
 
@@ -84,7 +98,7 @@ class ExplorerStatus:
             self._sid = cloudfiles.user_sid()
         prefix = cloudfiles.root_id(self._sid, "")
         wanted = {cloudfiles.root_id(self._sid, pid): (pid, local, name) for pid, local, name in pairs}
-        for identity in cloudfiles.registered():
+        for identity in set(cloudfiles.registered()) | cloudfiles.left_behind(prefix):
             if identity.startswith(prefix) and identity not in wanted:
                 pid = identity[len(prefix):]
                 if pid in self._connected:
@@ -94,33 +108,13 @@ class ExplorerStatus:
         for identity, (pid, local, name) in wanted.items():
             if pid in self._connected:
                 continue
-            first = identity not in known
             try:
-                if first:
+                if identity not in known:
                     cloudfiles.register(identity, local, f"Spola · {name}", self.icon, self.version)
                 self._connected[pid] = cloudfiles.connect(local)
             except OSError:
                 continue
-            if first:
-                refused = self._refused(pid)
-
-                def skip(rel: str, refused: set[str] = refused) -> bool:
-                    return default_excluded(rel) or rel.rstrip("/") in refused
-
-                for path in cloudfiles.walk(local, skip):
-                    cloudfiles.mark_in_sync(path)
-
-    def _refused(self, pair_id: str) -> set[str]:
-        """What the last run left out (names Koofr refuses): not in sync."""
-        box: list[set[str]] = []
-        done = threading.Event()
-
-        def read() -> bool:
-            rt = self.engine.runtime.get(pair_id)
-            box.append({r.path.replace("\\", "/") for r in rt.refused} if rt else set())
-            done.set()
-            return False
-
-        GLib.idle_add(read)
-        done.wait(5)
-        return box[0] if box else set()
+            # connected again (Spola started again, the switch on): what is
+            # in sync now, whatever was synced while it was not
+            self._marked.pop(pid, None)
+            self._mark(pid, local, self.engine.paths.workdir(pid))
