@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.11" date="2026-10-15" type="development">
+      <description>
+        <p>Fixed: when many files changed only in their dates (put back from a backup, restored from Koofr's trash), a sync stopped half way could leave some of them missing on Koofr for a while. Koofr cannot change a file's date, and the copy on Koofr was deleted well before its new upload; now it is replaced only when its upload starts. Nothing was ever deleted on this computer, but another computer syncing the same folder could have deleted its copies.</p>
+        <p>Spola for Windows, a first version: an installer and a portable zip with this release, the status in the notification area and in File Explorer, Koofr's links from File Explorer, updates from the releases. Folders can now be taken over from Koofr Desktop in the window, on Linux and on Windows.</p>
+      </description>
+    </release>
     <release version="0.3.10" date="2026-10-14" type="development">
       <description>
         <p>Restore from Koofr's trash, on a folder's page: what was deleted on Koofr in that folder, grouped by when, and the deletion you choose comes back, never the whole trash. Spola makes again the folders left empty, which the trash does not keep, and, since Koofr gives restored files today's date, uploads again the files identical to this computer's to put their dates back.</p>
