@@ -10,7 +10,6 @@ import sys
 import tempfile
 import unittest
 import uuid
-import winreg
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -19,6 +18,8 @@ import _setup
 
 if sys.platform != "win32":
     raise unittest.SkipTest("Windows only")
+
+import winreg  # noqa: E402
 
 from spola import cloudfiles  # noqa: E402
 from spola.explorer_status import ExplorerStatus  # noqa: E402
