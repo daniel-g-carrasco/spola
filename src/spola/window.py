@@ -47,7 +47,22 @@ class StatusIcon(Gtk.Stack):
         self.set_visible_child(self.image)
 
 
-class MainWindow(Adw.ApplicationWindow):
+def header_bar() -> Adw.HeaderBar:
+    """A page's header bar. On Windows a toolbar under the system title bar,
+    which has the window buttons."""
+    if WINDOWS:
+        return Adw.HeaderBar(show_start_title_buttons=False, show_end_title_buttons=False)
+    return Adw.HeaderBar()
+
+
+# On Windows a plain GTK window, so that it keeps the system title bar (an
+# AdwApplicationWindow always draws its own, and with it Windows does not
+# snap the window to the screen edges, nor on Win+arrows); its content is
+# libadwaita's all the same. The dialogs then open as windows of their own.
+_WindowBase = Gtk.ApplicationWindow if WINDOWS else Adw.ApplicationWindow
+
+
+class MainWindow(_WindowBase):
     def __init__(self, app, engine: Engine):
         super().__init__(application=app, title=APP_NAME, default_width=480, default_height=640,
                          width_request=360, height_request=400)
@@ -64,7 +79,14 @@ class MainWindow(Adw.ApplicationWindow):
         self.nav = Adw.NavigationView()
         self.nav.add(self._folders_page())
         self.toasts.set_child(self.nav)
-        self.set_content(self.toasts)
+        if WINDOWS:
+            self.set_child(self.toasts)
+            from .win32 import dark_title_bars
+            style = Adw.StyleManager.get_default()
+            self.connect("map", lambda *_: dark_title_bars(style.get_dark()))
+            style.connect("notify::dark", lambda *_: dark_title_bars(style.get_dark()))
+        else:
+            self.set_content(self.toasts)
 
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
@@ -134,7 +156,9 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _folders_page(self) -> Adw.NavigationPage:
         view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
+        header = header_bar()
+        if WINDOWS:
+            header.set_title_widget(Gtk.Box())      # "Spola" is in the system title bar already
         self.add_button = Gtk.Button(icon_name="list-add-symbolic", tooltip_text=_("Add Folder"))
         self.add_button.connect("clicked", lambda *_: self.add_folder())
         header.pack_start(self.add_button)
@@ -662,7 +686,7 @@ class PairPage(Adw.NavigationPage):
         super().__init__(title=pair.name)
         self.window, self.engine, self.pair_id = window, window.engine, pair_id
         view = Adw.ToolbarView()
-        header = Adw.HeaderBar()
+        header = header_bar()
         header.set_title_widget(Adw.WindowTitle(title=pair.name, subtitle=place_name(os.path.dirname(pair.local))))
         view.add_top_bar(header)
         page = Adw.PreferencesPage()
