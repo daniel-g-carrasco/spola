@@ -104,7 +104,8 @@ class SpolaApp(Adw.Application):
         self._refresh_tray()
         self.engine.start()
         self.register_explorer()
-        if WINDOWS and getattr(sys, "frozen", False):
+        # (SPOLA_DEV_EXPLORER, a developer aid: also from the sources)
+        if WINDOWS and (getattr(sys, "frozen", False) or os.environ.get("SPOLA_DEV_EXPLORER")):
             from .explorer_status import ExplorerStatus
             exe = os.path.normpath(sys.executable).replace("/", "\\")
             self.explorer_status = ExplorerStatus(self.engine, f"{exe},0", __version__)
