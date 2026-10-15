@@ -145,7 +145,7 @@ def _forget_windows() -> int:
     try:
         cloudfiles.winrt_thread()
         prefix = cloudfiles.root_id(cloudfiles.user_sid(), "")
-        for identity in cloudfiles.registered():
+        for identity in set(cloudfiles.registered()) | cloudfiles.left_behind(prefix):
             if identity.startswith(prefix):
                 cloudfiles.unregister(identity)
     except OSError as e:

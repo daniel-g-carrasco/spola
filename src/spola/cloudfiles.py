@@ -24,7 +24,7 @@ import ctypes
 import os
 import sys
 import time
-from collections.abc import Iterable
+import winreg
 from ctypes import wintypes
 
 from . import wintoast as rt
@@ -190,13 +190,97 @@ def register(identity: str, path: str, display_name: str, icon: str, version: st
             _release(obj)
 
 
+NAMESPACE = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace"
+SYNC_ROOT_MANAGER = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\SyncRootManager"
+
+
 def unregister(identity: str) -> None:
+    """The root out of the shell. A root whose folder is gone the shell no
+    longer finds (ERROR_NOT_FOUND) and leaves in the navigation pane: its
+    keys are then taken out here, the user's and (when allowed) the
+    machine's."""
     manager = _manager()
     try:
         with _HString(identity) as text:
             _call(manager, MANAGER_UNREGISTER, text, argtypes=(HSTRING,))
+    except rt.WinRTError:
+        forget_keys(identity)
     finally:
         _release(manager)
+
+
+def _delete_tree(root, path: str) -> None:
+    try:
+        with winreg.OpenKey(root, path) as key:
+            children = []
+            while True:
+                try:
+                    children.append(winreg.EnumKey(key, len(children)))
+                except OSError:
+                    break
+        for child in children:
+            _delete_tree(root, f"{path}\\{child}")
+        winreg.DeleteKey(root, path)
+    except OSError:
+        pass
+
+
+def left_behind(prefix: str) -> set[str]:
+    """Ids starting with prefix the shell still keeps keys of, also those it
+    no longer lists (their folder gone): the machine's root keys and the
+    navigation pane's entries."""
+    found: set[str] = set()
+    for root, path, by_name in ((winreg.HKEY_LOCAL_MACHINE, SYNC_ROOT_MANAGER, True),
+                                (winreg.HKEY_CURRENT_USER, NAMESPACE, False)):
+        try:
+            with winreg.OpenKey(root, path) as key:
+                i = 0
+                while True:
+                    try:
+                        child = winreg.EnumKey(key, i)
+                    except OSError:
+                        break
+                    i += 1
+                    if by_name:
+                        name = child
+                    else:
+                        try:
+                            with winreg.OpenKey(key, child) as sub:
+                                name = winreg.QueryValueEx(sub, "")[0]
+                        except OSError:
+                            continue
+                    if isinstance(name, str) and name.startswith(prefix):
+                        found.add(name)
+        except OSError:
+            continue
+    return found
+
+
+def forget_keys(identity: str) -> None:
+    """What the shell keeps of a sync root: the navigation pane's entry
+    (a namespace CLSID named after the root's id) and the root's own key."""
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, NAMESPACE) as key:
+            clsids = []
+            i = 0
+            while True:
+                try:
+                    clsids.append(winreg.EnumKey(key, i))
+                except OSError:
+                    break
+                i += 1
+    except OSError:
+        clsids = []
+    for clsid in clsids:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, f"{NAMESPACE}\\{clsid}") as key:
+                name = winreg.QueryValueEx(key, "")[0]
+        except OSError:
+            continue
+        if name == identity:
+            _delete_tree(winreg.HKEY_CURRENT_USER, f"{NAMESPACE}\\{clsid}")
+            _delete_tree(winreg.HKEY_CURRENT_USER, f"Software\\Classes\\CLSID\\{clsid}")
+    _delete_tree(winreg.HKEY_LOCAL_MACHINE, f"{SYNC_ROOT_MANAGER}\\{identity}")
 
 
 def registered() -> list[str]:
@@ -261,31 +345,3 @@ def mark_in_sync(path: str) -> bool:
         return hr >= 0
     finally:
         kernel32.CloseHandle(handle)
-
-
-def paths_and_parents(root: str, relatives: Iterable[str]) -> list[str]:
-    """The absolute paths of these items and of the folders above them, up
-    to the root itself: a folder created by a run is new too."""
-    out: set[str] = set()
-    for rel in relatives:
-        rel = rel.strip("/")
-        while rel:
-            out.add(rel)
-            rel = rel.rpartition("/")[0]
-    return [os.path.join(root, *rel.split("/")) for rel in sorted(out, key=lambda r: (-r.count("/"), r))] + [root]
-
-
-def walk(root: str, skip=lambda rel: False) -> Iterable[str]:
-    """Every file and folder under root, and the root, but what skip()
-    leaves out ("dir/" for a folder, which is not entered): what is not
-    synced is not marked in sync."""
-    for directory, dirs, files in os.walk(root):
-        prefix = os.path.relpath(directory, root).replace("\\", "/") + "/"
-        prefix = "" if prefix == "./" else prefix
-        dirs[:] = [d for d in dirs if not skip(prefix + d + "/")]
-        for name in files:
-            if not skip(prefix + name):
-                yield os.path.join(directory, name)
-        for name in dirs:
-            yield os.path.join(directory, name)
-    yield root

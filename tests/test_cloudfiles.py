@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""File Explorer's sync status: what is marked in sync after a run, and a
-real sync root (a scratch folder), registered, marked, and taken out again,
-its files still ordinary files for rclone."""
+"""File Explorer's sync status: what is marked in sync (bisync's listing),
+the keys of a root the shell lost, and a real sync root (a scratch folder),
+registered, marked, and taken out again, its files still ordinary files
+for rclone."""
 
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
+import winreg
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import _setup
 
@@ -16,25 +21,66 @@ if sys.platform != "win32":
     raise unittest.SkipTest("Windows only")
 
 from spola import cloudfiles  # noqa: E402
+from spola.explorer_status import ExplorerStatus  # noqa: E402
 from spola.rclone import clean_env  # noqa: E402
+
+LISTING = ('# bisync listing v1 from 2026-10-15T09:17:40.592143500+0000\n'
+           'd       -1 - - 2026-10-15T09:00:00.000000000+0000 "sub"\n'
+           '-        6 - - 2026-10-15T09:00:59.704779200+0000 "sub/a.txt"\n'
+           '-        6 - - 2026-10-15T09:00:59.704779200+0000 "b.txt"\n')
+
+
+class MarkTest(unittest.TestCase):
+    def test_what_the_listing_holds_once_then_what_a_run_touched(self):
+        # never what the listing does not hold (.spola-root, exclusions):
+        # those stay "waiting", as Windows shows them
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "work"
+            workdir.mkdir()
+            (workdir / "x..y.path1.lst").write_bytes(LISTING.encode())
+            (workdir / "x..y.path2.lst").write_bytes(LISTING.encode())
+            engine = SimpleNamespace(connect=lambda *a: None)
+            marked = []
+            with mock.patch.object(cloudfiles, "mark_in_sync", lambda p: marked.append(p) or True):
+                status = ExplorerStatus(engine, "", "0")
+                status.stop()
+                root = os.path.join(tmp, "root")
+                status._mark("p", root, workdir)
+                rel = [os.path.relpath(p, root).replace("\\", "/") for p in marked]
+                self.assertEqual(rel, ["sub/a.txt", "b.txt", "sub", "."])      # a folder after what it holds
+                marked.clear()
+                status._mark("p", root, workdir, touched=["b.txt"])
+                rel = [os.path.relpath(p, root).replace("\\", "/") for p in marked]
+                self.assertEqual(rel, ["b.txt", "."])
+
+
+class KeysTest(unittest.TestCase):
+    def test_a_root_the_shell_lost_is_found_and_forgotten(self):
+        # what Unregister leaves of a root whose folder is gone: the
+        # navigation pane's entry (a scratch namespace key here)
+        identity = f"Spola!test!gone-{os.getpid()}"
+        clsid = "{%s}" % uuid.uuid4()
+        namespace = rf"Software\SpolaTest-{os.getpid()}\NameSpace"
+        with mock.patch.object(cloudfiles, "NAMESPACE", namespace):
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"{namespace}\{clsid}") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, identity)
+            winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\CLSID\{clsid}").Close()
+            try:
+                self.assertIn(identity, cloudfiles.left_behind("Spola!test!"))
+                cloudfiles.forget_keys(identity)
+                self.assertNotIn(identity, cloudfiles.left_behind("Spola!test!"))
+                with self.assertRaises(OSError):
+                    winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\CLSID\{clsid}")
+            finally:
+                for path in (rf"{namespace}\{clsid}", namespace, rf"Software\SpolaTest-{os.getpid()}",
+                             rf"Software\Classes\CLSID\{clsid}"):
+                    try:
+                        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, path)
+                    except OSError:
+                        pass
 
 
 class HelpersTest(unittest.TestCase):
-    def test_what_a_run_touched_and_the_folders_above(self):
-        root = os.path.join("C:\\", "root")
-        got = cloudfiles.paths_and_parents(root, ["a/b/c.txt", "a/d.txt", "e.txt"])
-        rel = [os.path.relpath(p, root).replace("\\", "/") for p in got]
-        self.assertEqual(rel, ["a/b/c.txt", "a/b", "a/d.txt", "a", "e.txt", "."])     # deepest first, the root last
-
-    def test_walk_leaves_out_what_is_not_synced(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            for rel in ("a.txt", "node_modules/x/y.js", "sub/b.txt", ".spola-root"):
-                (Path(tmp) / rel).parent.mkdir(parents=True, exist_ok=True)
-                (Path(tmp) / rel).write_text("x")
-            skip = lambda rel: rel.startswith("node_modules/") or rel.startswith(".spola-")    # noqa: E731
-            got = sorted(os.path.relpath(p, tmp).replace("\\", "/") for p in cloudfiles.walk(tmp, skip))
-        self.assertEqual(got, [".", "a.txt", "sub", "sub/b.txt"])
-
     def test_root_id(self):
         sid = cloudfiles.user_sid()
         self.assertTrue(sid.startswith("S-1-"))
@@ -57,7 +103,8 @@ class SyncRootTest(unittest.TestCase):
             try:
                 self.assertIn(identity, cloudfiles.registered())
                 key = cloudfiles.connect(tmp)
-                for path in cloudfiles.walk(tmp):
+                for rel in ("sub/b.txt", "a.txt", "sub", ""):
+                    path = os.path.join(tmp, *rel.split("/")) if rel else tmp
                     self.assertTrue(cloudfiles.mark_in_sync(path), path)
                 self.assertTrue(cloudfiles.mark_in_sync(os.path.join(tmp, "a.txt")))    # a placeholder already
                 if _setup.rclone_binary():
