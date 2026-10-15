@@ -9,7 +9,10 @@ tree marked in sync takes a while. The jobs:
     when the preference is off;
   * marked in sync, at each connection and after each run that went well:
     what bisync's last listing holds, which is what both sides agree on.
-    Windows itself shows the rest, what changed here since, as waiting.
+    Marked excluded, so with no status rather than waiting forever: what
+    the default filters leave out (.spola-root, .cache...), looked for in
+    the folders just marked. Windows itself shows the rest, what changed
+    here since, as waiting.
 
 A folder that cannot be a sync root (not NTFS, inside OneDrive's...) just
 shows no status.
@@ -22,7 +25,7 @@ import queue
 import threading
 
 from . import cloudfiles, listings
-from .rclone import Result
+from .rclone import Result, default_excluded
 
 
 class ExplorerStatus:
@@ -64,18 +67,38 @@ class ExplorerStatus:
 
     def _mark(self, pair_id: str, root: str, workdir, touched=()) -> None:
         """In sync: what bisync's last listing holds, which is what both
-        sides agree on (never what is left out). Each item once in a
-        session, but what the run touched again: a file downloaded replaces
-        its placeholder."""
+        sides agree on. Excluded: what the default filters leave out, in
+        the root and the folders that hold what was just marked. Each item
+        once in a session, but what the run touched again: a file
+        downloaded replaces its placeholder."""
         if not listings.find(workdir, 1):
             return
         done = self._marked.setdefault(pair_id, set())
         done.difference_update(touched)
-        todo = [e.path for e in listings.load(workdir, 1) or [] if e.path not in done]
+        entries = listings.load(workdir, 1) or []
+        todo = [e.path for e in entries if e.path not in done]
         for rel in sorted(todo, key=lambda r: (-r.count("/"), r)):        # a folder after what it holds
             if cloudfiles.mark_in_sync(os.path.join(root, *rel.split("/"))):
                 done.add(rel)
+        listed_folders = {e.path for e in entries if e.is_dir}
+        folders = {""} | {rel.rpartition("/")[0] for rel in todo} | listed_folders.intersection(todo)
+        for folder in sorted(folders):
+            self._mark_excluded(root, folder, done)
         cloudfiles.mark_in_sync(root)
+
+    @staticmethod
+    def _mark_excluded(root: str, folder: str, done: set[str]) -> None:
+        try:
+            items = list(os.scandir(os.path.join(root, *folder.split("/"))))
+        except OSError:
+            return
+        for item in items:
+            rel = f"{folder}/{item.name}" if folder else item.name
+            if rel in done:
+                continue
+            is_dir = item.is_dir(follow_symlinks=False)
+            if default_excluded(rel + "/" if is_dir else rel) and cloudfiles.mark_excluded(item.path, is_dir):
+                done.add(rel)
 
     # -- the worker -------------------------------------------------------------------
 

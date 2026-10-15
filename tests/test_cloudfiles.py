@@ -32,26 +32,36 @@ LISTING = ('# bisync listing v1 from 2026-10-15T09:17:40.592143500+0000\n'
 
 class MarkTest(unittest.TestCase):
     def test_what_the_listing_holds_once_then_what_a_run_touched(self):
-        # never what the listing does not hold (.spola-root, exclusions):
-        # those stay "waiting", as Windows shows them
+        # what the listing does not hold: excluded if the filters leave it
+        # out, else Windows shows it waiting (changed here since)
         with tempfile.TemporaryDirectory() as tmp:
             workdir = Path(tmp) / "work"
             workdir.mkdir()
             (workdir / "x..y.path1.lst").write_bytes(LISTING.encode())
             (workdir / "x..y.path2.lst").write_bytes(LISTING.encode())
+            root = os.path.join(tmp, "root")
+            for rel in ("sub/a.txt", "b.txt", ".spola-root", "new.txt", "sub/~$doc.docx", ".cache/x"):
+                Path(root, rel).parent.mkdir(parents=True, exist_ok=True)
+                Path(root, rel).write_text("x")
             engine = SimpleNamespace(connect=lambda *a: None)
-            marked = []
-            with mock.patch.object(cloudfiles, "mark_in_sync", lambda p: marked.append(p) or True):
+            marked, excluded = [], []
+
+            def relative(paths):
+                return [os.path.relpath(p, root).replace("\\", "/") for p in paths]
+
+            with (mock.patch.object(cloudfiles, "mark_in_sync", lambda p: marked.append(p) or True),
+                  mock.patch.object(cloudfiles, "mark_excluded", lambda p, d: excluded.append(p) or True)):
                 status = ExplorerStatus(engine, "", "0")
                 status.stop()
-                root = os.path.join(tmp, "root")
                 status._mark("p", root, workdir)
-                rel = [os.path.relpath(p, root).replace("\\", "/") for p in marked]
-                self.assertEqual(rel, ["sub/a.txt", "b.txt", "sub", "."])      # a folder after what it holds
+                self.assertEqual(relative(marked), ["sub/a.txt", "b.txt", "sub", "."])     # a folder after what it holds
+                self.assertEqual(sorted(relative(excluded)), [".cache", ".spola-root", "sub/~$doc.docx"])
                 marked.clear()
+                excluded.clear()
+                Path(root, "Thumbs.db").write_text("x")
                 status._mark("p", root, workdir, touched=["b.txt"])
-                rel = [os.path.relpath(p, root).replace("\\", "/") for p in marked]
-                self.assertEqual(rel, ["b.txt", "."])
+                self.assertEqual(relative(marked), ["b.txt", "."])
+                self.assertEqual(relative(excluded), ["Thumbs.db"])            # only what is new, next to it
 
 
 class KeysTest(unittest.TestCase):
@@ -95,6 +105,9 @@ class SyncRootTest(unittest.TestCase):
             (Path(tmp) / "sub").mkdir()
             (Path(tmp) / "a.txt").write_text("uno")
             (Path(tmp) / "sub" / "b.txt").write_text("due")
+            (Path(tmp) / ".cache").mkdir()
+            (Path(tmp) / ".cache" / "c.txt").write_text("tre")
+            (Path(tmp) / ".spola-root").write_text("")
             try:
                 cloudfiles.register(identity, tmp, "Spola test", "", "0")
             except OSError as e:
@@ -107,16 +120,23 @@ class SyncRootTest(unittest.TestCase):
                     path = os.path.join(tmp, *rel.split("/")) if rel else tmp
                     self.assertTrue(cloudfiles.mark_in_sync(path), path)
                 self.assertTrue(cloudfiles.mark_in_sync(os.path.join(tmp, "a.txt")))    # a placeholder already
+                self.assertTrue(cloudfiles.mark_excluded(os.path.join(tmp, ".spola-root"), False))
+                self.assertTrue(cloudfiles.mark_excluded(os.path.join(tmp, ".cache"), True))
+                self.assertTrue(cloudfiles.mark_excluded(os.path.join(tmp, ".cache"), True))   # again: no harm
+                os.rename(os.path.join(tmp, ".spola-root"), os.path.join(tmp, "kept.txt"))
+                self.assertTrue(cloudfiles.mark_in_sync(os.path.join(tmp, "kept.txt")))   # excluded no more
                 if _setup.rclone_binary():
                     listed = subprocess.run([_setup.rclone_binary(), "lsf", "-R", tmp], capture_output=True,
                                             text=True, env=clean_env(), check=True).stdout.split()
-                    self.assertEqual(sorted(listed), ["a.txt", "sub/", "sub/b.txt"])
+                    self.assertEqual(sorted(listed), [".cache/", ".cache/c.txt", "a.txt", "kept.txt", "sub/",
+                                                      "sub/b.txt"])
             finally:
                 if key is not None:
                     cloudfiles.disconnect(key)
                 cloudfiles.unregister(identity)
             self.assertNotIn(identity, cloudfiles.registered())
             self.assertEqual((Path(tmp) / "a.txt").read_text(), "uno")
+            self.assertEqual((Path(tmp) / ".cache" / "c.txt").read_text(), "tre")
 
 
 if __name__ == "__main__":

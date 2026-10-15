@@ -55,7 +55,9 @@ HYDRATION_ALWAYS_FULL, POPULATION_ALWAYS_FULL = 3, 2
 ASYNC_STARTED, ASYNC_COMPLETED = 0, 1
 
 CF_IN_SYNC_STATE_IN_SYNC = 1
-CF_CONVERT_FLAG_MARK_IN_SYNC = 0x1
+CF_CONVERT_FLAG_MARK_IN_SYNC, CF_CONVERT_FLAG_ALWAYS_FULL = 0x1, 0x8
+CF_PIN_STATE_UNSPECIFIED, CF_PIN_STATE_EXCLUDED = 0, 3
+CF_SET_PIN_FLAG_RECURSE = 0x1
 ERROR_NOT_A_CLOUD_FILE = 0x80070178
 GENERIC_READ, GENERIC_WRITE = 0x80000000, 0x40000000
 OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT = 3, 0x02000000, 0x00200000
@@ -66,12 +68,14 @@ class CALLBACK_REGISTRATION(ctypes.Structure):
     _fields_ = [("Type", ctypes.c_int), ("Callback", ctypes.c_void_p)]
 
 
-for _name in ("CfConnectSyncRoot", "CfDisconnectSyncRoot", "CfSetInSyncState", "CfConvertToPlaceholder"):
+for _name in ("CfConnectSyncRoot", "CfDisconnectSyncRoot", "CfSetInSyncState", "CfConvertToPlaceholder",
+              "CfSetPinState"):
     getattr(cld, _name).restype = ctypes.c_long
 cld.CfConnectSyncRoot.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(CALLBACK_REGISTRATION), ctypes.c_void_p,
                                   wintypes.DWORD, ctypes.POINTER(ctypes.c_int64)]
 cld.CfDisconnectSyncRoot.argtypes = [ctypes.c_int64]
 cld.CfSetInSyncState.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p]
+cld.CfSetPinState.argtypes = [wintypes.HANDLE, ctypes.c_int, wintypes.DWORD, ctypes.c_void_p]
 cld.CfConvertToPlaceholder.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
                                        ctypes.c_void_p, ctypes.c_void_p]
 kernel32.CreateFileW.restype = wintypes.HANDLE
@@ -331,17 +335,40 @@ def disconnect(key: int) -> None:
     cld.CfDisconnectSyncRoot(key)
 
 
-def mark_in_sync(path: str) -> bool:
-    """A file or folder, in sync: made a placeholder (always full) the
-    first time. False when it cannot be opened (gone, in use)."""
+def _open(path: str):
     handle = kernel32.CreateFileW(windows_path(path), GENERIC_READ | GENERIC_WRITE, 7, None, OPEN_EXISTING,
                                   FILE_FLAG_BACKUP_SEMANTICS, None)
-    if handle in (None, INVALID_HANDLE):
+    return None if handle in (None, INVALID_HANDLE) else handle
+
+
+def mark_in_sync(path: str) -> bool:
+    """A file or folder, in sync: made a placeholder (always full) the
+    first time. No longer excluded, if it was (renamed, moved out of an
+    excluded folder): the exclusion would hide its status. False when it
+    cannot be opened (gone, in use)."""
+    handle = _open(path)
+    if handle is None:
         return False
     try:
+        cld.CfSetPinState(handle, CF_PIN_STATE_UNSPECIFIED, 0, None)      # not a placeholder yet: no harm
         hr = cld.CfSetInSyncState(handle, CF_IN_SYNC_STATE_IN_SYNC, 0, None)
         if hr & 0xFFFFFFFF == ERROR_NOT_A_CLOUD_FILE:
             hr = cld.CfConvertToPlaceholder(handle, None, 0, CF_CONVERT_FLAG_MARK_IN_SYNC, None, None)
         return hr >= 0
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def mark_excluded(path: str, folder: bool) -> bool:
+    """A file or folder Spola leaves out: no status at all, rather than
+    waiting forever. A folder with all it holds; what is put in it later
+    inherits it. False when it cannot be opened (gone, in use)."""
+    handle = _open(path)
+    if handle is None:
+        return False
+    try:
+        cld.CfConvertToPlaceholder(handle, None, 0, CF_CONVERT_FLAG_ALWAYS_FULL, None, None)   # once
+        flags = CF_SET_PIN_FLAG_RECURSE if folder else 0
+        return cld.CfSetPinState(handle, CF_PIN_STATE_EXCLUDED, flags, None) >= 0
     finally:
         kernel32.CloseHandle(handle)
