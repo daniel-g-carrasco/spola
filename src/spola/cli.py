@@ -278,6 +278,7 @@ def main(argv: list[str]) -> int:
         cfg.pairs.remove(pair)
         config.save(cfg, paths.config_file)
         preflight.release_root(pair)
+        paths.forget(pair.id)
         print(_("Removed. No file was deleted."))
         return 0
 

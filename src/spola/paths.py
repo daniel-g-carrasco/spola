@@ -10,6 +10,7 @@ in sync, and a cache cleaner must not be able to throw them away.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,8 +70,24 @@ class Paths:
     def log_dir(self, pair_id: str) -> Path:
         return self.state / "logs" / pair_id
 
+    def exclude_file(self, pair_id: str) -> Path:
+        return self.state / "exclude" / f"{pair_id}.txt"
+
     def backup_dir(self, pair_id: str) -> Path:
         return self.data / "backup" / pair_id
+
+    def forget(self, pair_id: str) -> None:
+        """A removed pair's state: listings, filters, exclusions, lock and
+        logs. Never its backups: what they hold may be the only copy left."""
+        for folder in (self.workdir(pair_id), self.log_dir(pair_id)):
+            shutil.rmtree(folder, ignore_errors=True)
+        filters = self.filters_file(pair_id)
+        for file in (filters, filters.with_name(filters.name + ".md5"), self.exclude_file(pair_id),
+                     self.lock_file(pair_id)):
+            try:
+                file.unlink(missing_ok=True)
+            except OSError:         # still open (a CLI run): it stays, harmless
+                pass
 
 
 def nearest_folder(path: str) -> str:
