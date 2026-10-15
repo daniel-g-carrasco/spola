@@ -93,6 +93,21 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK))
         self.assertEqual(len(self.remote_files()), 30)
 
+    def test_a_pair_removed_leaves_its_backups_only(self):
+        self.align()
+        paths = self.engine.paths
+        state = [paths.workdir("p1"), paths.filters_file("p1"), paths.lock_file("p1"), paths.log_dir("p1")]
+        self.assertTrue(all(p.exists() for p in state), [p for p in state if not p.exists()])
+        paths.backup_dir("p1").mkdir(parents=True)
+        (paths.backup_dir("p1") / "kept.txt").write_text("x")
+        self.engine.remove_pair("p1")
+        # at once, or once a run still going is over
+        self.assertTrue(spin_until(lambda: not any(p.exists() for p in state), 60),
+                        [p for p in state if p.exists()])
+        self.assertTrue((paths.backup_dir("p1") / "kept.txt").exists())
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 30)         # files stay
+        self.assertEqual(len(self.remote_files()), 30)
+
     def test_sign_in_and_out_change_the_overall_status_without_pairs(self):
         # with no pair, nothing else would tell the tray that the account changed
         self.engine.remove_pair("p1")

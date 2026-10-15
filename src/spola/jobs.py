@@ -118,7 +118,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     if windows_reserved_names_matter():
         lines += reserved_exclude_lines()       # Windows 10's device names, on both sides
     if lines:
-        exclude_file = paths.state / "exclude" / f"{pair.id}.txt"
+        exclude_file = paths.exclude_file(pair.id)
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
         exclude_file.write_text(lines, encoding="utf-8", newline="\n")
 

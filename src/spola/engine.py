@@ -366,18 +366,21 @@ class Engine(GObject.Object):
         return pair
 
     def remove_pair(self, pair_id: str) -> None:
-        """Forget the pair. Files on both sides stay as they are."""
+        """Forget the pair, and its state (not its backups). Files on both
+        sides stay as they are."""
         pair = self.cfg.pair(pair_id)
         if pair is None:
             return
         self.cancel_preview(pair_id)
         rt = self.runtime.pop(pair_id, None)
         self.queue = [t for t in self.queue if t.pair_id != pair_id]
+        run = None
         if rt:
             if rt.watcher:
                 rt.watcher.stop()
             if rt.run and rt.run.running:
-                rt.run.cancel()
+                run = rt.run
+                run.cancel()
             for source in (rt.retry_source, rt.debounce_source, rt.ahead_source):
                 if source:
                     GLib.source_remove(source)
@@ -386,6 +389,11 @@ class Engine(GObject.Object):
         from .preflight import release_root
         release_root(pair)
         self.recent.forget_pair(pair_id)
+        if run is None:
+            self.paths.forget(pair_id)
+        else:       # once rclone is done with it: what it still writes would come back
+            threading.Thread(target=lambda: (run.wait(300), self.paths.forget(pair_id)),
+                             name="forget-state", daemon=True).start()
         self.emit("pairs-changed")
 
     def set_paused(self, pair_id: str, paused: bool) -> None:
