@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.18" date="2026-10-17" type="development">
+      <description>
+        <p>A folder deleted or emptied on Koofr (from another computer, from the web), or emptied here, no longer shows as "needs a repair", which could not help: Spola says what happened ("is no longer on Koofr", "is empty on Koofr", "is empty on this computer") and offers what does: restore it from Koofr's trash, upload this computer's files again (after a preview), copy Koofr's files here again, or stop syncing it. The files on the other side are never touched meanwhile.</p>
+        <p>Fixed: a banner title with an apostrophe or an ampersand showed its markup ("c&amp;apos;è").</p>
+      </description>
+    </release>
     <release version="0.3.17" date="2026-10-16" type="development">
       <description>
         <p>A preview also says how much of each folder a change touches: "the whole folder", or "31% of the folder", under every folder of the tree and for the whole synced folder on each kind of change. A folder deleted on another computer shows at once as gone entirely, next to one where only a few old files go.</p>
