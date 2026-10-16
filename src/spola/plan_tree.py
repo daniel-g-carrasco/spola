@@ -91,8 +91,10 @@ class PlanTreePage(Adw.NavigationPage):
         expander.set_list_row(row)
         icon.set_from_icon_name("folder-symbolic" if node.folder else "text-x-generic-symbolic")
         name.set_label(node.name)
-        note.set_label(node.note)
-        note.set_visible(bool(node.note))
+        # under a folder, how much of it the change touches; under a file, its note
+        text = filetree.share(node.files, node.total) if node.folder else node.note
+        note.set_label(text)
+        note.set_visible(bool(text))
         amount_label.set_label(amount(node.files, node.size) if node.folder
                                else (GLib.format_size(node.size) if node.size else ""))
         list_item.get_child().set_tooltip_text(node.path if node.folder else

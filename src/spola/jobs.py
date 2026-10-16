@@ -250,6 +250,22 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused, busy)
 
 
+def listed_files(paths: Paths, pair: Pair) -> tuple[dict[str, int], dict[str, int]] | None:
+    """The files of the last run's two listings, {path: size}, here and on
+    Koofr (the state a preview starts from); None before a first alignment
+    or when a listing cannot be read. A second or so on 40,000 files: off
+    the main loop."""
+    workdir = paths.workdir(pair.id)
+    try:
+        sides = [listings.load(workdir, side) for side in (1, 2)]
+    except (OSError, ValueError):
+        return None
+    if any(side is None for side in sides):
+        return None
+    here, there = ({e.path: e.size for e in side if not e.is_dir} for side in sides)
+    return here, there
+
+
 def case_renames(paths: Paths, pair: Pair) -> list[CaseRename]:
     """The renames by case alone made here since the last run (see
     preflight.case_renames), from the two listings of that run."""

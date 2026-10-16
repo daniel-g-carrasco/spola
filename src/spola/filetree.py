@@ -12,8 +12,11 @@ down."""
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+
+from .i18n import _
 
 CHAIN = " / "
 
@@ -27,12 +30,15 @@ class Node:
     size: int = 0               # their bytes, as far as the preview knew them
     note: str = ""              # a file's line under its name ("From …" for a move)
     show: str = ""              # what a click shows: the file where it is now
+    total: int = 0              # a folder's files before the run, with the new ones (0: unknown)
     children: list[Node] = field(default_factory=list)
 
 
 def build(entries: Iterable[tuple[str, str, str]], sizes: dict[str, int] | None = None,
-          folders: Iterable[str] = ()) -> list[Node]:
-    """`entries`: (path, note, path to show). The top nodes, folders first."""
+          folders: Iterable[str] = (), base: Iterable[str] | None = None) -> list[Node]:
+    """`entries`: (path, note, path to show). The top nodes, folders first.
+    `base`: the files of that side at the last run, for each folder's total
+    (what share of it the change touches)."""
     sizes = sizes or {}
     entries = list(entries)
     known_folders = set(folders)
@@ -59,8 +65,37 @@ def build(entries: Iterable[tuple[str, str, str]], sizes: dict[str, int] | None 
         if not node.folder:
             node.note, node.show, node.size = note, show or path, sizes.get(path, 0)
     _total(root)
+    if base is not None:
+        # the files of each folder: those of the last run, with the new ones
+        inside = Counter()
+        for path in set(base) | {n.path for n in index.values() if not n.folder}:
+            parts = path.split("/")
+            for i in range(1, len(parts)):
+                inside["/".join(parts[:i])] += 1
+            inside[""] += 1
+        for path, node in index.items():
+            if node.folder:
+                node.total = inside[path]
     _tidy(root)
     return root.children
+
+
+def whole(entries: Iterable[str], base: Iterable[str]) -> int:
+    """How many files the whole synced folder has, the new ones included."""
+    return len(set(base) | set(entries))
+
+
+def share(files: int, total: int) -> str:
+    """How much of a folder a change touches, in words: "the whole folder",
+    "37% of the folder" (never 100% when one file is left, never 0%)."""
+    if not total or not files:
+        return ""
+    if files >= total:
+        return _("the whole folder")
+    percent = files * 100 // total
+    if percent < 1:
+        return _("less than 1% of the folder")
+    return _("{percent}% of the folder").format(percent=percent)
 
 
 def _total(node: Node) -> None:
@@ -90,8 +125,9 @@ def _tidy(node: Node) -> None:
         # a folder holding one folder only (and no file): one line for both
         while child.folder and len(child.children) == 1 and child.children[0].folder:
             only = child.children[0]
+            # the row shows the last folder's content: its share is of that folder
             child = Node(child.name + CHAIN + only.name, only.path, True, only.files, only.size,
-                         children=only.children)
+                         total=only.total, children=only.children)
         merged.append(child)
     node.children = merged
 

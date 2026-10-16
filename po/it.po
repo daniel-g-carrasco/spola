@@ -2349,3 +2349,16 @@ msgstr ""
 "Una spunta su ciò che è sincronizzato, frecce su ciò che aspetta una "
 "sincronizzazione, come per OneDrive; le cartelle sincronizzate nel riquadro "
 "di spostamento"
+
+#: src/spola/filetree.py
+msgid "the whole folder"
+msgstr "tutta la cartella"
+
+#: src/spola/filetree.py
+msgid "less than 1% of the folder"
+msgstr "meno dell'1% della cartella"
+
+#: src/spola/filetree.py
+#, python-brace-format
+msgid "{percent}% of the folder"
+msgstr "il {percent}% della cartella"
