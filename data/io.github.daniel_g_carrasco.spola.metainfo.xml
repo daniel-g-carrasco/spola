@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.17" date="2026-10-16" type="development">
+      <description>
+        <p>A preview also says how much of each folder a change touches: "the whole folder", or "31% of the folder", under every folder of the tree and for the whole synced folder on each kind of change. A folder deleted on another computer shows at once as gone entirely, next to one where only a few old files go.</p>
+      </description>
+    </release>
     <release version="0.3.16" date="2026-10-16" type="development">
       <description>
         <p>A large preview is easy to read: each kind of change (copied to Koofr, deleted here...) opens on a page of its own as a tree of folders, each with how many files it holds and how big they are, open or closed at will. A deletion of twenty thousand files shows at once the two projects it touches, and no file is left out of the list any more.</p>
