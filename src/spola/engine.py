@@ -203,6 +203,9 @@ class Engine(GObject.Object):
         "paths-changed": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
         # (pair id): a run ended, every state below the root may have changed
         "root-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # (pair id, relative path): a real run copied a file, which is now the
+        # same on both sides
+        "path-copied": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
         # (pair id, kind, message): something the user should know about
         "attention": (GObject.SignalFlags.RUN_FIRST, None, (str, str, str)),
     }
@@ -1287,6 +1290,8 @@ class Engine(GObject.Object):
             rel = relative_path(ev.path, list(rt.run_roots))
             rt.states.errors.add(rel)
             self.emit("paths-changed", pair_id, ancestors_and_self(rel))
+        elif ev.kind is Kind.COPIED and ev.path:
+            self.emit("path-copied", pair_id, relative_path(ev.path, roots))
         return False
 
     @staticmethod
