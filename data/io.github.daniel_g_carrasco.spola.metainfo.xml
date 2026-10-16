@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.15" date="2026-10-16" type="development">
+      <description>
+        <p>Windows: on a monitor whose scale differs from the main one (a 250% monitor next to a 200% one), Windows scales the whole window, at the size of the other apps.</p>
+      </description>
+    </release>
     <release version="0.3.14" date="2026-10-16" type="development">
       <description>
         <p>Files still being written (a transcription, a download, a file being exported) wait before they are synced: a new one is synced once it has settled, and for one already synced the sync waits for it, at most five minutes, saying which file it waits for. Synced half written, such a file looked changed on both sides at the next sync, and Spola could stop for a repair. Sync Now never waits.</p>
