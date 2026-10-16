@@ -75,18 +75,28 @@ shell32.SetCurrentProcessExplicitAppUserModelID.restype = ctypes.c_long
 
 
 class WinRTError(OSError):
-    pass
+    def __init__(self, message: str, hresult: int = 0):
+        super().__init__(message)
+        self.hresult = hresult & 0xFFFFFFFF
 
 
 def _check(hr: int, what: str) -> None:
     if hr < 0:
-        raise WinRTError(f"{what}: HRESULT 0x{hr & 0xFFFFFFFF:08X}")
+        raise WinRTError(f"{what}: HRESULT 0x{hr & 0xFFFFFFFF:08X}", hr)
+
+
+def utf16_length(text: str) -> int:
+    """What the Windows API counts: UTF-16 units, two for an emoji."""
+    return len(text.encode("utf-16-le")) // 2
 
 
 class _HString:
     def __init__(self, text: str):
         self.handle = HSTRING()
-        _check(combase.WindowsCreateString(text, len(text), ctypes.byref(self.handle)), "WindowsCreateString")
+        # never len(text): an emoji in a folder name would cut its path short
+        # and name another folder
+        _check(combase.WindowsCreateString(text, utf16_length(text), ctypes.byref(self.handle)),
+               "WindowsCreateString")
 
     def __enter__(self):
         return self.handle

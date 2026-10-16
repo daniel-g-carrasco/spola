@@ -59,7 +59,9 @@ CF_CONVERT_FLAG_MARK_IN_SYNC, CF_CONVERT_FLAG_ALWAYS_FULL = 0x1, 0x8
 CF_PIN_STATE_UNSPECIFIED, CF_PIN_STATE_EXCLUDED = 0, 3
 CF_SET_PIN_FLAG_RECURSE = 0x1
 ERROR_NOT_A_CLOUD_FILE = 0x80070178
+HRESULT_NOT_FOUND = 0x80070490          # a root whose folder is gone
 GENERIC_READ, GENERIC_WRITE = 0x80000000, 0x40000000
+WRITE_DAC, FILE_READ_ATTRIBUTES = 0x00040000, 0x80
 OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT = 3, 0x02000000, 0x00200000
 INVALID_HANDLE = ctypes.c_void_p(-1).value
 
@@ -69,8 +71,10 @@ class CALLBACK_REGISTRATION(ctypes.Structure):
 
 
 for _name in ("CfConnectSyncRoot", "CfDisconnectSyncRoot", "CfSetInSyncState", "CfConvertToPlaceholder",
-              "CfSetPinState"):
+              "CfSetPinState", "CfGetPlaceholderInfo"):
     getattr(cld, _name).restype = ctypes.c_long
+cld.CfGetPlaceholderInfo.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+                                     ctypes.POINTER(wintypes.DWORD)]
 cld.CfConnectSyncRoot.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(CALLBACK_REGISTRATION), ctypes.c_void_p,
                                   wintypes.DWORD, ctypes.POINTER(ctypes.c_int64)]
 cld.CfDisconnectSyncRoot.argtypes = [ctypes.c_int64]
@@ -207,7 +211,9 @@ def unregister(identity: str) -> None:
     try:
         with _HString(identity) as text:
             _call(manager, MANAGER_UNREGISTER, text, argtypes=(HSTRING,))
-    except rt.WinRTError:
+    except rt.WinRTError as e:
+        if e.hresult != HRESULT_NOT_FOUND:
+            raise           # some other trouble: its keys are not ours to guess about
         forget_keys(identity)
     finally:
         _release(manager)
@@ -295,7 +301,7 @@ def registered() -> list[str]:
         size = ctypes.c_uint32()
         _call(view, VIEW_SIZE, ctypes.byref(size), argtypes=(ctypes.POINTER(ctypes.c_uint32),))
         for i in range(size.value):
-            item = P()
+            item, info = P(), None
             _call(view, VIEW_GET_AT, i, ctypes.byref(item), argtypes=(ctypes.c_uint32, ctypes.POINTER(P)))
             try:
                 info = _query(item, IID_ISyncRootInfo)
@@ -303,8 +309,8 @@ def registered() -> list[str]:
                 _call(info, INFO_GET_ID, ctypes.byref(text), argtypes=(ctypes.POINTER(HSTRING),))
                 ids.append(_hstring_text(text))
                 rt.combase.WindowsDeleteString(text)
-                _release(info)
             finally:
+                _release(info)
                 _release(item)
     finally:
         _release(view)
@@ -335,10 +341,33 @@ def disconnect(key: int) -> None:
     cld.CfDisconnectSyncRoot(key)
 
 
-def _open(path: str):
-    handle = kernel32.CreateFileW(windows_path(path), GENERIC_READ | GENERIC_WRITE, 7, None, OPEN_EXISTING,
-                                  FILE_FLAG_BACKUP_SEMANTICS, None)
+def _open(path: str, access: int = WRITE_DAC | FILE_READ_ATTRIBUTES):
+    # what the Cloud Files calls need and no more: a read-only file, or one
+    # Office holds open, can still be marked. A link is opened itself, never
+    # what it points to (a junction into another provider's folder).
+    handle = kernel32.CreateFileW(windows_path(path), access, 7, None, OPEN_EXISTING,
+                                  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, None)
     return None if handle in (None, INVALID_HANDLE) else handle
+
+
+class PLACEHOLDER_BASIC_INFO(ctypes.Structure):
+    _fields_ = [("PinState", ctypes.c_int), ("InSyncState", ctypes.c_int), ("FileId", ctypes.c_int64),
+                ("SyncRootFileId", ctypes.c_int64), ("FileIdentityLength", wintypes.ULONG),
+                ("FileIdentity", ctypes.c_byte * 64)]
+
+
+def in_sync(path: str) -> bool | None:
+    """Is this placeholder in sync? Windows says no as soon as the file is
+    written. None when it is not a placeholder (or cannot be read)."""
+    handle = _open(path, FILE_READ_ATTRIBUTES)
+    if handle is None:
+        return None
+    try:
+        info, returned = PLACEHOLDER_BASIC_INFO(), wintypes.DWORD()
+        hr = cld.CfGetPlaceholderInfo(handle, 0, ctypes.byref(info), ctypes.sizeof(info), ctypes.byref(returned))
+        return info.InSyncState == CF_IN_SYNC_STATE_IN_SYNC if hr >= 0 else None
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def mark_in_sync(path: str) -> bool:
