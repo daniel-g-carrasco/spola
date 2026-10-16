@@ -1131,14 +1131,15 @@ class Engine(GObject.Object):
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
-                job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override)
+                env = koofr_env(creds.user, creds.obscured)
+                job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
+                                   koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override))
                 result = (job, bisync_args(rclone, job.request), "")
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
                     task.case_renames = jobs.case_renames(paths, pair)
                     if task.case_renames and not task.dry_run:
-                        problem = jobs.rename_on_koofr(rclone, koofr_env(creds.user, creds.obscured), cfg, pair,
-                                                       paths, task.case_renames, override)
+                        problem = jobs.rename_on_koofr(rclone, env, cfg, pair, paths, task.case_renames, override)
                         if problem:
                             result = (None, None, problem)
                 if task.dry_run:

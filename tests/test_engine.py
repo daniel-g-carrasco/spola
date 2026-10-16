@@ -415,6 +415,26 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: (self.remote_root / "empty" / "first.txt").exists()
                                    and rt.status is Status.OK, 60), (rt.status, rt.message))
 
+    def test_two_empty_folders_with_the_same_new_file_ask_first(self):
+        # the run of two empty folders is a resync, which settles a file new
+        # on both sides by date: the older copy would be lost, unasked
+        local = self.tmp / "empty"
+        local.mkdir()
+        remote = self.remote_root / "empty"
+        remote.mkdir()
+        pair = self.engine.add_pair(str(local), "/empty")
+        rt = self.engine.runtime[pair.id]
+        self.engine.confirm(pair.id, Mode.RESYNC, False)
+        self.assertTrue(spin_until(lambda: pair.initialized and self.engine.active is None
+                                   and not self.engine.queue, 60))
+        (remote / "same.txt").write_text("from Koofr")
+        (local / "same.txt").write_text("from here, later")
+        self.engine.request_sync(pair.id, "manual")
+        self.assertTrue(spin_until(lambda: rt.status is Status.NEEDS_REPAIR and self.engine.active is None, 60),
+                        (rt.status, rt.message))
+        self.assertEqual((remote / "same.txt").read_text(), "from Koofr")
+        self.assertEqual((local / "same.txt").read_text(), "from here, later")
+
     def test_a_folder_removed_and_added_again_is_not_replaced(self):
         # the pair removed left its marker; the new pair, another id, took it
         # for the sign of a folder replaced and refused its preview

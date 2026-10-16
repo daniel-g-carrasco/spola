@@ -79,11 +79,44 @@ def write_filters(paths: Paths, pair: Pair, text: str) -> bool:
     return True
 
 
+def local_files(root: str) -> set[str]:
+    """Every file below root a run would sync (the default exclusions left
+    out), as relative paths with "/"."""
+    found = set()
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+        rel_dir = "" if rel_dir == "." else rel_dir + "/"
+        dirnames[:] = [d for d in dirnames if not default_excluded(f"{rel_dir}{d}/")]
+        found.update(f"{rel_dir}{f}" for f in filenames if not default_excluded(f"{rel_dir}{f}"))
+    return found
+
+
+def files_on_koofr(rclone: str, env: dict, paths: Paths, pair: Pair,
+                   path2_override: str | None = None) -> set[str] | None:
+    """Every file of the pair's Koofr folder (its filters applied), or None
+    when Koofr could not be read."""
+    root = path2_override or remote_spec(pair.remote)
+    try:
+        done = subprocess.run([rclone, "lsf", "-R", "--files-only", "--filter-from", str(paths.filters_file(pair.id)),
+                               root, "--config", str(paths.rclone_config), "--color", "NEVER"],
+                              env=env, capture_output=True, text=True, encoding="utf-8", timeout=600, **no_window())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return set(done.stdout.splitlines()) if done.returncode == 0 else None
+
+
+def _folded(files: set[str]) -> set[str]:
+    # Windows and Koofr take names that differ in case alone for the same file
+    return {f.casefold() for f in files}
+
+
 def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
             dry_run: bool = False, force: bool = False,
-            path2_override: str | None = None) -> Job:
+            path2_override: str | None = None, koofr_files=None) -> Job:
     """`path2_override` replaces the Koofr side with another path (tests run
-    bisync between two local folders); it is never set by the app."""
+    bisync between two local folders); it is never set by the app.
+    `koofr_files()` lists the Koofr folder's files, or None if it cannot:
+    asked only after a first alignment of two empty folders."""
     workdir = paths.workdir(pair.id)
     known = (listings.load(workdir, 1) or []) if listings.find(workdir, 1) else []
     problems = check_root_identity(pair, [e.path for e in known[:50]])
@@ -96,15 +129,19 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         raise NotReady([Problem("not-initialized", "the first alignment has not been confirmed yet", pair.local)])
 
     workdir.mkdir(parents=True, exist_ok=True)
+    ensure_filters(paths, pair)
     if mode is Mode.SYNC and listings.find(workdir, 1) and listings.count(workdir) == 0:
         # bisync refuses a run from an empty listing ("Empty prior Path1
         # listing. Cannot sync to an empty directory"): two folders empty
         # but for what Spola leaves out stopped for a repair right after
         # their first alignment. With nothing known in sync there is nothing
         # to delete either: the run is a resync, which copies what each side
-        # has to the other (the engine still takes it for a sync)
-        mode = Mode.RESYNC
-    ensure_filters(paths, pair)
+        # has to the other (the engine still takes it for a sync). Only if
+        # no file is on both sides: a resync settles one by date, the older
+        # copy lost and no preview asked; that stays a repair, with its preview.
+        on_koofr = koofr_files() if koofr_files else None
+        if on_koofr is not None and not (_folded(local_files(pair.local)) & _folded(on_koofr)):
+            mode = Mode.RESYNC
     # One backup folder per run: a file replaced twice keeps both old copies.
     # rclone creates it only if something is actually backed up.
     backup = paths.backup_dir(pair.id) / time.strftime("%Y%m%d-%H%M%S")

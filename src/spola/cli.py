@@ -93,7 +93,9 @@ def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quie
         override = os.path.join(DEV_REMOTE, pair.remote.lstrip("/"))
         os.makedirs(override, exist_ok=True)
     try:
-        job = jobs.prepare(cfg, pair, paths, mode, dry_run, force, path2_override=override)
+        env = koofr_env(creds.user, creds.obscured)
+        job = jobs.prepare(cfg, pair, paths, mode, dry_run, force, path2_override=override,
+                           koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override))
     except jobs.NotReady as e:
         _fail(e.problems[0].message)
         return None
