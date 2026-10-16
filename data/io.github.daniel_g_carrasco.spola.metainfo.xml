@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.13" date="2026-10-16" type="development">
+      <description>
+        <p>The tray icon is always in the panel's own colour, like the panel's other icons: no more blue, orange or red. Its shape says what is going on: arrows while syncing, a mark when something needs you, a cross on errors. The window and the notifications keep the coloured status.</p>
+      </description>
+    </release>
     <release version="0.3.12" date="2026-10-16" type="development">
       <description>
         <p>Windows: the window keeps the system title bar, so it snaps to the screen edges and to Win+arrows like any other. File Explorer shows a folder's status as soon as it is added, as other sync clients do: what is not yet in sync waits, each file turns green as soon as it is copied, never a green tick on a file changed since (while Spola was closed or paused), and what Spola leaves out shows no status. The status is on by default and can be turned off in Preferences; turned off, the files stay ordinary files. Folder names with emoji, read-only files and files open in Office get their status too.</p>
