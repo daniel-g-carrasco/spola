@@ -5,8 +5,11 @@ apartment, one job after the other: the shell's calls block, and a whole
 tree marked in sync takes a while. The jobs:
 
   * the sync roots made to match the pairs: one registered and connected
-    per aligned pair, Spola's ones without a pair unregistered; all of them
-    when the preference is off;
+    per pair as soon as it is added, so that what is not yet in sync shows
+    waiting from the start, as other sync clients do; Spola's ones without
+    a pair unregistered; all of them when the preference is off;
+  * marked in sync as soon as a run copies it: a file then is the same on
+    both sides (also during the first alignment);
   * marked in sync, at each connection and after each run that went well:
     what bisync's last listing holds, which is what both sides agree on.
     Marked excluded, so with no status rather than waiting forever: what
@@ -39,15 +42,20 @@ class ExplorerStatus:
         self._thread.start()
         engine.connect("pairs-changed", lambda *_: self.update())
         engine.connect("run-finished", self._run_finished)
+        engine.connect("path-copied", self._copied)
 
     # -- main thread ----------------------------------------------------------------
 
     def update(self) -> None:
         """The sync roots as the pairs and the preference are now."""
-        # aligned pairs only: before the first alignment nothing is in sync
-        pairs = ([(p.id, p.local, p.name) for p in self.engine.cfg.pairs if p.initialized]
+        pairs = ([(p.id, p.local, p.name) for p in self.engine.cfg.pairs]
                  if self.engine.cfg.explorer_status else [])
         self._jobs.put(lambda: self._match(pairs))
+
+    def _copied(self, _engine, pair_id: str, rel: str) -> None:
+        pair = self.engine.cfg.pair(pair_id)
+        if pair is not None and rel:
+            self._jobs.put(lambda: self._mark_copied(pair_id, pair.local, rel))
 
     def stop(self) -> None:
         self._jobs.put(None)
@@ -85,6 +93,10 @@ class ExplorerStatus:
         for folder in sorted(folders):
             self._mark_excluded(root, folder, done)
         cloudfiles.mark_in_sync(root)
+
+    def _mark_copied(self, pair_id: str, root: str, rel: str) -> None:
+        if pair_id in self._connected and cloudfiles.mark_in_sync(os.path.join(root, *rel.split("/"))):
+            self._marked.setdefault(pair_id, set()).add(rel)
 
     @staticmethod
     def _mark_excluded(root: str, folder: str, done: set[str]) -> None:

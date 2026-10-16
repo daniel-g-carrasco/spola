@@ -93,6 +93,14 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK))
         self.assertEqual(len(self.remote_files()), 30)
 
+    def test_every_file_copied_is_told_as_it_happens(self):
+        # what File Explorer marks in sync during the run, not at its end
+        copied = []
+        self.engine.connect("path-copied", lambda _e, pid, rel: copied.append((pid, rel)))
+        self.align()
+        self.assertEqual(sorted(rel for _pid, rel in copied), [f"f{i:02}.txt" for i in range(30)])
+        self.assertEqual({pid for pid, _rel in copied}, {"p1"})
+
     def test_a_pair_removed_leaves_its_backups_only(self):
         self.align()
         paths = self.engine.paths

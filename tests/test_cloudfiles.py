@@ -65,6 +65,21 @@ class MarkTest(unittest.TestCase):
                 self.assertEqual(relative(excluded), ["Thumbs.db"])            # only what is new, next to it
 
 
+class CopiedTest(unittest.TestCase):
+    def test_a_file_copied_is_marked_at_once_if_its_root_is_connected(self):
+        engine = SimpleNamespace(connect=lambda *a: None)
+        marked = []
+        with mock.patch.object(cloudfiles, "mark_in_sync", lambda p: marked.append(p) or True):
+            status = ExplorerStatus(engine, "", "0")
+            status.stop()
+            status._mark_copied("p", os.path.join("C:\\", "root"), "sub/a.txt")
+            self.assertEqual(marked, [])                    # not registered: nothing to mark
+            status._connected["p"] = 1
+            status._mark_copied("p", os.path.join("C:\\", "root"), "sub/a.txt")
+            self.assertEqual(marked, [os.path.join("C:\\", "root", "sub", "a.txt")])
+            self.assertEqual(status._marked["p"], {"sub/a.txt"})
+
+
 class KeysTest(unittest.TestCase):
     def test_a_root_the_shell_lost_is_found_and_forgotten(self):
         # what Unregister leaves of a root whose folder is gone: the
