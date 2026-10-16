@@ -37,7 +37,7 @@ class ImportDialogTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.added, self.toasts = [], []
-        engine = SimpleNamespace(cfg=Config(), add_pair=lambda local, remote, paused=False:
+        engine = SimpleNamespace(cfg=Config(), creds=None, add_pair=lambda local, remote, paused=False:
                                  self.added.append((local, remote, paused)))
         self.window = SimpleNamespace(engine=engine, toast=self.toasts.append)
         self.state = State(running=True, at_login=True)

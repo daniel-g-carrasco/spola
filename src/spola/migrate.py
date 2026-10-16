@@ -66,11 +66,15 @@ def candidates(cfg: Config, config_path: Path | None = None, home: str | None = 
     for s in koofr_desktop_syncs(config_path or koofr_desktop_config()):
         local = os.path.realpath(s["localPath"])
         paused = bool(s.get("paused"))
-        if s.get("mountId") and cfg.mount_id and s["mountId"] != cfg.mount_id:
+        if s.get("mountId") and s["mountId"] != cfg.mount_id:
             # a folder shared with this account, or a service connected to
-            # Koofr: Spola syncs with the account's own storage only
+            # Koofr: Spola syncs with the account's own storage only. Not
+            # knowing which one is the account's own, nothing is taken.
             found.append(Candidate(local, s.get("remotePath") or "/", paused,
-                                   _("not in your own Koofr storage (a shared folder or a connected service)")))
+                                   _("not in your own Koofr storage (a shared folder or a connected service)")
+                                   if cfg.mount_id else
+                                   _("Spola could not ask Koofr which storage is your own: try again when "
+                                     "Koofr can be reached")))
             continue
         try:
             remote = config_mod.normalize_remote(s.get("remotePath") or "/")
