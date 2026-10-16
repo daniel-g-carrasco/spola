@@ -230,6 +230,25 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(list(self.engine.paths.log_dir("p1").iterdir())), logs_before)   # never started
         self.assertNotIn("new.txt", self.remote_files())
 
+    def test_removed_while_preparing(self):
+        # the preparation went on: it put the state and the marker back, and
+        # could still rename on Koofr
+        self.align()
+        os.rename(self.local / "f00.txt", self.local / "F00.txt")       # a rename by case alone, for Koofr
+        self.slow_prepare(1.5)
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: rt.task is not None, 5))
+        self.engine.remove_pair("p1")
+        paths = self.engine.paths
+        state = [paths.workdir("p1"), paths.filters_file("p1"), paths.log_dir("p1"),
+                 Path(preflight.marker_path(self.pair))]
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not any(p.exists() for p in state), 10),
+                        [p for p in state if p.exists()])
+        spin_until(lambda: False, 0.5)
+        self.assertFalse(any(p.exists() for p in state))
+        self.assertIn("f00.txt", self.remote_files())           # not renamed on Koofr
+
     def test_stop_clicked_twice_stays_graceful(self):
         # bisync takes a while to stop; a second click in the meantime must
         # not end it at once: that left its lock and the next run refused
