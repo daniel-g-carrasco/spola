@@ -15,6 +15,14 @@ on:
 
 env:
   SPOLA_RCLONE_RELEASE: "1.75.2"
+  # Inno Setup, the official release checked by its SHA-256 (GitHub's digest)
+  INNO_VERSION: "6.7.3"
+  INNO_SHA256: "9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732"
+
+# read-only for every job: only "release" below can write, and it runs no
+# build tool, only uploads what "package" built
+permissions:
+  contents: read
 
 jobs:
   probe:
@@ -23,8 +31,10 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v7
-      - uses: msys2/setup-msys2@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
         with:
           msystem: UCRT64
           update: true
@@ -71,7 +81,7 @@ jobs:
           export SPOLA_DEV_REMOTE="$OUT\\remote" SPOLA_SCREENSHOT="$OUT\\window.png" SPOLA_SCREENSHOT_DELAY=8
           timeout 120 env -u MSYSTEM python bin/spola 2>&1 | tee gui/run.log
           ls -la gui
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
         with:
           name: windows-probe
@@ -83,14 +93,14 @@ jobs:
 
   package:
     runs-on: windows-latest
-    permissions:
-      contents: write         # the release's files, on a tag
     defaults:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v7
-      - uses: msys2/setup-msys2@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e  # v2.33.0
         with:
           msystem: UCRT64
           update: true
@@ -150,8 +160,12 @@ jobs:
       - name: Installer (Inno Setup)
         shell: pwsh
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          $setup = "$env:RUNNER_TEMP\innosetup-$env:INNO_VERSION.exe"
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/is-$($env:INNO_VERSION -replace '\.', '_')/innosetup-$env:INNO_VERSION.exe" -OutFile $setup
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash -ne $env:INNO_SHA256) { Write-Error 'Inno Setup: SHA-256 mismatch'; exit 1 }
+          $dir = "$env:RUNNER_TEMP\inno"
+          Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=$dir" -Wait
+          $iscc = "$dir\ISCC.exe"
           $version = if ($env:GITHUB_REF_NAME -like 'v*') { $env:GITHUB_REF_NAME.Substring(1) } else { 'dev' }
           & $iscc "/DAppVersion=$version" "build-aux\windows\spola.iss"
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -173,27 +187,45 @@ jobs:
           Start-Sleep 15
           if (-not (Get-Process Spola -ErrorAction SilentlyContinue)) { Write-Error 'Spola was not started again'; exit 1 }
           Get-Process Spola | Stop-Process
-      - name: Attach to the release (a v* tag)
+      - name: The tag matches __version__ (a v* tag)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           v="$(python -c 'import sys; sys.path.insert(0, "src"); import spola; print(spola.__version__)')"
           if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
             echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
           fi
-          # build.yml creates the release with the Flatpak, later: wait for it
-          for i in $(seq 1 80); do
-            gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
-            sleep 30
-          done
-          gh release upload "${GITHUB_REF_NAME}" dist/spola-setup-*.exe dist/spola-*-windows-x64-portable.zip \
-            --repo "${GITHUB_REPOSITORY}" --clobber
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: spola-windows
           path: |
             dist/spola-setup-*.exe
             dist/spola-*-windows-x64-portable.zip
             smoke/window.png
+
+  release:
+    # a v* tag: the installer and the portable zip join the release, which
+    # build.yml creates with the Flatpak. The only job that can write, and
+    # it runs nothing of the build: it downloads the artifact and uploads.
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: spola-windows
+          path: artifact
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          setup="artifact/dist/spola-setup-${GITHUB_REF_NAME}-windows-x64.exe"
+          zip="artifact/dist/spola-${GITHUB_REF_NAME}-windows-x64-portable.zip"
+          test -f "$setup" && test -f "$zip"
+          for i in $(seq 1 80); do
+            gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
+            sleep 30
+          done
+          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" --repo "${GITHUB_REPOSITORY}" --clobber
