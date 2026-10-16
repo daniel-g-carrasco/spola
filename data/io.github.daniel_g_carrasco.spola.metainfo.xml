@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.16" date="2026-10-16" type="development">
+      <description>
+        <p>A large preview is easy to read: each kind of change (copied to Koofr, deleted here...) opens on a page of its own as a tree of folders, each with how many files it holds and how big they are, open or closed at will. A deletion of twenty thousand files shows at once the two projects it touches, and no file is left out of the list any more.</p>
+      </description>
+    </release>
     <release version="0.3.15" date="2026-10-16" type="development">
       <description>
         <p>Windows: on a monitor whose scale differs from the main one (a 250% monitor next to a 200% one), Windows scales the whole window, at the size of the other apps.</p>
