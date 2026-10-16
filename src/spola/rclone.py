@@ -453,6 +453,10 @@ class Plan:
     # what a dry run would copy each way, in bytes (a real run does not say)
     upload_bytes: int = 0
     download_bytes: int = 0
+    # a dry run's sizes of the files it names, and the folders among the
+    # paths above (for the preview's tree; a real run does not say)
+    sizes: dict[str, int] = field(default_factory=dict)
+    folders: set[str] = field(default_factory=set)
 
     @property
     def empty(self) -> bool:
@@ -574,6 +578,15 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
     warned: str | None = None
     renamed: set[str] = set()
     for ev in events:
+        if ev.kind is Kind.SKIPPED and ev.path and not ev.path.startswith("Local file system"):
+            # what a dry run would do to a file says how big it is; to a folder, that it is one
+            rel = relative_path(ev.path, roots)
+            if ev.action in ("remove directory", "make directory"):
+                plan.folders.add(rel)
+            elif ev.size:
+                plan.sizes[rel] = ev.size
+                if ev.target:
+                    plan.sizes[relative_path(ev.target, roots)] = ev.size
         if ev.kind is Kind.STATS:
             stats = ev.stats
         elif ev.kind is Kind.PHASE:
