@@ -2362,3 +2362,107 @@ msgstr "meno dell'1% della cartella"
 #, python-brace-format
 msgid "{percent}% of the folder"
 msgstr "il {percent}% della cartella"
+
+#: src/spola/engine.py
+msgid "The folder is no longer on Koofr: deleted or moved there. The files here are untouched."
+msgstr "La cartella non c'è più su Koofr: è stata eliminata o spostata lì. I file qui sono intatti."
+
+#: src/spola/engine.py
+msgid "The folder on Koofr is empty: everything in it was deleted there. The files here are untouched."
+msgstr "La cartella su Koofr è vuota: tutto quello che conteneva è stato eliminato lì. I file qui sono intatti."
+
+#: src/spola/engine.py
+msgid "The folder on this computer is empty: everything in it was deleted or moved. The files on Koofr are untouched."
+msgstr "La cartella su questo computer è vuota: tutto quello che conteneva è stato eliminato o spostato. I file su Koofr sono intatti."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” Is No Longer on Koofr"
+msgstr "“{name}” non c'è più su Koofr"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” Is Empty on Koofr"
+msgstr "“{name}” è vuota su Koofr"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” Is Empty on This Computer"
+msgstr "“{name}” è vuota su questo computer"
+
+#: src/spola/window.py
+msgid "Spola stopped so as not to delete the same files here. If they were deleted on purpose, stop syncing this folder; otherwise bring them back."
+msgstr "Spola si è fermato per non eliminare gli stessi file anche qui. Se sono stati eliminati apposta, smetti di sincronizzare questa cartella; altrimenti riportali indietro."
+
+#: src/spola/window.py
+msgid "Spola stopped so as not to delete the same files on Koofr. If they were deleted on purpose, stop syncing this folder; otherwise copy them here again."
+msgstr "Spola si è fermato per non eliminare gli stessi file anche su Koofr. Se sono stati eliminati apposta, smetti di sincronizzare questa cartella; altrimenti copiali di nuovo qui."
+
+#: src/spola/window.py
+msgid "Not Now"
+msgstr "Non ora"
+
+#: src/spola/window.py
+msgid "Copy Koofr's Files Here…"
+msgstr "Copia qui i file di Koofr…"
+
+#: src/spola/window.py
+msgid "Upload This Computer's Files…"
+msgstr "Carica i file di questo computer…"
+
+#: src/spola/window.py
+msgid "Restore from Koofr's Trash…"
+msgstr "Ripristina dal cestino di Koofr…"
+
+#: src/spola/window.py
+msgid "Copy Koofr's Files Here"
+msgstr "Copia qui i file di Koofr"
+
+#: src/spola/window.py
+msgid "The files on Koofr are copied to this computer again. Nothing is deleted."
+msgstr "I file su Koofr vengono copiati di nuovo su questo computer. Non viene eliminato niente."
+
+
+#: src/spola/window.py
+msgid "Upload This Computer's Files"
+msgstr "Carica i file di questo computer"
+
+#: src/spola/window.py
+msgid "The files of this computer go up to Koofr again. Nothing is deleted."
+msgstr "I file di questo computer vengono caricati di nuovo su Koofr. Non viene eliminato niente."
+
+#: src/spola/window.py
+msgid "Upload"
+msgstr "Carica"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” is no longer on Koofr"
+msgstr "“{name}” non c'è più su Koofr"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” is empty on Koofr"
+msgstr "“{name}” è vuota su Koofr"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” is empty on this computer"
+msgstr "“{name}” è vuota su questo computer"
+
+#: src/spola/ui.py
+msgid "No longer on Koofr"
+msgstr "Non c'è più su Koofr"
+
+#: src/spola/ui.py
+msgid "Empty on Koofr"
+msgstr "Vuota su Koofr"
+
+#: src/spola/ui.py
+msgid "Empty on this computer"
+msgstr "Vuota su questo computer"
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "“{name}” stopped to keep your files safe"
+msgstr "“{name}” si è fermata per proteggere i tuoi file"

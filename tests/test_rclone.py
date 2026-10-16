@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """rclone command lines and log parsing, on logs recorded from rclone 1.74.3."""
 
+import json
 import unittest
 from pathlib import Path
 
@@ -200,6 +201,21 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(relative_path("koofr{kFw_7}:data/work/x.txt", ["C:\\Users\\me\\work/", "koofr:data/work"]), "x.txt")
         # on Linux a backslash is part of a name
         self.assertEqual(relative_path("/home/u/a\\b.txt", ["/home/u/"]), "a\\b.txt")
+
+    def test_a_side_with_nothing_left(self):
+        # recorded with rclone 1.75: a side emptied or gone stops bisync; a
+        # resync on a folder gone says "directory not found"
+        def outcome(*messages, code=7):
+            return summarize(code, [parse_line(json.dumps({"level": "error", "msg": m})) for m in messages], "/h/a/", "koofr:x")
+        out = outcome("Empty current Path2 listing. Cannot sync to an empty directory: /w/a..b.path2.lst-new",
+                      "\u001b[31mBisync critical error: empty current Path2 listing: /w/a..b.path2.lst-new\u001b[0m")
+        self.assertEqual((out.result, out.empty_side, out.root_missing), (Result.NEEDS_REPAIR, "Path2", False))
+        self.assertEqual(outcome("Empty current Path1 listing. Cannot sync to an empty directory: /w/x").empty_side, "Path1")
+        out = outcome("error reading source root directory: directory not found",
+                      "Bisync critical error: directory not found")
+        self.assertEqual((out.empty_side, out.root_missing), ("", True))
+        self.assertEqual((outcome("Bisync critical error: path1 and path2 are out of sync").empty_side,
+                          outcome("x").root_missing), ("", False))
 
     def test_a_preview_says_how_much_goes_each_way(self):
         out = summarize(0, events("resync-dry-run.jsonl"), "/ROOT/a/", "/ROOT/b/")

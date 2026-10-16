@@ -363,12 +363,59 @@ class MainWindow(_WindowBase):
         if rt is None:
             return
         self.show_pair(pair_id)
-        if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+        if rt.status is Status.NEEDS_REPAIR and rt.gone:
+            self.ask_gone(pair_id)
+        elif rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             self.open_preview(pair_id)
         elif rt.conflicts:
             ConflictsDialog(self, pair_id).present(self)
         elif rt.refused:
             LeftOutDialog(self, pair_id).present(self)
+
+    def ask_gone(self, pair_id: str) -> None:
+        """One side has nothing left (gone from Koofr, emptied there or here):
+        a repair cannot help as such, the user chooses what happened."""
+        pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
+        if pair is None or rt is None or not rt.gone:
+            return
+        heading = {
+            "koofr-gone": _("“{name}” Is No Longer on Koofr"),
+            "koofr-empty": _("“{name}” Is Empty on Koofr"),
+            "here-empty": _("“{name}” Is Empty on This Computer"),
+        }[rt.gone].format(name=pair.name)
+        body = rt.message + "\n\n" + (
+            _("Spola stopped so as not to delete the same files here. If they were deleted on purpose, stop "
+              "syncing this folder; otherwise bring them back.") if rt.gone != "here-empty" else
+            _("Spola stopped so as not to delete the same files on Koofr. If they were deleted on purpose, stop "
+              "syncing this folder; otherwise copy them here again."))
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        dialog.add_response("cancel", _("Not Now"))
+        dialog.add_response("remove", _("Stop Syncing"))
+        if rt.gone == "here-empty":
+            dialog.add_response("download", _("Copy Koofr's Files Here…"))
+            dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("download")
+        else:
+            dialog.add_response("upload", _("Upload This Computer's Files…"))
+            dialog.add_response("trash", _("Restore from Koofr's Trash…"))
+            dialog.set_response_appearance("trash", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("trash")
+        dialog.set_close_response("cancel")
+
+        def chosen(_dialog, response):
+            if response == "remove":
+                self.engine.remove_pair(pair_id)          # no file is deleted, neither here nor on Koofr
+            elif response == "trash":
+                TrashDialog(self, pair_id).present(self)
+            elif response == "download":
+                self.open_preview(pair_id)
+            elif response == "upload" and rt.gone == "koofr-gone":
+                self.engine.make_koofr_folder(pair_id, lambda error: self.toast(error) if error
+                                              else self.open_preview(pair_id))
+            elif response == "upload":
+                self.open_preview(pair_id)
+        dialog.connect("response", chosen)
+        dialog.present(self)
 
     def open_preview(self, pair_id: str) -> None:
         """The right preview for the pair's state: first alignment, repair,
@@ -380,6 +427,14 @@ class MainWindow(_WindowBase):
                           _("Nothing is deleted: files only on one side are copied to the other; where both "
                             "sides have a different version, the newer one wins and the other is kept in "
                             "Spola's backup or in Koofr's previous versions."), _("Align")).present(self)
+        elif rt.status is Status.NEEDS_REPAIR and rt.gone == "here-empty":
+            PreviewDialog(self, pair_id, Mode.RESYNC, False, _("Copy Koofr's Files Here"),
+                          _("The files on Koofr are copied to this computer again. Nothing is deleted."),
+                          _("Copy")).present(self)
+        elif rt.status is Status.NEEDS_REPAIR and rt.gone:
+            PreviewDialog(self, pair_id, Mode.RESYNC, False, _("Upload This Computer's Files"),
+                          _("The files of this computer go up to Koofr again. Nothing is deleted."),
+                          _("Upload")).present(self)
         elif rt.status is Status.NEEDS_REPAIR:
             PreviewDialog(self, pair_id, Mode.RESYNC, False, _("Repair"),
                           _("Spola lost track of the last synced state ({reason}). A new alignment copies "
@@ -416,6 +471,8 @@ class AttentionBanner:
     def __init__(self, window: MainWindow):
         self.window, self.engine = window, window.engine
         self.widget = Adw.Banner(revealed=False)
+        if hasattr(self.widget, "set_use_markup"):             # libadwaita 1.4: the titles are escaped markup
+            self.widget.set_use_markup(True)
         if hasattr(self.widget, "set_button_style"):           # libadwaita 1.7
             self.widget.set_button_style(Adw.BannerButtonStyle.SUGGESTED)
         self._do = None
@@ -452,6 +509,12 @@ class AttentionBanner:
         if len(waiting) > 1:
             title = ngettext("{n} folder needs your attention", "{n} folders need your attention",
                              len(waiting)).format(n=len(waiting))
+        elif status is Status.NEEDS_REPAIR and engine.runtime[pair_id].gone:
+            title = {
+                "koofr-gone": _("“{name}” is no longer on Koofr"),
+                "koofr-empty": _("“{name}” is empty on Koofr"),
+                "here-empty": _("“{name}” is empty on this computer"),
+            }[engine.runtime[pair_id].gone].format(name=pair.name)
         else:
             title = {
                 Status.NEEDS_REPAIR: _("“{name}” needs a repair"),

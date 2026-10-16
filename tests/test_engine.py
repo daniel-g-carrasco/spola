@@ -672,6 +672,65 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(here, there)
         self.assertEqual(here["f07.txt"], 1)
 
+    def test_the_folder_gone_from_koofr_is_said_and_made_again(self):
+        # deleted on Koofr (from another computer): Spola stops, says so,
+        # and this computer's files go up again once the folder is back
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        # the real question to rclone, on a folder there and one gone
+        env = engine_mod.koofr_env("dev", "")
+        self.assertTrue(jobs.koofr_folder_exists(RCLONE, env, self.engine.paths, self.pair, str(self.remote)))
+        self.assertIs(jobs.koofr_folder_exists(RCLONE, env, self.engine.paths, self.pair,
+                                               str(self.remote_root / "gone")), False)
+        # (the "Koofr" of the tests is made again before every run: the answer is given)
+        real = engine_mod.jobs.koofr_folder_exists
+        engine_mod.jobs.koofr_folder_exists = lambda *a, **kw: False
+        self.addCleanup(setattr, engine_mod.jobs, "koofr_folder_exists", real)
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        shutil.rmtree(self.remote)
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: rt.gone == "koofr-gone", 30), rt.gone)
+        self.assertIs(self.status(), Status.NEEDS_REPAIR)
+        self.assertIn("gone", told)
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 30)          # nothing touched here
+        self.engine.request_sync("p1", "poll")                              # no run of its own meanwhile
+        spin_until(lambda: False, 1)
+        self.assertEqual(rt.gone, "koofr-gone")
+        engine_mod.jobs.koofr_folder_exists = real
+        shutil.rmtree(self.remote, ignore_errors=True)
+        made = []
+        self.engine.make_koofr_folder("p1", made.append)
+        self.assertTrue(spin_until(lambda: made, 30))
+        self.assertEqual((made[0], rt.gone), ("", "koofr-empty"))
+        self.assertTrue(self.remote.is_dir())
+        self.engine.confirm("p1", Mode.RESYNC, False)                       # the repair, after its preview
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and len(self.remote_files()) == 30, 60))
+        self.assertEqual(rt.gone, "")
+
+    def test_a_folder_emptied_here_or_on_koofr_is_said(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        rt = self.engine.runtime["p1"]
+        for f in self.remote.iterdir():
+            f.unlink()
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: rt.gone == "koofr-empty" and self.status() is Status.NEEDS_REPAIR, 30))
+        spin_until(lambda: False, 2)                                        # the folder is there: not "gone"
+        self.assertEqual(rt.gone, "koofr-empty")
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 30)
+
+    def test_a_folder_emptied_here_is_said(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        rt = self.engine.runtime["p1"]
+        for f in self.local.glob("f*.txt"):
+            f.unlink()
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: rt.gone == "here-empty", 30), rt.gone)
+        self.assertEqual(len(self.remote_files()), 30)                     # nothing touched on Koofr
+
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
         self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
