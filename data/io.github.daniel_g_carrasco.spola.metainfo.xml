@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.14" date="2026-10-16" type="development">
+      <description>
+        <p>Files still being written (a transcription, a download, a file being exported) wait before they are synced: a new one is synced once it has settled, and for one already synced the sync waits for it, at most five minutes, saying which file it waits for. Synced half written, such a file looked changed on both sides at the next sync, and Spola could stop for a repair. Sync Now never waits.</p>
+        <p>Windows: on a monitor whose scale is not a whole number (125%, 150%, 250%), the text is as large as in the other apps.</p>
+      </description>
+    </release>
     <release version="0.3.13" date="2026-10-16" type="development">
       <description>
         <p>The tray icon is always in the panel's own colour, like the panel's other icons: no more blue, orange or red. Its shape says what is going on: arrows while syncing, a mark when something needs you, a cross on errors. The window and the notifications keep the coloured status.</p>
