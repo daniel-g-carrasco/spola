@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
-  Application manifest embedded in Spola.exe by PyInstaller (see spola.spec),
-  as in p7m-extractor: PyInstaller's default plus per-monitor DPI awareness
-  from the first instruction (GTK would switch to it only while starting,
-  and a HiDPI screen would see the window jump) and long paths, which a
-  synced folder can reach.
+  Application manifest embedded in Spola.exe by PyInstaller. It is
+  PyInstaller's default manifest plus DPI awareness and long paths.
+
+  System DPI aware, from the first instruction (GTK cannot switch it to per
+  monitor later): GTK draws at the scale of the main monitor, sharp there;
+  on a monitor at another scale Windows scales the window itself. Per
+  monitor, GTK would keep to whole numbers (2 on a 250% monitor) and the
+  app would be 20% smaller than the others there: GTK has no fractional
+  scales on Windows.
 -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
@@ -25,8 +29,7 @@
   </compatibility>
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2</dpiAwareness>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
       <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
