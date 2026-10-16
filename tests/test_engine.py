@@ -257,6 +257,26 @@ class EngineTest(unittest.TestCase):
         ok = spin_until(lambda: self.status() is Status.OK and "big.bin" in self.remote_files(), 60)
         self.assertTrue(ok, (self.status(), rt.message, rt.last_outcome and rt.last_outcome.message))
 
+    def test_stop_then_pause_or_quit_stays_graceful(self):
+        # Pause, Pause All and Quit asked for the stop again, which ended
+        # rclone at once: the next run then needed a repair
+        self.align()
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: rt.run is not None and rt.transferring, 30))
+        run = rt.run
+        self.engine.stop("p1")
+        self.engine.set_paused("p1", True)
+        self.engine.set_paused_all(True)
+        done = []
+        self.engine.shutdown(lambda: done.append(True))
+        self.assertEqual(run._interrupts, 1)
+        self.assertTrue(spin_until(lambda: done, 120))
+        self.assertEqual(run.outcome.message, "stopped")
+
     def test_a_metered_connection_stops_an_automatic_run(self):
         self.align()
         os.environ["SPOLA_DEV_BWLIMIT"] = "20k"

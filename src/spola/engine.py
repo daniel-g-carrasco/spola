@@ -325,7 +325,7 @@ class Engine(GObject.Object):
             return
         self._shutdown_cb = done
         for run in runs:
-            run.cancel()
+            run.stop()
         # bisync needs up to 30 s for transfers plus 60 s to save its state;
         # after that a second SIGINT stops it at once (--recover handles it).
         GLib.timeout_add_seconds(95, self._force_stop)
@@ -383,7 +383,7 @@ class Engine(GObject.Object):
                 rt.watcher.stop()
             if rt.run and rt.run.running:
                 run = rt.run
-                run.cancel()
+                run.stop()
             for source in (rt.retry_source, rt.debounce_source, rt.ahead_source):
                 if source:
                     GLib.source_remove(source)
@@ -412,7 +412,7 @@ class Engine(GObject.Object):
                 rt.watcher.stop()
                 rt.watcher = None
             if rt.run and rt.run.running and not (rt.task and rt.task.dry_run):
-                rt.run.cancel()
+                rt.run.stop()
             if rt.preview is not None and rt.preview.running and rt.preview.reason == "ahead":
                 self.cancel_preview(pair_id)
             if rt.ahead_source:
@@ -437,7 +437,7 @@ class Engine(GObject.Object):
             self.queue = [t for t in self.queue if t.dry_run]
             rt = self.runtime.get(self.active.pair_id) if self.active else None
             if rt and rt.run and rt.run.running:
-                rt.run.cancel()
+                rt.run.stop()
             self._cancel_previews_ahead()
         else:
             self.sync_all("resume")
@@ -631,7 +631,7 @@ class Engine(GObject.Object):
             self.queue = [t for t in self.queue if t is not task]
         elif rt.task is task:
             if rt.run is not None and rt.run.running:
-                rt.run.cancel()
+                rt.run.stop()
             else:
                 task.cancelled = True           # being prepared: it will not start
         listeners, preview.listeners = preview.listeners, []
@@ -889,7 +889,7 @@ class Engine(GObject.Object):
         rt = self.runtime.get(pair_id)
         if rt and rt.run and rt.run.running:
             if not rt.run.stopping:
-                rt.run.cancel()
+                rt.run.stop()
                 self.emit("pair-changed", pair_id)      # the window says it is stopping
         elif rt and rt.task is not None and rt.run is None:
             rt.task.cancelled = True        # still preparing: it will not start
