@@ -26,6 +26,26 @@ class TreeTest(unittest.TestCase):
                          [("Empty", 0, 0), ("MXP21", 2, 150), ("MXP22 / WS4", 1, 7)])
         self.assertEqual(filetree.totals(top), (4, 160))
 
+    def test_the_share_of_each_folder(self):
+        # the last run had 4 files in Vantage DC (2 in MXP21) and one elsewhere;
+        # the change deletes MXP21's two and one in MXP22
+        base = ["p/Vantage/MXP21/a.pdf", "p/Vantage/MXP21/b.pdf", "p/Vantage/MXP22/c.pdf",
+                "p/Vantage/MXP22/d.pdf", "p/Other/e.pdf"]
+        entries = [("p/Vantage/MXP21/a.pdf", "", ""), ("p/Vantage/MXP21/b.pdf", "", ""),
+                   ("p/Vantage/MXP22/c.pdf", "", "")]
+        (top,) = filetree.build(entries, base=base)
+        self.assertEqual((top.name, top.files, top.total), ("p / Vantage", 3, 4))   # the share of Vantage
+        mxp21, mxp22 = top.children
+        self.assertEqual(filetree.share(mxp21.files, mxp21.total), "the whole folder")
+        self.assertEqual(filetree.share(mxp22.files, mxp22.total), "50% of the folder")
+        self.assertEqual(filetree.share(3, filetree.whole([e[0] for e in entries], base)), "60% of the folder")
+        self.assertEqual(filetree.share(1, 400), "less than 1% of the folder")
+        self.assertEqual(filetree.share(399, 400), "99% of the folder")           # not 100% while one is left
+        # new files count in their folder: a new folder is all new
+        (new,) = filetree.build([("n/x.txt", "", ""), ("n/y.txt", "", "")], base=base)
+        self.assertEqual(filetree.share(new.files, new.total), "the whole folder")
+        self.assertEqual(filetree.build(entries)[0].total, 0)                        # no listing: no share
+
     def test_names_in_natural_order(self):
         top = filetree.build([(f"d/old-{i}.docx", "", "") for i in (10, 2, 1)] + [("d/Sub/x", "", ""), ("d/a", "", "")])
         self.assertEqual([n.name for n in top[0].children], ["Sub", "a", "old-1.docx", "old-2.docx", "old-10.docx"])

@@ -137,6 +137,9 @@ class Preview:
     error: str = ""
     stats: dict | None = None
     free_bytes: int | None = None       # free space on Koofr, when known
+    # the files of the last listings, {path: size}, here and on Koofr: what
+    # share of a folder a change touches (None before a first alignment)
+    bases: tuple[dict[str, int], dict[str, int]] | None = None
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
     seen: bool = False                  # its answer reached a dialog
@@ -161,6 +164,7 @@ class Task:
     callback: Callable[[Outcome | None, str], None] | None = None   # (outcome, error)
     cancelled: bool = False         # Stop while the run was still being prepared
     case_renames: list = field(default_factory=list)    # preflight.CaseRename, done on Koofr first
+    bases: tuple | None = None          # a preview's Preview.bases, read in the preparing thread
 
 
 @dataclass
@@ -1169,6 +1173,7 @@ class Engine(GObject.Object):
                             result = (None, None, problem)
                 if task.dry_run:
                     free = free_space(rclone, paths, creds, override)
+                    task.bases = jobs.listed_files(paths, pair)
             except jobs.Busy as e:
                 result, busy = (None, None, ""), e.paths
             except jobs.NotReady as e:
@@ -1264,7 +1269,7 @@ class Engine(GObject.Object):
         rt.run_roots = (job.path1, job.path2)
         if task.dry_run:
             if rt.preview is not None and rt.preview.task is task:
-                rt.preview.free_bytes = free
+                rt.preview.free_bytes, rt.preview.bases = free, task.bases
             self.emit("pair-changed", pair.id)
             return False
         rt.stats, rt.transferring = None, []

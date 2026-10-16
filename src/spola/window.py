@@ -1592,6 +1592,12 @@ class PreviewDialog(Adw.Dialog):
                                     "but they are moved the same way on the other side, not deleted."))
         rt = self.engine.runtime.get(self.pair_id)
         why = {r.path: preflight.refused_reason(r.code, r.other) for r in (rt.pending_refused if rt else [])}
+        # the files of the last run, here and on Koofr: how much of each folder a change touches
+        preview = rt.preview if rt else None
+        bases = preview.bases if preview is not None and preview.outcome is outcome else None
+        on_side = {id(plan.upload): 0, id(plan.download): 1, id(plan.moved_remote): 0, id(plan.moved_local): 1,
+                   id(plan.replace_local): 0, id(plan.delete_local): 0, id(plan.delete_remote): 1,
+                   id(plan.conflicts): 0, id(plan.refused): 0}
         for paths, title, icon, on_koofr in rows:
             if not paths:
                 continue
@@ -1607,12 +1613,16 @@ class PreviewDialog(Adw.Dialog):
                 else:
                     # a left-out name says why: most of them look perfectly normal
                     entries.append((entry, why.get(entry, "") if paths is plan.refused else "", entry))
-            nodes = filetree.build(entries, plan.sizes, plan.folders)
+            base = bases[on_side[id(paths)]] if bases is not None else None
+            nodes = filetree.build(entries, plan.sizes, plan.folders, base)
             files, size = filetree.totals(nodes)
             if paths is plan.upload or paths is plan.download:
                 size = size or (plan.upload_bytes if paths is plan.upload else plan.download_bytes)
-            row = Adw.ActionRow(title=title, subtitle=escape(plan_tree.amount(files, size)), title_lines=2,
-                                activatable=True)
+            subtitle = plan_tree.amount(files, size)
+            if base is not None:
+                part = filetree.share(files, filetree.whole([e[0] for e in entries], base))
+                subtitle += f" · {part}" if part else ""
+            row = Adw.ActionRow(title=title, subtitle=escape(subtitle), title_lines=2, activatable=True)
             row.add_prefix(Gtk.Image(icon_name=icon))
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
             row.connect("activated", lambda _r, t=title, n=nodes, k=on_koofr: self.nav.push(plan_tree.PlanTreePage(

@@ -658,6 +658,20 @@ class EngineTest(unittest.TestCase):
             self.assertAlmostEqual((self.remote / "sub" / f"s{i}.txt").stat().st_mtime, 1_600_000_000 + i, delta=0.01)
         self.assertIs(self.status(), Status.OK)
 
+    def test_a_preview_knows_the_files_of_the_last_run(self):
+        # before a first alignment there is no last run; after it, both sides' files
+        kept, got = self.preview_of("p1")
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertIsNone(kept.bases)
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        kept, got = self.preview_of("p1", Mode.SYNC)
+        self.assertTrue(spin_until(lambda: got, 60))
+        here, there = kept.bases
+        self.assertEqual(len(here), 30)
+        self.assertEqual(here, there)
+        self.assertEqual(here["f07.txt"], 1)
+
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
         self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
