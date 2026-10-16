@@ -41,6 +41,14 @@ for ca in (prefix / 'etc' / 'ssl' / 'certs' / 'ca-bundle.crt', prefix / 'etc' / 
 else:
     print('WARNING: no CA bundle found: the activity feed may fail on TLS')
 
+# GdkWin32: a window's HWND, to read the scale of its monitor (GTK keeps to
+# whole numbers: the text makes up for 250%)
+gdkwin32 = prefix / 'lib' / 'girepository-1.0' / 'GdkWin32-4.0.typelib'
+if gdkwin32.is_file():
+    datas.append((str(gdkwin32), 'gi_typelibs'))
+else:
+    print('WARNING: GdkWin32-4.0.typelib not found: text will not follow fractional scales')
+
 a = Analysis(
     [str(Path(SPECPATH) / 'spola_main.py')],
     pathex=[str(ROOT / 'src')],
