@@ -48,6 +48,9 @@ def spin_until(cond, timeout=60.0) -> bool:
 class EngineTest(unittest.TestCase):
     def setUp(self):
         engine_mod.DEBOUNCE_S = 1
+        # the files the tests write are not being written by anyone
+        self.addCleanup(setattr, engine_mod.jobs, "SETTLE_S", engine_mod.jobs.SETTLE_S)
+        engine_mod.jobs.SETTLE_S = 0
         engine_mod.PREVIEW_AHEAD_DELAY_S = 3600      # only the test about it prepares previews ahead
         self.tmp = Path(tempfile.mkdtemp(prefix="spola-engine-"))
         self.local = self.tmp / "local"
@@ -92,6 +95,20 @@ class EngineTest(unittest.TestCase):
         self.engine.confirm("p1", Mode.RESYNC, False)
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK))
         self.assertEqual(len(self.remote_files()), 30)
+
+    def test_an_automatic_run_waits_for_a_file_being_written(self):
+        self.align()
+        engine_mod.jobs.SETTLE_S = 3
+        rt = self.engine.runtime["p1"]
+        (self.local / "f01.txt").write_text("being written")
+        self.engine.request_sync("p1", "poll")
+        self.assertTrue(spin_until(lambda: rt.status is Status.PENDING and "f01.txt" in rt.message, 20),
+                        (rt.status, rt.message))
+        self.assertEqual((self.remote / "f01.txt").read_text(), "1")         # not yet
+        # settled: the run goes on its own
+        self.assertTrue(spin_until(lambda: (self.remote / "f01.txt").read_text() == "being written"
+                                   and rt.status is Status.OK, 60), (rt.status, rt.message))
+        self.assertEqual(rt.busy_since, 0.0)
 
     def test_every_file_copied_is_told_as_it_happens(self):
         # what File Explorer marks in sync during the run, not at its end

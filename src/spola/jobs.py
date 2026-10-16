@@ -14,7 +14,7 @@ import os
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import listings
 from .config import Config, Pair
@@ -24,7 +24,8 @@ from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
-                     effective_max_delete, exclude_lines, no_window, remote_spec, reserved_exclude_lines,
+                     effective_max_delete, exclude_lines, filter_escape, no_window, remote_spec,
+                     reserved_exclude_lines,
                      windows_reserved_names_matter)
 
 
@@ -45,6 +46,22 @@ class NotReady(Exception):
         self.problems = problems
 
 
+# A file written less than this long ago may still be being written (a
+# transcription, a download, a log): copied now, the other side gets half of
+# it, and the next run takes it for changed on both sides.
+SETTLE_S = 30
+
+
+class Busy(Exception):
+    """Files already in sync are being written right now: the run waits for
+    them. They are never left out of a run: bisync would then forget them,
+    and at the next run take them for new on both sides, a conflict."""
+
+    def __init__(self, paths: list[str]):
+        super().__init__(", ".join(paths[:5]))
+        self.paths = paths
+
+
 @dataclass
 class Job:
     pair: Pair
@@ -52,6 +69,51 @@ class Job:
     path1: str
     path2: str
     refused: list[Refused]
+    busy: list[str] = field(default_factory=list)     # new files left out: still being written
+
+
+def being_written(root: str, previous: list[listings.Entry], now: float,
+                  settle_s: float | None = None) -> tuple[list[str], list[str]]:
+    """(new, known): the files written less than settle_s (SETTLE_S) ago,
+    those not in the last listing and those in it. Only the files new or
+    changed since the listing are looked at closely: their own last write
+    (a folder's listing can show an older one for a file open for writing)."""
+    settle_s = SETTLE_S if settle_s is None else settle_s
+    listed = {e.path: e for e in previous if not e.is_dir}
+    new, known = [], []
+    stack = [(root, "")]
+    while stack:
+        folder, prefix = stack.pop()
+        try:
+            items = list(os.scandir(folder))
+        except OSError:
+            continue
+        for item in items:
+            rel = prefix + item.name
+            try:
+                if item.is_symlink():
+                    continue
+                if item.is_dir():
+                    if not default_excluded(rel + "/"):
+                        stack.append((item.path, rel + "/"))
+                    continue
+                if default_excluded(rel):
+                    continue
+                st = item.stat()
+            except OSError:
+                continue
+            entry = listed.get(rel)
+            if entry is not None and st.st_size == entry.size:
+                listed_ns = listings.modtime_ns(entry.modtime)
+                if listed_ns is not None and abs(st.st_mtime_ns - listed_ns) <= 1_000_000:
+                    continue            # as it was synced: not being written
+            try:
+                written = os.stat(item.path).st_mtime       # its own, up to date
+            except OSError:
+                continue
+            if 0 <= now - written < settle_s:
+                (known if entry is not None else new).append(rel)
+    return sorted(new), sorted(known)
 
 
 def ensure_filters(paths: Paths, pair: Pair) -> None:
@@ -112,11 +174,15 @@ def _folded(files: set[str]) -> set[str]:
 
 def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
             dry_run: bool = False, force: bool = False,
-            path2_override: str | None = None, koofr_files=None) -> Job:
+            path2_override: str | None = None, koofr_files=None, wait_for_writes: bool = False,
+            now: float | None = None) -> Job:
     """`path2_override` replaces the Koofr side with another path (tests run
     bisync between two local folders); it is never set by the app.
     `koofr_files()` lists the Koofr folder's files, or None if it cannot:
-    asked only after a first alignment of two empty folders."""
+    asked only after a first alignment of two empty folders.
+    `wait_for_writes` (the automatic runs; never one the user asked for):
+    new files still being written are left out of the run (Job.busy), and
+    for ones already in sync the run raises Busy."""
     workdir = paths.workdir(pair.id)
     known = (listings.load(workdir, 1) or []) if listings.find(workdir, 1) else []
     problems = check_root_identity(pair, [e.path for e in known[:50]])
@@ -150,8 +216,13 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     previous = listings.load(workdir, 1) if listings.find(workdir, 1) else None
     known = frozenset(e.path for e in previous or [])
     refused = refused_paths(pair.local, pair.remote, known, skip=default_excluded)
+    busy: list[str] = []
+    if mode is Mode.SYNC and wait_for_writes:
+        busy, known_busy = being_written(pair.local, previous or [], time.time() if now is None else now)
+        if known_busy:
+            raise Busy(known_busy)
     exclude_file = None
-    lines = exclude_lines(refused)
+    lines = exclude_lines(refused) + "".join(filter_escape(path) + "\n" for path in busy)
     if windows_reserved_names_matter():
         lines += reserved_exclude_lines()       # Windows 10's device names, on both sides
     if lines:
@@ -176,7 +247,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         bwlimit=os.environ.get("SPOLA_DEV_BWLIMIT") or cfg.bwlimit,   # the env is a developer aid
         user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
-    return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused)
+    return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused, busy)
 
 
 def case_renames(paths: Paths, pair: Pair) -> list[CaseRename]:
