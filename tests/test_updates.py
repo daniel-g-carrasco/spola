@@ -20,10 +20,13 @@ RELEASE = {
          "digest": "sha256:aa"},
         {"name": "spola-v0.4.0-windows-x64-portable.zip", "browser_download_url": "https://example/zip",
          "size": 20},
-        {"name": "spola-setup-v0.4.0-windows-x64.exe", "browser_download_url": "https://example/setup",
+        {"name": "spola-setup-v0.4.0-windows-x64.exe",
+         "browser_download_url": "https://github.com/daniel-g-carrasco/spola/releases/download/v0.4.0/"
+                                 "spola-setup-v0.4.0-windows-x64.exe",
          "size": 30, "digest": "sha256:BB"},
     ],
 }
+SETUP = RELEASE["assets"][2]
 
 
 class VersionTest(unittest.TestCase):
@@ -46,6 +49,29 @@ class ReleaseTest(unittest.TestCase):
         self.assertIsNone(updates.installer_of(updates.parse_release({**RELEASE, "assets": RELEASE["assets"][:2]})))
         with self.assertRaises(updates.UpdateError):
             updates.parse_release({"assets": []})
+
+    def test_only_a_released_installer_of_spola_with_its_checksum(self):
+        def installer(**changes):
+            return updates.installer_of(updates.parse_release({**RELEASE, "assets": [{**SETUP, **changes}]}))
+        self.assertIsNotNone(installer())
+        self.assertIsNone(installer(digest=None))                                     # nothing to check it with
+        self.assertIsNone(installer(browser_download_url="https://example.com/spola-setup-v0.4.0-windows-x64.exe"))
+        self.assertIsNone(installer(name="spola-setup-vdev-windows-x64.exe"))          # a CI build
+        self.assertIsNone(installer(name="spola-setup-v0.4.0-evil-windows-x64.exe"))
+
+    def test_a_download_cut_short_or_without_checksum_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "setup.exe"
+            source.write_bytes(b"installer" * 1000)
+            good = hashlib.sha256(source.read_bytes()).hexdigest()
+            longer = updates.Asset("s.exe", source.as_uri(), source.stat().st_size + 10, good)
+            with self.assertRaises(updates.UpdateError):
+                updates.download(longer, Path(tmp) / "short.exe")
+            self.assertFalse((Path(tmp) / "short.exe").exists())
+            unchecked = updates.Asset("s.exe", source.as_uri(), source.stat().st_size, "")
+            with self.assertRaises(updates.UpdateError):
+                updates.download(unchecked, Path(tmp) / "unchecked.exe")
+            self.assertFalse((Path(tmp) / "unchecked.exe").exists())
 
     def test_download_checked_against_its_sha256(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import subprocess
-import tempfile
 import threading
 from pathlib import Path
 
@@ -77,15 +76,15 @@ class UpdateDialog(Adw.Dialog):
         self.progress.set_visible(True)
         self.progress.set_fraction(0)
         self.status.set_label(_("Downloading…"))
-        dest = Path(tempfile.gettempdir()) / self.installer.name
 
         def progress(done: int, total: int) -> None:
             GLib.idle_add(self._progress, done, total)
 
         def work() -> None:
             try:
+                dest = updates.download_folder() / self.installer.name
                 updates.download(self.installer, dest, progress, self._cancel)
-            except updates.UpdateError as e:
+            except Exception as e:      # whatever it is, said: never a dialog stuck on "Downloading…"
                 GLib.idle_add(self._failed, _("Download failed: {error}").format(error=e))
                 return
             GLib.idle_add(self._downloaded, dest)

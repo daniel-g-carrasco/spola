@@ -119,6 +119,8 @@ class SpolaApp(Adw.Application):
         if WINDOWS:
             # once a day, a while after start: the syncs come first
             GLib.timeout_add_seconds(UPDATE_CHECK_DELAY_S, self._daily_update_check)
+            from . import updates
+            run_in_thread(updates.clean_downloads, lambda *_: None)     # the installers of earlier updates
 
     # -- a newer Spola (Windows: on Linux the Flatpak brings it) ----------------------
 

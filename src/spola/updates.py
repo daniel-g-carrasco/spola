@@ -15,7 +15,9 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -30,8 +32,11 @@ from .koofr_api import _ssl_context
 GITHUB_REPO = "daniel-g-carrasco/spola"
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-INSTALLER = re.compile(r"^spola-setup-v.*-windows-x64\.exe$", re.IGNORECASE)
-PORTABLE = re.compile(r"^spola-.*-windows-x64-portable\.zip$", re.IGNORECASE)
+DOWNLOADS = f"https://github.com/{GITHUB_REPO}/releases/download/"
+# a released version only: never the "dev" builds of the CI
+INSTALLER = re.compile(r"^spola-setup-v\d+(\.\d+){1,3}-windows-x64\.exe$", re.IGNORECASE)
+PORTABLE = re.compile(r"^spola-v\d+(\.\d+){1,3}-windows-x64-portable\.zip$", re.IGNORECASE)
+DOWNLOAD_FOLDER_PREFIX = "spola-update-"
 
 
 class UpdateError(Exception):
@@ -95,9 +100,11 @@ def parse_release(data: dict) -> Release:
 
 
 def latest_release(timeout: float = 15.0) -> Release:
-    # developer aid, as SPOLA_DEV_REMOTE: a release described in a local file
-    # (file:// URLs), to try the whole update without publishing one
-    url = os.environ.get("SPOLA_DEV_RELEASE_API") or LATEST_RELEASE_API
+    # developer aid, as SPOLA_DEV_REMOTE: a release described in a local file,
+    # to try the dialog without publishing one; never in the built app
+    url = LATEST_RELEASE_API
+    if not getattr(sys, "frozen", False):
+        url = os.environ.get("SPOLA_DEV_RELEASE_API") or url
     try:
         with _get(url, timeout) as response:
             data = json.load(response)
@@ -109,13 +116,31 @@ def latest_release(timeout: float = 15.0) -> Release:
 
 
 def installer_of(release: Release) -> Asset | None:
-    return next((a for a in release.assets if INSTALLER.match(a.name) and a.url), None)
+    """The release's installer: a released version, from Spola's own
+    releases, with the SHA-256 GitHub gives for it. Else None: the dialog
+    then opens the release page."""
+    return next((a for a in release.assets
+                 if INSTALLER.match(a.name) and a.url.startswith(DOWNLOADS) and a.sha256), None)
+
+
+def download_folder() -> Path:
+    """A new folder of its own for an installer, in the temporary folder."""
+    return Path(tempfile.mkdtemp(prefix=DOWNLOAD_FOLDER_PREFIX))
+
+
+def clean_downloads() -> None:
+    """The installers of earlier updates, gone (Setup has finished with them
+    by the time Spola starts again)."""
+    for folder in Path(tempfile.gettempdir()).glob(DOWNLOAD_FOLDER_PREFIX + "*"):
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | None = None,
              cancelled: threading.Event | None = None) -> Path:
-    """The asset, in dest, checked against its SHA-256 when GitHub gives one:
-    a file that does not match is removed."""
+    """The asset, in dest, checked against its size and its SHA-256: a file
+    that does not match is removed; without a SHA-256 nothing is downloaded."""
+    if not asset.sha256:
+        raise UpdateError(_("the release gives no checksum for the installer: not downloaded"))
     part = dest.with_name(dest.name + ".part")
     digest = hashlib.sha256()
     try:
@@ -133,7 +158,8 @@ def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | No
                 done += len(chunk)
                 if progress:
                     progress(done, total)
-        if asset.sha256 and digest.hexdigest().lower() != asset.sha256.lower():
+        # a connection cut short ends the reading without an error
+        if (asset.size and done != asset.size) or digest.hexdigest().lower() != asset.sha256.lower():
             raise UpdateError(_("the file downloaded does not match the release: not started"))
         part.replace(dest)
         return dest
