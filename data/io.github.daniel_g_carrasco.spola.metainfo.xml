@@ -114,6 +114,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.12" date="2026-10-16" type="development">
+      <description>
+        <p>Windows: the window keeps the system title bar, so it snaps to the screen edges and to Win+arrows like any other. File Explorer shows a folder's status as soon as it is added, as other sync clients do: what is not yet in sync waits, each file turns green as soon as it is copied, never a green tick on a file changed since (while Spola was closed or paused), and what Spola leaves out shows no status. The status is on by default and can be turned off in Preferences; turned off, the files stay ordinary files. Folder names with emoji, read-only files and files open in Office get their status too.</p>
+        <p>Fixed: Stop, then Pause, Pause All or Quit ended rclone at once, and the next sync needed a repair; two folders empty at their first alignment could settle a file new on both sides by date, without a preview (now a repair, with its preview); a folder removed while its sync was being prepared left its state behind. Removing a folder removes its state, never its backups, and backups of removed folders expire as the others do.</p>
+        <p>Windows updates: the installer is downloaded only from Spola's releases, with its checksum checked; Setup closes only Spola's own programs.</p>
+      </description>
+    </release>
     <release version="0.3.11" date="2026-10-15" type="development">
       <description>
         <p>Fixed: when many files changed only in their dates (put back from a backup, restored from Koofr's trash), a sync stopped half way could leave some of them missing on Koofr for a while. Koofr cannot change a file's date, and the copy on Koofr was deleted well before its new upload; now it is replaced only when its upload starts. Nothing was ever deleted on this computer, but another computer syncing the same folder could have deleted its copies.</p>
