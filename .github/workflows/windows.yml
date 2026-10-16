@@ -143,6 +143,7 @@ jobs:
           test -f "$I/rclone.exe" -o -f dist/Spola/rclone.exe
           test -f "$I/gdbus.exe" -o -f dist/Spola/gdbus.exe
           test -f "$I/share/locale/it/LC_MESSAGES/spola.mo"
+          test -f "$I/gi_typelibs/GdkWin32-4.0.typelib"   # the text follows 250% monitors
           du -sm dist/Spola | cut -f1 | xargs -I{} echo "bundle: {} MB"
       - name: Smoke test (the real Spola.exe, a screenshot of its window)
         run: |

@@ -55,6 +55,43 @@ def header_bar() -> Adw.HeaderBar:
     return Adw.HeaderBar()
 
 
+def text_dpi(monitor_dpi: int, gtk_scale: int) -> int:
+    """GTK's gtk-xft-dpi for a monitor: the part of its scale GTK leaves out
+    (1.25 for 250% at GTK's 2), or -1, GTK's own, when there is none."""
+    factor = monitor_dpi / 96 / max(gtk_scale, 1)
+    return round(96 * 1024 * factor) if abs(factor - 1) > 0.01 else -1
+
+
+def follow_monitor_scale(window: Gtk.Window) -> None:
+    """Windows: GTK scales by whole numbers only, 2 on a 250% monitor; the
+    text makes up for the fraction left out (1.25 there), so it reads as
+    large as in the other apps on that monitor. Icons and spacing stay at
+    GTK's scale. Checked every second: moving from a 200% monitor to a 250%
+    one changes nothing GTK itself tells."""
+    import ctypes
+    try:
+        gi.require_version("GdkWin32", "4.0")
+        from gi.repository import GdkWin32
+    except (ImportError, ValueError):
+        return
+    get_dpi = ctypes.windll.user32.GetDpiForWindow
+    get_dpi.argtypes, get_dpi.restype = [ctypes.c_void_p], ctypes.c_uint
+
+    def update() -> bool:
+        surface, settings = window.get_surface(), Gtk.Settings.get_default()
+        if surface is None or settings is None:
+            return True
+        dpi = get_dpi(GdkWin32.Win32Surface.get_handle(surface))
+        if dpi:
+            value = text_dpi(dpi, window.get_scale_factor())
+            if settings.props.gtk_xft_dpi != value:
+                settings.props.gtk_xft_dpi = value
+        return True
+
+    window.connect("map", lambda *_: update())
+    GLib.timeout_add_seconds(1, update)
+
+
 # On Windows a plain GTK window, so that it keeps the system title bar (an
 # AdwApplicationWindow always draws its own, and with it Windows does not
 # snap the window to the screen edges, nor on Win+arrows); its content is
@@ -85,6 +122,7 @@ class MainWindow(_WindowBase):
             style = Adw.StyleManager.get_default()
             self.connect("map", lambda *_: dark_title_bars(style.get_dark()))
             style.connect("notify::dark", lambda *_: dark_title_bars(style.get_dark()))
+            follow_monitor_scale(self)
         else:
             self.set_content(self.toasts)
 
