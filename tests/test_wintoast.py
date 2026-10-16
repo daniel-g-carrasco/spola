@@ -20,6 +20,12 @@ def vtable_function(obj, slot, prototype):
 
 
 class ToastTest(unittest.TestCase):
+    def test_a_string_with_emoji_reaches_windows_whole(self):
+        from spola.cloudfiles import _hstring_text
+        for text in ("C:\\Users\\Grasso\\Foto 😀 mare", "àèì 🇮🇹 ok", ""):
+            with wintoast._HString(text) as handle:
+                self.assertEqual(_hstring_text(handle), text)
+
     def test_text_is_escaped(self):
         xml = wintoast.toast_xml("“A & B” <ok>", "x > y")
         self.assertIn("<text>“A &amp; B” &lt;ok&gt;</text>", xml)

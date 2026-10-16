@@ -142,15 +142,19 @@ def _forget_windows() -> int:
         return 0
     from . import cloudfiles, explorer
     explorer.unregister()
+    failed = []
     try:
         cloudfiles.winrt_thread()
         prefix = cloudfiles.root_id(cloudfiles.user_sid(), "")
         for identity in set(cloudfiles.registered()) | cloudfiles.left_behind(prefix):
             if identity.startswith(prefix):
-                cloudfiles.unregister(identity)
+                try:
+                    cloudfiles.unregister(identity)
+                except OSError as e:          # the others still go
+                    failed.append(f"{identity}: {e}")
     except OSError as e:
-        return _fail(str(e))
-    return 0
+        failed.append(str(e))
+    return _fail("\n".join(failed)) if failed else 0
 
 
 def main(argv: list[str]) -> int:

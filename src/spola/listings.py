@@ -140,6 +140,22 @@ def retime(path: Path, times: dict[str, str]) -> int:
     return changed
 
 
+_TIME = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?([+-]\d{4}|Z)$")
+
+
+def modtime_ns(stamp: str) -> int | None:
+    """A listing's time ("2026-10-15T09:00:59.704779200+0000") in
+    nanoseconds since the epoch, as os.stat gives it; None if unreadable."""
+    from datetime import datetime
+    m = _TIME.match(stamp)
+    if not m:
+        return None
+    whole, fraction, zone = m.groups()
+    offset = "+00:00" if zone == "Z" else f"{zone[:3]}:{zone[3:]}"
+    seconds = int(datetime.fromisoformat(whole + offset).timestamp())
+    return seconds * 10**9 + int((fraction or "")[:9].ljust(9, "0"))
+
+
 def bisync_time(stamp: str) -> str:
     """An RFC 3339 time (rclone lsjson's ModTime) as bisync writes it in a
     listing: UTC, nine decimals, "+0000"."""
