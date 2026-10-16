@@ -337,6 +337,7 @@ _DELTA = re.compile(r"^- (Path[12])\s+(File (?:changed: .*?|is new|was deleted))
 _QUEUE = re.compile(r"^- (Path[12])\s+(Queue (?:copy to Path[12]|delete))\s+- (.*)$", re.S)
 _CONFLICT = re.compile(r"^- WARNING\s+New or changed in both paths\s+- (.*)$", re.S)
 _EQUAL = re.compile(r"^Files are equal! Skipping: (.*)$", re.S)
+_EMPTY_SIDE = re.compile(r"Empty current (Path[12]) listing")
 _RENAME = re.compile(r"^- (Path[12])\s+Renaming Path[12] copy\s+- (.*)$", re.S)
 _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued copies to)\s+- (Path[12])$")
 # a move by name: "Moved (server-side) to: <new>" (a rename, or bisync's own
@@ -510,6 +511,10 @@ class Outcome:
     plan: Plan = field(default_factory=Plan)
     stats: dict | None = None
     network: bool = False      # the run failed because Koofr could not be reached
+    # a side with nothing at all ("Path1" here, "Path2" Koofr): bisync stops
+    # rather than empty the other one; the folder may also be gone there
+    empty_side: str = ""
+    root_missing: bool = False  # a side's folder is not there (a resync's "directory not found")
 
 
 NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection reset",
@@ -640,6 +645,13 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             copies[:] = [p for p in copies if p not in news]
             deletes[:] = [p for p in deletes if p not in olds]
 
+    empty_side, root_missing = "", False
+    for ev in events:
+        if (m := _EMPTY_SIDE.search(ev.message)):
+            empty_side = m[1]
+        elif "root directory: directory not found" in ev.message:
+            root_missing = True
+
     kinds = {ev.kind for ev in events}
     if cancelled:
         result = Result.CANCELLED
@@ -661,4 +673,4 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
         result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
         setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
-    return Outcome(result, exit_code, first_error, plan, stats, network)
+    return Outcome(result, exit_code, first_error, plan, stats, network, empty_side, root_missing)

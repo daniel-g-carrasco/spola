@@ -97,6 +97,9 @@ def pair_status_text(engine: Engine, pair_id: str) -> str:
         return ""
     if rt.status is Status.PENDING and engine.confirmed_waiting(pair_id):
         return _("Confirmed")
+    if rt.status is Status.NEEDS_REPAIR and rt.gone:
+        return {"koofr-gone": _("No longer on Koofr"), "koofr-empty": _("Empty on Koofr"),
+                "here-empty": _("Empty on this computer")}[rt.gone]
     if rt.status is Status.SYNCING and rt.run is not None and rt.run.stopping:
         return _("Stopping…")
     return status_text(rt.status)
@@ -135,8 +138,9 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
         n = len(rt.refused)
         return ngettext("{n} file left out", "{n} files left out", n).format(n=n)
     if rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
-        # what the review will show, once its preview is ready (prepared ahead)
-        base = rt.message if rt.message != status_text(rt.status) else ""
+        # what the review will show, once its preview is ready (prepared ahead);
+        # a side with nothing left: its short status says it in the list
+        base = rt.message if rt.message != status_text(rt.status) and not (rt.gone and short) else ""
         return " · ".join(part for part in (base, preview_summary(rt.preview)) if part)
     if rt.status is Status.OK and rt.last_sync:
         if short:

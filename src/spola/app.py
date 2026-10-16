@@ -475,6 +475,7 @@ class SpolaApp(Adw.Application):
             "preview-ready": _("The preview of “{name}” is ready"),
             "confirm": _("“{name}” is waiting for your confirmation"),
             "repair": _("“{name}” needs a repair"),
+            "gone": _("“{name}” stopped to keep your files safe"),
             "error": _("“{name}” cannot be synced"),
             "refused": _("Some files in “{name}” are not synced"),
         }
@@ -486,7 +487,7 @@ class SpolaApp(Adw.Application):
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)
         note.set_default_action_and_target("app.review", GLib.Variant("s", pair_id))
-        if kind in ("confirm", "repair", "error"):
+        if kind in ("confirm", "repair", "error", "gone"):
             note.set_priority(Gio.NotificationPriority.HIGH)
         self.send_notification(f"{kind}-{pair_id}", note)
 

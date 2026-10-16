@@ -167,6 +167,17 @@ class Task:
     bases: tuple | None = None          # a preview's Preview.bases, read in the preparing thread
 
 
+def gone_message(gone: str) -> str:
+    """What a side with nothing left means (PairRuntime.gone)."""
+    return {
+        "koofr-gone": _("The folder is no longer on Koofr: deleted or moved there. The files here are untouched."),
+        "koofr-empty": _("The folder on Koofr is empty: everything in it was deleted there. "
+                         "The files here are untouched."),
+        "here-empty": _("The folder on this computer is empty: everything in it was deleted or moved. "
+                        "The files on Koofr are untouched."),
+    }[gone]
+
+
 @dataclass
 class PairRuntime:
     status: Status = Status.NEEDS_SETUP
@@ -190,6 +201,9 @@ class PairRuntime:
     ahead_source: int = 0                   # timer before preparing the preview ahead
     restoring: bool = False                 # files coming back from Koofr's trash: no run meanwhile
     restore_cancel: threading.Event | None = None
+    # a side with nothing left, which bisync will not sync from: "koofr-gone"
+    # (the folder is not on Koofr any more), "koofr-empty", "here-empty"
+    gone: str = ""
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     busy_since: float = 0.0                 # monotonic: since when runs wait for files being written
@@ -738,7 +752,7 @@ class Engine(GObject.Object):
         rt.ahead_source = 0
         args = self.review_args(pair_id)
         if (args is None or pair.paused or self.cfg.paused_all or self.creds is None or self.rclone is None
-                or self.blocked_reason()):
+                or self.blocked_reason() or rt.gone == "koofr-gone"):     # (that preview cannot run)
             return False
         kept = rt.preview
         if kept is not None and (kept.mode, kept.force) == args and (kept.running or kept.fresh()):
@@ -896,12 +910,65 @@ class Engine(GObject.Object):
             rt.restoring = False
             rt.restore_cancel = None
         if pair is not None and rt is not None:
+            if rt.gone and not error and result is not None and result.restored:
+                rt.gone, rt.status = "", Status.PENDING     # the folder is back on Koofr: sync again
             self._set_status(pair, rt, self._idle_status(pair, rt))
             self.invalidate_preview(pair_id)
             if not error:
                 self.request_sync(pair_id, "manual")        # the uploads that put the dates back
         done(result, reuploads, error)
         GLib.idle_add(self._next)
+
+    # -- a side with nothing left --------------------------------------------------------
+
+    def _side_gone(self, pair: Pair, rt: PairRuntime, outcome: Outcome) -> None:
+        """bisync stopped because one side has nothing at all: it will not
+        empty the other one, and a repair could not help. Here: say which
+        side. On Koofr: whether the folder is still there, asked in a thread."""
+        if outcome.empty_side == "Path1":
+            self._set_gone(pair.id, "here-empty")
+            return
+        self._set_gone(pair.id, "koofr-empty")          # until Koofr answers
+        rclone, creds, paths = self.rclone, self.creds, self.paths
+        override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
+        if rclone is None or creds is None:
+            return
+
+        def work():
+            exists = jobs.koofr_folder_exists(rclone, koofr_env(creds.user, creds.obscured), paths, pair, override)
+            if exists is False:
+                GLib.idle_add(lambda: self._set_gone(pair.id, "koofr-gone", tell=False) and False)
+        threading.Thread(target=work, name=f"gone-{pair.id}", daemon=True).start()
+
+    def _set_gone(self, pair_id: str, gone: str, tell: bool = True) -> None:
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None or rt.run is not None:
+            return
+        rt.gone = gone
+        message = gone_message(gone)
+        self._set_status(pair, rt, Status.NEEDS_REPAIR, message)
+        if tell:
+            self.emit("attention", pair.id, "gone", message)
+
+    def make_koofr_folder(self, pair_id: str, done: Callable[[str], None]) -> None:
+        """The folder gone from Koofr made again there, empty, so that this
+        computer's files can go up with a repair (its preview first)."""
+        pair = self.cfg.pair(pair_id)
+        if pair is None or self.rclone is None or self.creds is None:
+            GLib.idle_add(lambda: done(_("Sign in to Koofr first.")) and False)
+            return
+        rclone, creds, paths = self.rclone, self.creds, self.paths
+        override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
+
+        def work():
+            error = jobs.make_koofr_folder(rclone, koofr_env(creds.user, creds.obscured), paths, pair, override)
+
+            def finished():
+                if not error:
+                    self._set_gone(pair_id, "koofr-empty", tell=False)
+                done(error)
+            GLib.idle_add(lambda: finished() and False)
+        threading.Thread(target=work, name=f"mkdir-{pair_id}", daemon=True).start()
 
     def confirmed_waiting(self, pair_id: str) -> bool:
         """A run the user confirmed, queued behind the sync in progress."""
@@ -1412,6 +1479,7 @@ class Engine(GObject.Object):
         rt.last_outcome = outcome
         result = outcome.result
         if result is Result.OK:
+            rt.gone = ""
             new = {r.path for r in rt.pending_refused} - {r.path for r in rt.refused}
             rt.refused = list(rt.pending_refused)
             if new:
@@ -1453,6 +1521,8 @@ class Engine(GObject.Object):
         elif result is Result.NEEDS_CONFIRMATION:
             self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
             self.emit("attention", pair.id, "confirm", outcome.message)
+        elif result is Result.NEEDS_REPAIR and (outcome.empty_side or outcome.root_missing):
+            self._side_gone(pair, rt, outcome)
         elif result is Result.NEEDS_REPAIR:
             self._set_status(pair, rt, Status.NEEDS_REPAIR, outcome.message)
             self.emit("attention", pair.id, "repair", outcome.message)

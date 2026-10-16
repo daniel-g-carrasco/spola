@@ -167,6 +167,33 @@ def files_on_koofr(rclone: str, env: dict, paths: Paths, pair: Pair,
     return set(done.stdout.splitlines()) if done.returncode == 0 else None
 
 
+def koofr_folder_exists(rclone: str, env: dict, paths: Paths, pair: Pair,
+                        path2_override: str | None = None) -> bool | None:
+    """Is the pair's folder still on Koofr? None when Koofr could not be asked."""
+    root = path2_override or remote_spec(pair.remote)
+    try:
+        done = subprocess.run([rclone, "lsjson", "--stat", root, "--config", str(paths.rclone_config),
+                               "--color", "NEVER"], env=env, capture_output=True, text=True, encoding="utf-8",
+                              timeout=120, **no_window())
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode == 0:
+        return True
+    return False if "not found" in done.stderr else None
+
+
+def make_koofr_folder(rclone: str, env: dict, paths: Paths, pair: Pair, path2_override: str | None = None) -> str:
+    """The pair's folder made again on Koofr, empty: '' or what went wrong."""
+    root = path2_override or remote_spec(pair.remote)
+    try:
+        done = subprocess.run([rclone, "mkdir", root, "--config", str(paths.rclone_config), "--color", "NEVER"],
+                              env=env, capture_output=True, text=True, encoding="utf-8", timeout=120, **no_window())
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return str(e)
+    lines = [line for line in done.stderr.splitlines() if line.strip()]
+    return "" if done.returncode == 0 else (lines[-1] if lines else str(done.returncode))
+
+
 def _folded(files: set[str]) -> set[str]:
     # Windows and Koofr take names that differ in case alone for the same file
     return {f.casefold() for f in files}
