@@ -58,7 +58,8 @@ QUERY_INTERFACE, RELEASE = 0, 2
 STATICS_CREATE_NOTIFIER_WITH_ID = 7
 NOTIFIER_SHOW = 6
 FACTORY_CREATE = 6
-TOAST_ADD_ACTIVATED = 11
+TOAST_ADD_ACTIVATED, TOAST_REMOVE_ACTIVATED = 11, 12
+KEPT_TOASTS = 20        # the latest ones, whose click still reaches Spola
 TOAST2_PUT_TAG, TOAST2_PUT_GROUP = 6, 8
 XMLIO_LOAD_XML = 6
 
@@ -198,7 +199,9 @@ class Toasts:
         finally:
             _release(statics)
         self._toast_factory = _factory("Windows.UI.Notifications.ToastNotification", IID_IToastNotificationFactory)
-        self._kept: list = []       # the toasts and their handlers, for the session
+        # (toast, click handler, its token): a handler lives as long as Windows
+        # may call it, so it is taken off its toast before both are let go
+        self._kept: list = []
 
     def show(self, title: str, body: str, tag: str = "", on_click: Callable[[], None] | None = None) -> None:
         """A toast; one with the same tag replaces the one before."""
@@ -220,15 +223,27 @@ class Toasts:
                     _call(toast2, TOAST2_PUT_TAG, text, argtypes=(HSTRING,))
                 with _HString(self.group) as text:
                     _call(toast2, TOAST2_PUT_GROUP, text, argtypes=(HSTRING,))
-            handler = None
+            handler, token = None, ctypes.c_int64()
             if on_click is not None:
                 handler = _ActivatedHandler(on_click)
-                token = ctypes.c_int64()
                 _call(toast, TOAST_ADD_ACTIVATED, handler.pointer, ctypes.byref(token),
                       argtypes=(ctypes.c_void_p, ctypes.POINTER(ctypes.c_int64)))
             _call(self._notifier, NOTIFIER_SHOW, toast, argtypes=(ctypes.c_void_p,))
-            self._kept.append((toast, handler))
+            self._kept.append((toast, handler, token.value))
             toast = None
+            while len(self._kept) > KEPT_TOASTS:
+                self._let_go(*self._kept.pop(0))
         finally:
             for obj in (toast2, toast, xml, io, document):
                 _release(obj)
+
+    @staticmethod
+    def _let_go(toast, handler, token: int) -> None:
+        """An old toast: its click no longer reaches Spola (Windows then just
+        opens it), and nothing of it is kept."""
+        try:
+            if handler is not None:
+                _call(toast, TOAST_REMOVE_ACTIVATED, token, argtypes=(ctypes.c_int64,))
+        except WinRTError:
+            return          # still referenced by Windows: keep the handler alive rather than crash
+        _release(toast)
