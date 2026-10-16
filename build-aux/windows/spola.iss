@@ -6,7 +6,10 @@
 ; key, from Preferences): Setup only removes it when Spola is uninstalled.
 ; The settings, the listings and the backups (%APPDATA%\Spola,
 ; %LOCALAPPDATA%\Spola) stay: they are the memory of what is in sync, and a
-; reinstall goes on from them.
+; reinstall goes on from them. So does the Koofr app password in the
+; Credential Manager (Koofr shows one only once): Spola's "Sign Out" takes
+; it away. Uninstalled by another administrator, the entries written in the
+; user's HKCU (start at login, File Explorer's) stay in that user's profile.
 
 #ifndef AppVersion
   #define AppVersion "dev"
@@ -77,27 +80,45 @@ const
 var
   WasRunning: Boolean;
 
+function GetCurrentProcessId(): Cardinal; external 'GetCurrentProcessId@kernel32.dll stdcall';
+function ProcessIdToSessionId(Pid: Cardinal; var Session: Cardinal): Boolean;
+  external 'ProcessIdToSessionId@kernel32.dll stdcall';
+
 function SpolaWasRunning(): Boolean;
 begin
   Result := WasRunning;
 end;
 
-{ The processes started from Spola's folder (Spola.exe, its gdbus.exe), by
-  WMI; with Terminate, ended. Only those: another app's gdbus.exe is left
-  alone. }
+{ A path as a WQL string: backslashes and quotes escaped. }
+function WqlString(Text: String): String;
+begin
+  StringChangeEx(Text, '\', '\\', True);
+  StringChangeEx(Text, '''', '\''', True);
+  Result := '''' + Text + '''';
+end;
+
+{ Spola's own processes (Spola.exe, its gdbus.exe and rclone.exe, by their
+  exact paths) in this user's session, by WMI; with Terminate, ended. Never
+  anything else: another program in the same folder (a folder typed in by
+  hand, C:\Tools), another app's gdbus.exe, another user's Spola. }
 function AppProcesses(Terminate: Boolean): Integer;
 var
   Locator, Service, Items, Item: Variant;
-  Dir, Name: String;
+  App, Name: String;
+  Session: Cardinal;
   I: Integer;
 begin
   Result := 0;
   try
-    Dir := AddBackslash(ExpandConstant('{app}'));
-    StringChangeEx(Dir, '\', '\\', True);
+    if not ProcessIdToSessionId(GetCurrentProcessId(), Session) then
+      exit;
+    App := AddBackslash(ExpandConstant('{app}'));
     Locator := CreateOleObject('WbemScripting.SWbemLocator');
     Service := Locator.ConnectServer('.', 'root\CIMV2');
-    Items := Service.ExecQuery('SELECT Name, ProcessId FROM Win32_Process WHERE ExecutablePath LIKE ''' + Dir + '%''');
+    Items := Service.ExecQuery('SELECT Name, ProcessId FROM Win32_Process WHERE SessionId = ' + IntToStr(Session) +
+      ' AND (ExecutablePath = ' + WqlString(App + 'Spola.exe') +
+      ' OR ExecutablePath = ' + WqlString(App + '_internal\gdbus.exe') +
+      ' OR ExecutablePath = ' + WqlString(App + '_internal\rclone.exe') + ')');
     Result := Items.Count;
     for I := 0 to Items.Count - 1 do begin
       Item := Items.ItemIndex(I);
