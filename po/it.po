@@ -723,6 +723,10 @@ msgstr[1] ""
 msgid "Preparing…"
 msgstr "Preparazione…"
 
+#: src/spola/engine.py:1238
+msgid "Waiting for a file still being written: {name}"
+msgstr "In attesa di un file ancora in scrittura: {name}"
+
 #: src/spola/engine.py:1187
 msgid "Syncing with Koofr"
 msgstr "Sincronizzazione con Koofr"

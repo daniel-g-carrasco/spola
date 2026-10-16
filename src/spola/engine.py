@@ -52,6 +52,9 @@ from .watcher import TreeWatcher
 
 DEBOUNCE_S = 10
 MAX_WAIT_S = 120
+# Automatic runs wait for files already in sync that are being written, at
+# most this long: a file written without end (a log) is synced all the same
+BUSY_WAIT_MAX_S = 300
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
 RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
 ACTIVITY_INTERVAL_S = 60
@@ -185,6 +188,9 @@ class PairRuntime:
     restore_cancel: threading.Event | None = None
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
+    busy_since: float = 0.0                 # monotonic: since when runs wait for files being written
+    busy_source: int = 0                    # the run again once they may have settled
+    pending_busy: list = field(default_factory=list)    # new files the run in progress leaves out
     activity: activity_mod.RunActivity = field(default_factory=activity_mod.RunActivity)
     watcher: TreeWatcher | None = None
 
@@ -394,7 +400,7 @@ class Engine(GObject.Object):
             if rt.run and rt.run.running:
                 run = rt.run
                 run.stop()
-            for source in (rt.retry_source, rt.debounce_source, rt.ahead_source):
+            for source in (rt.retry_source, rt.debounce_source, rt.ahead_source, rt.busy_source):
                 if source:
                     GLib.source_remove(source)
         self.cfg.pairs.remove(pair)
@@ -1140,15 +1146,19 @@ class Engine(GObject.Object):
             self.emit("pair-changed", pair.id)
         override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
         cfg, paths, rclone, creds = self.cfg, self.paths, self.rclone, self.creds
+        # an automatic run waits for the files being written, but not for ever
+        wait = (task.reason not in ("manual", "confirmed", "preview") and not task.dry_run
+                and (not rt.busy_since or time.monotonic() - rt.busy_since < BUSY_WAIT_MAX_S))
 
         def work():
-            free = None
+            free = busy = None
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
                 env = koofr_env(creds.user, creds.obscured)
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
-                                   koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override))
+                                   koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
+                                   wait_for_writes=wait)
                 result = (job, bisync_args(rclone, job.request), "")
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
@@ -1159,17 +1169,21 @@ class Engine(GObject.Object):
                             result = (None, None, problem)
                 if task.dry_run:
                     free = free_space(rclone, paths, creds, override)
+            except jobs.Busy as e:
+                result, busy = (None, None, ""), e.paths
             except jobs.NotReady as e:
                 result = (None, None, e.problems[0].message)
             except OSError as e:
                 result = (None, None, str(e))
-            GLib.idle_add(self._start_prepared, task, *result, free)
+            GLib.idle_add(self._start_prepared, task, *result, free, busy)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
 
-    def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None) -> bool:
+    def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None,
+                        busy: list[str] | None = None) -> bool:
         """The run prepared in a thread: start it, unless things changed
-        meanwhile (shutdown, pair removed or paused, Stop pressed)."""
+        meanwhile (shutdown, pair removed or paused, Stop pressed), or files
+        already in sync are being written (`busy`): then it waits for them."""
         self._set_lane(task, None)
         if self._closing:
             return False
@@ -1215,6 +1229,15 @@ class Engine(GObject.Object):
             restore()
             GLib.idle_add(self._next)
             return False
+        if busy:
+            if not rt.busy_since:
+                rt.busy_since = time.monotonic()
+            self._set_status(pair, rt, Status.PENDING,
+                             _("Waiting for a file still being written: {name}").format(
+                                 name=os.path.basename(busy[0])))
+            self._settle_then_sync(pair, rt)
+            GLib.idle_add(self._next)
+            return False
         if error:
             return fail(error)
         if self.creds is None:
@@ -1236,6 +1259,8 @@ class Engine(GObject.Object):
         self._set_lane(task, task)
         rt.run, rt.task = run, task
         rt.pending_refused = job.refused
+        if not task.dry_run:
+            rt.busy_since, rt.pending_busy = 0.0, list(job.busy)
         rt.run_roots = (job.path1, job.path2)
         if task.dry_run:
             if rt.preview is not None and rt.preview.task is task:
@@ -1391,6 +1416,10 @@ class Engine(GObject.Object):
                                    len(rt.refused)).format(n=len(rt.refused)))
             rt.retries = 0
             rt.last_sync = time.time()
+            if rt.pending_busy:
+                # new files left out while being written: synced once they settle
+                rt.pending_busy = []
+                self._settle_then_sync(pair, rt)
             if task.mode is Mode.RESYNC:
                 if not pair.initialized:
                     pair.initialized = True
@@ -1503,6 +1532,17 @@ class Engine(GObject.Object):
         rt.debounce_source = GLib.timeout_add_seconds(delay, self._debounce_fired, pair.id)
         if rt.status in (Status.OK, Status.CONFLICTS, Status.SKIPPED):
             self._set_status(pair, rt, Status.PENDING)
+
+    def _settle_then_sync(self, pair: Pair, rt: PairRuntime) -> None:
+        """A run again once the files being written may have settled."""
+        if rt.busy_source:
+            GLib.source_remove(rt.busy_source)
+
+        def fire() -> bool:
+            rt.busy_source = 0
+            self.request_sync(pair.id, "settled")
+            return False
+        rt.busy_source = GLib.timeout_add_seconds(jobs.SETTLE_S + 1, fire)
 
     def _debounce_fired(self, pair_id: str) -> bool:
         rt = self.runtime.get(pair_id)

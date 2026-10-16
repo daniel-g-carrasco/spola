@@ -44,9 +44,9 @@ class BisyncScenarios(unittest.TestCase):
 
     # -- helpers ---------------------------------------------------------------
 
-    def start(self, mode=Mode.SYNC, dry_run=False, force=False, extra=()):
+    def start(self, mode=Mode.SYNC, dry_run=False, force=False, extra=(), wait_for_writes=False):
         job = jobs.prepare(self.cfg, self.pair, self.paths, mode, dry_run, force,
-                           path2_override=str(self.remote))
+                           path2_override=str(self.remote), wait_for_writes=wait_for_writes)
         job.request.extra_test_flags = list(extra)
         run = BisyncRun(bisync_args(RCLONE, job.request), clean_env(),
                         self.paths.lock_file(self.pair.id), self.paths.log_dir(self.pair.id),
@@ -268,6 +268,36 @@ class BisyncScenarios(unittest.TestCase):
         out = self.bisync()
         self.assertIs(out.result, Result.OK, out.message)
         self.assertIn("foto.jpg", self.files(self.remote))
+
+    def test_files_being_written_wait_or_are_left_out(self):
+        # a transcription written while it was synced: Koofr got half of it,
+        # the next run took it for changed on both sides (a conflict), and
+        # renaming it, held open, stopped bisync for a repair
+        for i in range(30):
+            self.write(self.local, f"f{i:02}.txt", str(i), age=600)
+        self.align()
+        self.write(self.local, "f01.txt", "being written")         # already in sync
+        self.write(self.local, "notes.srt", "half a transcription")   # new
+        with self.assertRaises(jobs.Busy) as ctx:                  # an automatic run waits
+            jobs.prepare(self.cfg, self.pair, self.paths, Mode.SYNC, path2_override=str(self.remote),
+                         wait_for_writes=True)
+        self.assertEqual(ctx.exception.paths, ["f01.txt"])
+        settled = time.time() - 60
+        os.utime(self.local / "f01.txt", (settled, settled))
+        out = self.bisync(wait_for_writes=True)                    # the new one still written: left out
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual((self.remote / "f01.txt").read_text(), "being written")
+        self.assertFalse((self.remote / "notes.srt").exists())
+        self.write(self.local, "notes.srt", "the whole transcription", age=60)
+        out = self.bisync(wait_for_writes=True)
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual((self.remote / "notes.srt").read_text(), "the whole transcription")
+        self.assertEqual(out.plan.conflicts, [])
+        self.assertEqual(self.files(self.local), self.files(self.remote))
+        # what the user asks for never waits
+        self.write(self.local, "now.txt", "saved, then Sync Now")
+        self.assertIs(self.bisync().result, Result.OK)
+        self.assertTrue((self.remote / "now.txt").exists())
 
     def test_same_pair_cannot_run_twice(self):
         self.write(self.local, "big.bin", "x" * 2_000_000)
