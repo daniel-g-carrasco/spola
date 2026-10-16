@@ -5,6 +5,7 @@ the notifier of the Windows Runtime."""
 import ctypes
 import sys
 import unittest
+from unittest import mock
 
 import _setup  # noqa: F401
 
@@ -55,6 +56,23 @@ class ToastTest(unittest.TestCase):
         toasts = wintoast.Toasts("io.example.spola-test")
         self.assertTrue(toasts._notifier)
         self.assertTrue(toasts._toast_factory)
+
+    def test_only_the_latest_toasts_are_kept(self):
+        # real toasts and click handlers, never shown: the notifier's Show
+        # alone is left out
+        toasts = wintoast.Toasts("io.example.spola-test")
+        real = wintoast._call
+
+        def call(obj, slot, *args, **kwargs):
+            if obj is toasts._notifier and slot == wintoast.NOTIFIER_SHOW:
+                return None
+            return real(obj, slot, *args, **kwargs)
+
+        with mock.patch.object(wintoast, "_call", call):
+            for i in range(wintoast.KEPT_TOASTS + 5):
+                toasts.show(f"Spola {i}", "body", tag=f"t{i}", on_click=lambda: None)
+        self.assertEqual(len(toasts._kept), wintoast.KEPT_TOASTS)
+        self.assertTrue(all(handler is not None for _toast, handler, _token in toasts._kept))
 
 
 if __name__ == "__main__":

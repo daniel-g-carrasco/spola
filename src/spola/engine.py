@@ -294,10 +294,19 @@ class Engine(GObject.Object):
         return False
 
     def _prune_backups(self) -> bool:
-        for pair in self.cfg.pairs:
+        # also those of pairs removed since: kept as long as any other backup,
+        # then gone with their folder
+        ids = {p.id for p in self.cfg.pairs}
+        try:
+            ids |= {d.name for d in (self.paths.data / "backup").iterdir() if d.is_dir()}
+        except OSError:
+            pass
+        for pair_id in ids:
             try:
-                jobs.prune_backups(self.paths, pair.id, self.cfg.backup_days)
-            except OSError:
+                jobs.prune_backups(self.paths, pair_id, self.cfg.backup_days)
+                if self.cfg.pair(pair_id) is None:
+                    self.paths.backup_dir(pair_id).rmdir()      # only once empty
+            except (OSError, ValueError):
                 pass
         return True
 

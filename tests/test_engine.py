@@ -101,6 +101,18 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(sorted(rel for _pid, rel in copied), [f"f{i:02}.txt" for i in range(30)])
         self.assertEqual({pid for pid, _rel in copied}, {"p1"})
 
+    def test_the_backups_of_removed_pairs_expire_too(self):
+        paths = self.engine.paths
+        old = time.strftime("%Y%m%d-%H%M%S", time.localtime(time.time() - 40 * 86400))
+        new = time.strftime("%Y%m%d-%H%M%S", time.localtime(time.time() - 86400))
+        for pair_id, runs in (("gone1", (old, new)), ("gone2", (old,))):
+            for run in runs:
+                (paths.backup_dir(pair_id) / run).mkdir(parents=True)
+                (paths.backup_dir(pair_id) / run / "f.txt").write_text("x")
+        self.engine._prune_backups()
+        self.assertEqual(sorted(p.name for p in paths.backup_dir("gone1").iterdir()), [new])
+        self.assertFalse(paths.backup_dir("gone2").exists())        # nothing left: its folder too
+
     def test_a_pair_removed_leaves_its_backups_only(self):
         self.align()
         paths = self.engine.paths
