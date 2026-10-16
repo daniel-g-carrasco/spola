@@ -56,9 +56,12 @@ def status_badge(status: Status) -> str:
 
 
 def tray_icon(status: Status) -> str:
-    """Quiet when there is no news: up to date and paused keep the panel's
-    own colour (symbolic icons); syncing, attention and errors get theirs."""
-    return status_icon(status) if status in (Status.OK, Status.PAUSED) else status_badge(status)
+    """Always in the panel's own colour, like the panel's other icons (the
+    symbolic ones): the state shows in the shape, the arrows while syncing,
+    the mark when something needs you, the cross on errors. The coloured
+    badges stay for the window, the notifications and Windows, whose
+    taskbar does not recolour icons."""
+    return status_icon(status)
 
 
 def status_css(status: Status) -> list[str]:
