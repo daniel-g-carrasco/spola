@@ -34,6 +34,7 @@ class ArgsTest(unittest.TestCase):
         for flag in ("--resync", "--force", "--dry-run", "--check-sync"):
             self.assertNotIn(flag, args)
         self.assertIn("--track-renames", args)
+        self.assertIn("--ignore-times", args)          # never a Koofr copy deleted ahead of its upload
         self.assertFalse(set(args) & FORBIDDEN_FLAGS)
 
     def test_times_within_a_millisecond_are_the_same(self):

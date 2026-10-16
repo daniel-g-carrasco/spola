@@ -269,6 +269,17 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         # still counts as a delete for --max-delete, so a big reorganisation
         # stops for a confirmation as before, with the moves in its preview.
         args.append("--track-renames")
+        # The files a run queues are copied as they are, without asking
+        # first whether the other side has them already. That question is
+        # what goes wrong on Koofr: it cannot change a file's date, so for a
+        # file whose date alone changed rclone deletes the Koofr copy while
+        # it compares, up to 10,000 files ahead of their uploads; a run
+        # stopped then (a laptop suspended) left 10,020 files missing on
+        # Koofr on 2026-10-15. Copied without the question, a file is
+        # overwritten on Koofr only when its upload starts. bisync queues
+        # only what changed, and tells files equal on both sides its own way.
+        # Not on --resync, which compares everything and would copy it all.
+        args.append("--ignore-times")
     if req.mode is Mode.RESYNC:
         args += ["--resync", "--resync-mode", req.resync_mode]
     elif req.mode is Mode.CHECK:
