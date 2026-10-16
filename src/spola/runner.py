@@ -80,6 +80,13 @@ class BisyncRun:
         self._thread = threading.Thread(target=self._read, name="bisync-reader", daemon=True)
         self._thread.start()
 
+    def stop(self) -> None:
+        """The graceful stop, once: asked again while bisync finishes and
+        saves its state, it keeps waiting (cancel() again is "stop now",
+        which leaves its lock and listings for a repair)."""
+        if self._interrupts == 0:
+            self.cancel()
+
     def cancel(self) -> None:
         """First call: graceful stop. Second call: stop now."""
         if self._proc and self._proc.poll() is None:
