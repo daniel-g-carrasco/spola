@@ -21,9 +21,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
-from . import WINDOWS, migrate, preflight  # noqa: E402
+from . import WINDOWS, koofr_api, migrate, preflight  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
-from .ui import display_path, escape  # noqa: E402
+from .paths import in_flatpak  # noqa: E402
+from .ui import display_path, escape, run_in_thread  # noqa: E402
 
 POLL_S = 2
 
@@ -101,9 +102,15 @@ class ImportDialog(Adw.Dialog):
         mark(self.running_icon, not state.running)
         if state.running:
             self.running_row.set_title(_("Koofr Desktop is running"))
-            self.running_row.set_subtitle(
-                _("Quit it from its icon in the notification area: right click, then Quit.") if WINDOWS
-                else _("Quit it from its icon or its window."))
+            if WINDOWS:
+                hint = _("Quit it from its icon in the notification area: right click, then Quit.")
+            elif in_flatpak():
+                # inside the Flatpak its processes cannot be seen: its logs tell
+                hint = _("Quit it from its icon or its window. Spola sees it from its logs, which stay "
+                         "fresh for up to a quarter of an hour after it quits.")
+            else:
+                hint = _("Quit it from its icon or its window.")
+            self.running_row.set_subtitle(hint)
         else:
             self.running_row.set_title(_("Koofr Desktop is not running"))
             self.running_row.set_subtitle("")
@@ -135,7 +142,21 @@ class ImportDialog(Adw.Dialog):
         self._refresh()
         if self.state is None or self.state.active:
             return
-        self.nav.push(self._folders_page(migrate.candidates(self.engine.cfg)))
+        cfg, creds = self.engine.cfg, self.engine.creds
+        if cfg.mount_id or creds is None:
+            self.nav.push(self._folders_page(migrate.candidates(cfg)))
+            return
+        # which storage is the account's own, to leave out the shared folders:
+        # asked of Koofr once, if the activity poll has not done it yet
+        self.next_button.set_sensitive(False)
+
+        def done(mount_id, _error) -> None:
+            if mount_id and not cfg.mount_id:
+                cfg.mount_id = mount_id
+                self.engine.save_config()
+            self.next_button.set_sensitive(True)
+            self.nav.push(self._folders_page(migrate.candidates(cfg)))
+        run_in_thread(lambda: koofr_api.primary_mount_id(creds.user, creds.password), done)
 
     def _folders_page(self, candidates: list[migrate.Candidate]) -> Adw.NavigationPage:
         view = Adw.ToolbarView()

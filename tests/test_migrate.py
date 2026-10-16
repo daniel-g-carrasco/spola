@@ -62,9 +62,11 @@ class ImportTest(unittest.TestCase):
             report = import_koofr_desktop(Config(mount_id="primary"), conf, active=False, home=tmp)
             self.assertEqual(sorted(Path(i.pair.local).name for i in report.added), ["own", "unknown"])
             self.assertEqual([Path(local).name for local, _why in report.skipped], ["shared"])
-            # the primary mount not known yet: as before
+            # the primary mount not known (Koofr could not be asked): none of
+            # those with a mount is taken, a shared folder could be among them
             report = import_koofr_desktop(Config(), conf, active=False, home=tmp)
-            self.assertEqual(len(report.added), 3)
+            self.assertEqual([Path(i.pair.local).name for i in report.added], ["unknown"])
+            self.assertEqual(sorted(Path(local).name for local, _why in report.skipped), ["own", "shared"])
 
     def test_candidates_before_anything_is_added(self):
         # the window shows Koofr Desktop's pairs first, each with what keeps

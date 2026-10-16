@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import unicodedata
 from collections.abc import Iterable
@@ -182,7 +183,7 @@ def _autostart_starts_koofr(autostart_dir: Path) -> bool:
     except OSError:
         return False
     for entry in entries:
-        if not entry.name.lower().startswith("koofr") or not entry.is_file():
+        if not entry.is_file():
             continue
         try:
             text = entry.read_text(encoding="utf-8", errors="replace")
@@ -203,9 +204,16 @@ class KoofrDesktopState:
         return self.running or self.at_login
 
 
+# Koofr Desktop's programs, by name (storagegui.exe, in %LOCALAPPDATA%\koofr):
+# never any "koofr" in the text, which a user profile called so would put in
+# every entry, Spola's own too
+_KOOFR_PROGRAM = re.compile(r"(?:storagegui|storagesync)(?:\.exe)?|koofr\.exe", re.IGNORECASE)
+
+
 def _starts_koofr_desktop(text: str) -> bool:
-    text = text.casefold()
-    return "koofr" in text or "storagegui" in text
+    """A login entry (a Run value, a shortcut's text) that starts one of
+    Koofr Desktop's programs."""
+    return any(_KOOFR_PROGRAM.fullmatch(name) for name in re.split(r'[\\/"\s\x00]+', text))
 
 
 def koofr_desktop_state(autostart_dir: Path | None = None, koofr_dir: Path | None = None,

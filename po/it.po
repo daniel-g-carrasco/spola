@@ -778,6 +778,14 @@ msgid "not in your own Koofr storage (a shared folder or a connected service)"
 msgstr ""
 "non è nel tuo spazio Koofr (una cartella condivisa o un servizio collegato)"
 
+#: src/spola/migrate.py:74
+msgid ""
+"Spola could not ask Koofr which storage is your own: try again when Koofr "
+"can be reached"
+msgstr ""
+"Spola non è riuscito a chiedere a Koofr qual è il tuo spazio: riprova quando "
+"Koofr è raggiungibile"
+
 #: src/spola/migrate.py:60
 msgid "already in Spola"
 msgstr "già in Spola"
@@ -2078,6 +2086,14 @@ msgstr ""
 msgid "Quit it from its icon or its window."
 msgstr "Chiudilo dalla sua icona o dalla sua finestra."
 
+#: src/spola/import_dialog.py:110
+msgid ""
+"Quit it from its icon or its window. Spola sees it from its logs, which stay "
+"fresh for up to a quarter of an hour after it quits."
+msgstr ""
+"Chiudilo dalla sua icona o dalla sua finestra. Spola se ne accorge dai suoi "
+"log, che restano recenti fino a un quarto d'ora dopo la chiusura."
+
 #: src/spola/import_dialog.py:107
 msgid "Koofr Desktop is not running"
 msgstr "Koofr Desktop non è in esecuzione"
@@ -2268,6 +2284,12 @@ msgstr "annullato"
 #: src/spola/updates.py:131
 msgid "the file downloaded does not match the release: not started"
 msgstr "il file scaricato non corrisponde alla versione pubblicata: non è stato avviato"
+
+#: src/spola/updates.py:146
+msgid "the release gives no checksum for the installer: not downloaded"
+msgstr ""
+"la versione pubblicata non indica l'impronta dell'installer: non è stato "
+"scaricato"
 
 #: src/spola/updates.py:135
 #, python-brace-format

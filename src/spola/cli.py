@@ -227,7 +227,14 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.command == "import-koofr-desktop":
-        from . import migrate
+        from . import migrate, secrets
+        password = secrets.lookup(cfg.user) if cfg.user and not cfg.mount_id else None
+        if password:
+            # the account's own storage, to leave out the shared folders
+            try:
+                cfg.mount_id = koofr_api.primary_mount_id(cfg.user, password)
+            except koofr_api.ApiError:
+                pass
         try:
             report = migrate.import_koofr_desktop(cfg, Path(args.config) if args.config else None)
         except migrate.KoofrDesktopActive as e:

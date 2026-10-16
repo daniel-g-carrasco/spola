@@ -138,6 +138,19 @@ class KoofrDesktopTest(unittest.TestCase):
             (auto / "koofr.desktop.disabled-by-spola").unlink()
             (auto / "kooky.desktop").write_text("[Desktop Entry]\nExec=kooky\n")
             self.assertFalse(koofr_desktop_active(auto, logs))
+            # any name: what matters is what it starts
+            (auto / "cloud.desktop").write_text(entry)
+            self.assertTrue(koofr_desktop_active(auto, logs))
+
+    def test_koofr_desktop_login_entries_by_program(self):
+        # never any "koofr" in the text: a profile called so is in every
+        # entry, Spola's own too, which would be "turned off" with Koofr's
+        from spola.preflight import _starts_koofr_desktop as starts
+        self.assertTrue(starts(r"Koofr C:\Users\u\AppData\Local\koofr\storagegui.exe"))
+        self.assertTrue(starts("L\x00C:\\Users\\u\\AppData\\Local\\koofr\\storagegui.exe\x00\x00"))     # a .lnk
+        self.assertTrue(starts(r'Koofr "C:\Program Files\Koofr\Koofr.exe" --minimized'))
+        self.assertFalse(starts(r'Spola "C:\Users\koofr\AppData\Local\Programs\Spola\Spola.exe" --background'))
+        self.assertFalse(starts(r"Tools C:\koofr-tools\backup.exe"))
 
     @unittest.skipUnless(_setup.WINDOWS, "Windows only")
     def test_windows_processes_and_login_commands(self):
