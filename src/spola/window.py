@@ -14,7 +14,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL, WINDOWS  # noqa: E402
-from . import account, activity, autostart, conflicts, file_managers, jobs, koofr_api, preflight, secrets  # noqa: E402
+from . import account, activity, autostart, conflicts, file_managers, filetree, jobs, koofr_api  # noqa: E402
+from . import plan_tree, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, count, ngettext, pgettext  # noqa: E402
@@ -1494,7 +1495,10 @@ class PreviewDialog(Adw.Dialog):
         self.result_group: Adw.PreferencesGroup | None = None
         self.toasts = Adw.ToastOverlay(child=self.page)
         view.set_content(self.toasts)
-        self.set_child(view)
+        # each kind of change opens on a page of its own, as a tree of folders
+        self.nav = Adw.NavigationView()
+        self.nav.add(Adw.NavigationPage(title=title, child=view))
+        self.set_child(self.nav)
         self._handler = self.engine.connect("pair-changed",
                                             lambda _e, pid: self._progress() if pid == pair_id else None)
         self.connect("closed", lambda *_: self._closed())
@@ -1567,8 +1571,10 @@ class PreviewDialog(Adw.Dialog):
         # the last field: the file is only on Koofr for now, so a click opens its folder there.
         # Moves are (from, to) pairs.
         rows = [
-            (plan.upload, _("Copied to Koofr"), "go-up-symbolic", False),
-            (plan.download, _("Copied to this computer"), "go-down-symbolic", True),
+            # the theme's own transfer icons (Adwaita's go-up and go-down are
+            # chevrons, which next to a row's chevron read as "expand")
+            (plan.upload, _("Copied to Koofr"), "send-to-symbolic", False),
+            (plan.download, _("Copied to this computer"), "folder-download-symbolic", True),
             (plan.moved_remote, _("Moved or renamed here: moved the same way on Koofr"), "go-jump-symbolic", False),
             (plan.moved_local, _("Moved or renamed on Koofr: moved the same way here"), "go-jump-symbolic", False),
             (plan.replace_local, _("Replaced here by the newer Koofr version (the old one goes to the backup)"),
@@ -1589,30 +1595,29 @@ class PreviewDialog(Adw.Dialog):
         for paths, title, icon, on_koofr in rows:
             if not paths:
                 continue
-            subtitle = ngettext("{n} file", "{n} files", len(paths)).format(n=count(len(paths)))
-            size = plan.upload_bytes if paths is plan.upload else plan.download_bytes if paths is plan.download else 0
-            if size:
-                subtitle += " · " + GLib.format_size(size)
-            row = Adw.ExpanderRow(title=title, subtitle=escape(subtitle))
-            row.add_prefix(Gtk.Image(icon_name=icon))
-            for entry in paths[:PREVIEW_LIMIT]:
+            entries = []
+            for entry in paths:
                 if isinstance(entry, tuple):
-                    # a move: the new name, where it was; here the file is still
-                    # where it was if Koofr moved it, already moved if this computer did
+                    # a move: shown where it goes, with where it was; here the
+                    # file is still where it was if Koofr moved it, already
+                    # moved if this computer did
                     old, path = entry
                     here = path if paths is plan.moved_remote else old
-                    reason = _("From “{path}”").format(path=old)
+                    entries.append((path, _("From “{path}”").format(path=old), here))
                 else:
-                    path = here = entry
                     # a left-out name says why: most of them look perfectly normal
-                    reason = why.get(path, "") if paths is plan.refused else ""
-                item = Adw.ActionRow(title=GLib.markup_escape_text(path), title_lines=2,
-                                     subtitle=GLib.markup_escape_text(reason), subtitle_lines=3, activatable=True,
-                                     tooltip_text=_("Open on Koofr") if on_koofr else _("Show in the file manager"))
-                item.connect("activated", lambda _r, p=here, k=on_koofr: self._show(p, k))
-                row.add_row(item)
-            if len(paths) > PREVIEW_LIMIT:
-                row.add_row(Adw.ActionRow(title=_("…and {n} more").format(n=count(len(paths) - PREVIEW_LIMIT))))
+                    entries.append((entry, why.get(entry, "") if paths is plan.refused else "", entry))
+            nodes = filetree.build(entries, plan.sizes, plan.folders)
+            files, size = filetree.totals(nodes)
+            if paths is plan.upload or paths is plan.download:
+                size = size or (plan.upload_bytes if paths is plan.upload else plan.download_bytes)
+            row = Adw.ActionRow(title=title, subtitle=escape(plan_tree.amount(files, size)), title_lines=2,
+                                activatable=True)
+            row.add_prefix(Gtk.Image(icon_name=icon))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+            row.connect("activated", lambda _r, t=title, n=nodes, k=on_koofr: self.nav.push(plan_tree.PlanTreePage(
+                t, n, lambda node, k=k: self._show(node.show, k),
+                _("Open on Koofr") if k else _("Show in the file manager"))))
             group.add(row)
         pair = self.engine.cfg.pair(self.pair_id)
         if plan.refused and rt is not None and pair is not None and any(
