@@ -55,7 +55,7 @@ At the top, what Spola is doing: syncing (with the folder and its progress), up 
 
 Adding a folder: choose it on this computer, then the folder on Koofr. Spola suggests the one in the same place (`~/data/work` and `/data/work`) or with the same name, and lets you browse your Koofr folders one level at a time, or make a new one; folders already synced cannot be chosen. The first alignment is shown as a preview before anything is copied.
 
-The tray icon stays in the panel's colour while everything is up to date or paused, turns blue while syncing, orange when something needs you and red on errors. Hovering it shows what is syncing and how far along it is, and so does the top of its menu, followed by the files being transferred and the five last synced: a click shows the file in Files.
+The tray icon is in the panel's own colour, like the panel's other icons: its shape says the state (arrows while syncing, a mark when something needs you, a cross on errors). Hovering it shows what is syncing and how far along it is, and so does the top of its menu, followed by the files being transferred and the five last synced: a click shows the file in Files.
 
 Preferences: account, what to do when a file changes on both sides (ask, keep the newer version, keep both; each folder can have its own rule, also "this computer's" or "Koofr's"), pause on metered networks (a sync started on its own stops when the network becomes metered, and starts again when it no longer is) and in power saver mode, speed limits, start at login, the Files integration, backup retention, language of the conflict copies' names.
 
