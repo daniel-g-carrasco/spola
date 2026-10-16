@@ -246,6 +246,7 @@ class Engine(GObject.Object):
         self._poll_source = 0
         self._shutdown_cb: Callable[[], None] | None = None
         self._closing = False
+        self._removed_preparing: dict[str, Pair] = {}     # removed while a run of theirs was prepared
         self.inhibit: Callable[[str], int] = lambda reason: 0
         self.uninhibit: Callable[[int], None] = lambda cookie: None
         self._inhibit_cookie = 0
@@ -392,7 +393,12 @@ class Engine(GObject.Object):
         from .preflight import release_root
         release_root(pair)
         self.recent.forget_pair(pair_id)
-        if run is None:
+        if rt and rt.task is not None and run is None:
+            # still being prepared: it will not start nor rename on Koofr, and
+            # what the preparation writes (state, marker) goes once it is over
+            rt.task.cancelled = True
+            self._removed_preparing[pair_id] = pair
+        elif run is None:
             self.paths.forget(pair_id)
         else:       # once rclone is done with it: what it still writes would come back
             threading.Thread(target=lambda: (run.wait(300), self.paths.forget(pair_id)),
@@ -1138,7 +1144,7 @@ class Engine(GObject.Object):
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
                     task.case_renames = jobs.case_renames(paths, pair)
-                    if task.case_renames and not task.dry_run:
+                    if task.case_renames and not task.dry_run and not task.cancelled:
                         problem = jobs.rename_on_koofr(rclone, env, cfg, pair, paths, task.case_renames, override)
                         if problem:
                             result = (None, None, problem)
@@ -1161,6 +1167,11 @@ class Engine(GObject.Object):
         pair = self.cfg.pair(task.pair_id)
         rt = self.runtime.get(task.pair_id)
         if pair is None or rt is None:
+            removed = self._removed_preparing.pop(task.pair_id, None)
+            if removed is not None:         # removed while this was prepared: now its state can go
+                from .preflight import release_root
+                release_root(removed)
+                self.paths.forget(task.pair_id)
             GLib.idle_add(self._next)
             return False
         rt.task = None

@@ -10,6 +10,7 @@ in sync, and a cache cleaner must not be able to throw them away.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,7 +79,10 @@ class Paths:
 
     def forget(self, pair_id: str) -> None:
         """A removed pair's state: listings, filters, exclusions, lock and
-        logs. Never its backups: what they hold may be the only copy left."""
+        logs. Never its backups: what they hold may be the only copy left.
+        Only for a pair id (12 hex digits in the app): never a path."""
+        if not re.fullmatch(r"[0-9A-Za-z_-]+", pair_id):
+            raise ValueError(f"not a pair id: {pair_id!r}")
         for folder in (self.workdir(pair_id), self.log_dir(pair_id)):
             shutil.rmtree(folder, ignore_errors=True)
         filters = self.filters_file(pair_id)
