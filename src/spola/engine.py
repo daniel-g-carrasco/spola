@@ -38,6 +38,7 @@ from . import config as config_mod
 from . import conflicts as conflicts_mod
 from . import WINDOWS, jobs, koofr_api, listings
 from . import trash as trash_mod
+from . import verify
 from .recent import Recent
 from . import activity as activity_mod
 from . import account as account_mod
@@ -47,7 +48,7 @@ from .i18n import _, count, every_translation, ngettext
 from .log import complain
 from .paths import Paths
 from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
-                     default_excluded,
+                     default_excluded, summarize as rclone_summarize,
                      describe, excluded_by, find_rclone, fold_case_renames, koofr_env, no_window, relative_path,
                      remote_spec)
 from .states import PathStates, ancestors_and_self
@@ -244,6 +245,7 @@ class PairRuntime:
     rerun_requested: bool = False   # a run asked for while one ran: again afterwards
     last_failure: str = ""          # a run that could not start, until one does
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
+    tried_listings: set = field(default_factory=set)    # kept copies a repair went back to, this session
     ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
@@ -751,6 +753,40 @@ class Engine(GObject.Object):
         self.emit("pair-changed", pair_id)
         return preview
 
+    def kept_listings(self, pair_id: str) -> list[tuple[str, float]]:
+        """The copies of the last synced state a repair could go back to
+        (jobs.kept_listings), those not tried yet since the start."""
+        rt = self.runtime.get(pair_id)
+        tried = rt.tried_listings if rt else set()
+        return [item for item in jobs.kept_listings(self.paths, pair_id) if item[0] not in tried]
+
+    def restore_listings(self, pair_id: str, name: str) -> bool:
+        """A repair the other way: the last synced state put back from its
+        kept copy, and a normal sync from there (the changes since are
+        synced as usual, with the same safety checks). False if it could
+        not be put back."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None or rt.run is not None or rt.task is not None:
+            return False
+        try:
+            jobs.restore_listings(self.paths, pair_id, name)
+        except (OSError, ValueError) as e:
+            complain("putting the kept listings back", e)
+            return False
+        rt.tried_listings.add(name)
+        rt.gone, rt.preview = "", None
+        self._set_status(pair, rt, Status.PENDING, _("Syncing from the state known at {time}").format(
+            time=time.strftime("%H:%M", time.localtime(jobs._run_time(name) or 0))))
+        self.request_sync(pair_id, "manual")
+        return True
+
+    def verify(self, pair_id: str, callback: Callable[[Outcome | None, str], None] | None = None,
+               reason: str = "verify") -> Preview | None:
+        """Both sides compared by size and checksum (verify.py), as a
+        preview of its own kind: `callback(outcome, error)` once it is done,
+        the outcome's plan holding what differs, `identical` the rest."""
+        return self.preview(pair_id, Mode.CHECK, False, callback, reason=reason)
+
     def cancel_preview(self, pair_id: str) -> None:
         """Stop the pair's preview, queued, being prepared or running."""
         rt = self.runtime.get(pair_id)
@@ -820,6 +856,19 @@ class Engine(GObject.Object):
             callback(outcome, error)
         if outcome is None:
             rt.preview = None
+        elif preview.mode is Mode.CHECK:
+            plan = outcome.plan
+            differences = len(plan.upload) + len(plan.download) + len(plan.conflicts) + len(plan.error_paths)
+            if differences:
+                self.emit("attention", pair_id, "verify",
+                          ngettext("{n} difference between this computer and Koofr",
+                                   "{n} differences between this computer and Koofr", differences)
+                          .format(n=count(differences)))
+            elif not listeners and preview.reason == "verify":
+                # asked for, its dialog closed while it ran: the good news all the same
+                self.emit("attention", pair_id, "verified",
+                          ngettext("{n} file, the same on both sides", "{n} files, the same on both sides",
+                                   outcome.identical).format(n=count(outcome.identical)))
         elif (not listeners and preview.reason == "preview" and not preview.stale
               and self.review_args(pair_id) == (preview.mode, preview.force)):
             # the review the user asked for, its dialog closed while it ran: say it is ready
@@ -934,9 +983,10 @@ class Engine(GObject.Object):
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None or self.creds is None or not entries:
             return False
-        if rt.task is not None or rt.restoring or any(t.pair_id == pair_id and not t.dry_run for t in self.queue):
+        if ((rt.task is not None and not rt.task.dry_run) or rt.restoring
+                or any(t.pair_id == pair_id and not t.dry_run for t in self.queue)):
             return False
-        self.cancel_preview(pair_id)
+        self.cancel_preview(pair_id)        # a preview or verification under way changes nothing: it yields
         rt.restoring = True
         rt.preview = None
         self._set_status(pair, rt, Status.SYNCING, _("Restoring from Koofr's trash…"))
@@ -1263,6 +1313,10 @@ class Engine(GObject.Object):
             # it will run again afterwards if the changes need it
             self.runtime[task.pair_id].rerun_requested = True
             return
+        rt = self.runtime.get(task.pair_id)
+        if (not task.dry_run and rt is not None and rt.preview is not None and rt.preview.running
+                and rt.preview.mode is Mode.CHECK and rt.preview.reason == "after-align"):
+            self.cancel_preview(task.pair_id)       # the automatic verification yields to a sync
         if front and task.reason == "confirmed" and not task.dry_run:
             # confirmations in the order the user gave them
             at = max((i + 1 for i, t in enumerate(self.queue) if t.reason == "confirmed" and not t.dry_run),
@@ -1318,7 +1372,7 @@ class Engine(GObject.Object):
             return fail(_("Sign in to Koofr first."))
         if self.rclone is None:
             return fail(_("rclone was not found."))
-        if task.reason not in ("preview", "confirmed", "manual") and (pair.paused or self.blocked_reason()):
+        if task.reason not in ("preview", "confirmed", "manual", "verify") and (pair.paused or self.blocked_reason()):
             if task.dry_run:
                 return fail(_("Stopped."))
             self._set_status(pair, rt, Status.PAUSED)
@@ -1339,7 +1393,7 @@ class Engine(GObject.Object):
         override = os.path.join(self.dev_remote, pair.remote.lstrip("/")) if self.dev_remote else None
         cfg, paths, rclone, creds = self.cfg, self.paths, self.rclone, self.creds
         # an automatic run waits for the files being written, but not for ever
-        wait = (task.reason not in ("manual", "confirmed", "preview") and not task.dry_run
+        wait = (task.reason not in ("manual", "confirmed", "preview", "verify") and not task.dry_run
                 and (not rt.busy_since or time.monotonic() - rt.busy_since < BUSY_WAIT_MAX_S))
         # what a fresh preview of this run says comes down: the disk must hold it
         preview = rt.preview
@@ -1347,7 +1401,7 @@ class Engine(GObject.Object):
                      and preview.fresh() and preview.mode is task.mode else 0)
 
         def work():
-            free = busy = changes = None
+            free = busy = changes = damaged = None
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
@@ -1355,7 +1409,11 @@ class Engine(GObject.Object):
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
                                    koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
                                    wait_for_writes=wait, max_delete=task.max_delete, max_changes=task.max_changes)
-                result = (job, bisync_args(rclone, job.request), "")
+                if task.mode is Mode.CHECK:
+                    argv = verify.check_args(rclone, job.request, paths.workdir(pair.id) / verify.REPORT)
+                else:
+                    argv = bisync_args(rclone, job.request)
+                result = (job, argv, "")
                 if not task.dry_run and (problem := local_space_problem(pair.local, paths.state, downloads)):
                     result = (None, None, problem)
                 if task.mode is Mode.SYNC:
@@ -1365,7 +1423,7 @@ class Engine(GObject.Object):
                         problem = jobs.rename_on_koofr(rclone, env, cfg, pair, paths, task.case_renames, override)
                         if problem:
                             result = (None, None, problem)
-                if task.dry_run:
+                if task.dry_run and task.mode is not Mode.CHECK:
                     free = free_space(rclone, paths, creds, override)
                     task.bases = jobs.listed_files(paths, pair)
                     task.counts = listings.counts(paths.workdir(pair.id))
@@ -1373,6 +1431,8 @@ class Engine(GObject.Object):
                 result, busy = (None, None, ""), e.paths
             except jobs.TooManyChanges as e:
                 result, changes = (None, None, ""), e
+            except jobs.DamagedListings as e:
+                result, damaged = (None, None, ""), str(e)
             except jobs.NotReady as e:
                 result = (None, None, e.problems[0].message)
             except OSError as e:
@@ -1380,12 +1440,12 @@ class Engine(GObject.Object):
             except Exception as e:      # said, never a lane taken for good
                 complain(f"preparing a run of {pair.name}", e)
                 result = (None, None, f"{type(e).__name__}: {e}")
-            GLib.idle_add(self._start_prepared, task, *result, free, busy, changes)
+            GLib.idle_add(self._start_prepared, task, *result, free, busy, changes, damaged)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
 
     def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None,
-                        busy: list[str] | None = None, changes=None) -> bool:
+                        busy: list[str] | None = None, changes=None, damaged: str | None = None) -> bool:
         """The run prepared in a thread: start it, unless things changed
         meanwhile (shutdown, pair removed or paused, Stop pressed), or files
         already in sync are being written (`busy`): then it waits for them."""
@@ -1431,7 +1491,7 @@ class Engine(GObject.Object):
             GLib.idle_add(self._next)
             return False
 
-        if task.cancelled or (task.reason not in ("confirmed", "manual", "preview")
+        if task.cancelled or (task.reason not in ("confirmed", "manual", "preview", "verify")
                               and (pair.paused or self.blocked_reason())):
             if task.callback:
                 task.callback(None, _("Stopped."))
@@ -1460,16 +1520,36 @@ class Engine(GObject.Object):
                 self.emit("attention", pair.id, "confirm", message)
             GLib.idle_add(self._next)
             return False
+        if damaged is not None:
+            # the record of the last synced state cannot be read: a repair,
+            # from the kept copy or with a new alignment, never a retry
+            message = _("The record of the last synced state is damaged")
+            if task.callback:
+                task.callback(None, message)
+            if task.dry_run:
+                restore()
+            else:
+                complain("reading the listings", ValueError(damaged))
+                self._set_status(pair, rt, Status.NEEDS_REPAIR, message)
+                if rt.before_run[0] is not Status.NEEDS_REPAIR:
+                    self.emit("attention", pair.id, "repair", message)
+            GLib.idle_add(self._next)
+            return False
         if error:
             return fail(error)
         if self.creds is None:
             return fail(_("Sign in to Koofr first."))
         dry = task.dry_run
+        summarize = rclone_summarize
+        if task.mode is Mode.CHECK:
+            report = self.paths.workdir(pair.id) / verify.REPORT
+            summarize = lambda code, events, _p1, _p2, cancelled=False: verify.summarize_check(  # noqa: E731
+                code, events, report, cancelled)
         run = BisyncRun(argv, koofr_env(self.creds.user, self.creds.obscured),
                         self.paths.lock_file(pair.id), self.paths.log_dir(pair.id),
                         job.path1, job.path2,
                         on_event=lambda ev, pid=pair.id: self._post_event(pid, ev, dry),
-                        on_exit=lambda out, t=task: self._post_exit(t, out))
+                        on_exit=lambda out, t=task: self._post_exit(t, out), summarize=summarize)
         try:
             run.start()
         except PairBusy:
@@ -1635,6 +1715,8 @@ class Engine(GObject.Object):
         GLib.idle_add(self._next)
 
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
+        if task.mode is Mode.CHECK:
+            return          # a verification changes nothing and decides nothing (its dialog has the outcome)
         outcome.plan.refused = [r.path for r in rt.pending_refused]
         if rt.states.syncing or outcome.plan.error_paths:
             rt.states.syncing = set()
@@ -1670,8 +1752,16 @@ class Engine(GObject.Object):
                 # next run could not be recovered (--recover needs it). A run
                 # right away, with nothing to do, writes it.
                 self._enqueue(Task(pair.id, Mode.SYNC, reason="seal"), front=True)
+                if task.reason == "confirmed":
+                    # an alignment the user confirmed: both sides compared by
+                    # checksum afterwards, a word only if they differ
+                    self.verify(pair.id, reason="after-align")
             rt.status = Status.OK
             plan = outcome.plan
+            try:
+                jobs.keep_listings(self.paths, pair.id)     # the state just reached, kept for a bad day
+            except OSError as e:
+                complain("keeping the listings", e)
             if plan.upload or plan.delete_remote:
                 self.refresh_space(min_age=60)          # what Koofr holds just changed
             self.recent.record(pair.id, pair.local, plan.upload + [new for _old, new in plan.moved_remote],

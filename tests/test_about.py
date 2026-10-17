@@ -47,10 +47,9 @@ class AboutTest(unittest.TestCase):
             cfg = Config(user="x@example.org", pairs=[Pair("p1", "/h/docs", "/docs")])
             engine = SimpleNamespace(cfg=cfg, paths=paths, rclone=None, creds=None, space=None, runtime={},
                                      blocked_reason=lambda: "")
-            parent = Adw.Window()
-            parent.present()
-            window.about_dialog(parent, engine)
-            dialog = parent.get_visible_dialog()
+            # built, not shown: the real display is left alone (a window on it
+            # kept the test process from exiting)
+            dialog = window.about_dialog(None, engine, present=False)
             self.assertIsInstance(dialog, Adw.AboutDialog)
             self.assertIn("Spola ", dialog.get_debug_info())
             self.assertIn("[p1] /h/docs <-> /docs", dialog.get_debug_info())
@@ -58,5 +57,4 @@ class AboutTest(unittest.TestCase):
             self.assertTrue(spin(lambda: "rclone version" in dialog.get_debug_info()), dialog.get_debug_info())
             self.assertIn("backups: 1 files, 100 B", dialog.get_debug_info())
             self.assertEqual(dialog.get_debug_info_filename(), "spola-debug-info.txt")
-            dialog.force_close()
-            parent.destroy()
+            dialog.run_dispose()

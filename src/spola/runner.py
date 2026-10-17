@@ -48,8 +48,10 @@ class BisyncRun:
     def __init__(self, argv: list[str], env: dict, lock_path: Path, log_dir: Path,
                  path1: str, path2: str,
                  on_event: Callable[[Event], None] | None = None,
-                 on_exit: Callable[[Outcome], None] | None = None):
+                 on_exit: Callable[[Outcome], None] | None = None,
+                 summarize: Callable[..., Outcome] = summarize):
         self.argv, self.env = argv, env
+        self.summarize = summarize      # (exit_code, events, path1, path2, cancelled=) -> Outcome
         self.lock_path, self.log_dir = lock_path, log_dir
         self.path1, self.path2 = path1, path2
         self.on_event, self.on_exit = on_event, on_exit
@@ -205,8 +207,8 @@ class BisyncRun:
                         complain("handling a line of rclone", e)
             self._proc.stderr.close()
             code = self._proc.wait()
-            self.outcome = summarize(code, self.events, self.path1, self.path2,
-                                     cancelled=self._interrupts > 0 and code != 0)
+            self.outcome = self.summarize(code, self.events, self.path1, self.path2,
+                                          cancelled=self._interrupts > 0 and code != 0)
             if self._interrupts > 0 and code != 0 and self.outcome.result is Result.CANCELLED:
                 self.outcome.message = "stopped"
         except Exception as e:

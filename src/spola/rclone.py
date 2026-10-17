@@ -597,6 +597,7 @@ class Outcome:
     # rather than empty the other one; the folder may also be gone there
     empty_side: str = ""
     root_missing: bool = False  # a side's folder is not there (a resync's "directory not found")
+    identical: int = 0          # a verification (verify.py): the files the same on both sides
 
 
 NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection reset",

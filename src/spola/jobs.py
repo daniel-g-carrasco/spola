@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import listings
 from .config import Config, Pair
@@ -76,6 +77,19 @@ def changed_here(root: str, previous: list[listings.Entry]) -> list[str]:
         if st.st_size != entry.size or (known is not None and abs(st.st_mtime_ns - known) > 1_000_000):
             changed.append(entry.path)
     return changed
+
+
+class DamagedListings(Exception):
+    """A listing of the last synced state cannot be read: a repair (the kept
+    copy put back, or a new alignment), not an error to retry."""
+
+
+def _load(workdir: Path, side: int):
+    """listings.load, a damaged file said as such."""
+    try:
+        return listings.load(workdir, side)
+    except ValueError as e:
+        raise DamagedListings(str(e)) from e
 
 
 class Busy(Exception):
@@ -237,7 +251,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     new files still being written are left out of the run (Job.busy), and
     for ones already in sync the run raises Busy."""
     workdir = paths.workdir(pair.id)
-    known = (listings.load(workdir, 1) or []) if listings.find(workdir, 1) else []
+    known = (_load(workdir, 1) or []) if listings.find(workdir, 1) else []
     problems = check_root_identity(pair, [e.path for e in known[:50]])
     # before every run, not only when the pair was added: Koofr Desktop may
     # have come back (an autostart entry it rewrote, a session that runs it)
@@ -266,7 +280,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     backup = paths.backup_dir(pair.id) / time.strftime("%Y%m%d-%H%M%S")
     paths.rclone_config.parent.mkdir(parents=True, exist_ok=True)
 
-    previous = listings.load(workdir, 1) if listings.find(workdir, 1) else None
+    previous = _load(workdir, 1) if listings.find(workdir, 1) else None
     known = frozenset(e.path for e in previous or [])
     refused = refused_paths(pair.local, pair.remote, known, skip=default_excluded)
     busy: list[str] = []
@@ -435,3 +449,172 @@ def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = Non
             shutil.rmtree(run)
             removed += 1
     return removed
+
+
+# -- the local backups, seen and used ------------------------------------------
+
+RUN_NAME = "%Y%m%d-%H%M%S"
+
+
+@dataclass(frozen=True)
+class BackupRun:
+    """One run's backup folder: the files that run replaced or deleted here."""
+    name: str           # "20261013-175420"
+    time: float         # when the run started, seconds since the epoch
+    files: int
+    size: int
+
+
+def _run_time(name: str) -> float | None:
+    try:
+        return time.mktime(time.strptime(name, RUN_NAME))
+    except ValueError:
+        return None     # not a run folder of ours: never touched
+
+
+def backup_runs(paths: Paths, pair_id: str) -> list[BackupRun]:
+    """This pair's backups, the newest first, each with its files and bytes
+    (a stat walk: a moment for thousands of files, off the main loop)."""
+    root = paths.backup_dir(pair_id)
+    runs = []
+    if not root.is_dir():
+        return runs
+    for run in root.iterdir():
+        stamp = _run_time(run.name)
+        if stamp is None or not run.is_dir() or run.is_symlink():
+            continue
+        files = size = 0
+        for folder, _dirs, names in os.walk(run):
+            for name in names:
+                try:
+                    size += os.lstat(os.path.join(folder, name)).st_size
+                    files += 1
+                except OSError:
+                    pass
+        runs.append(BackupRun(run.name, stamp, files, size))
+    return sorted(runs, key=lambda r: r.time, reverse=True)
+
+
+def _run_dir(paths: Paths, pair_id: str, run: str) -> Path:
+    if _run_time(run) is None:
+        raise ValueError(f"not a backup run: {run!r}")
+    return paths.backup_dir(pair_id) / run
+
+
+def backup_files(paths: Paths, pair_id: str, run: str) -> list[tuple[str, int]]:
+    """(relative path, size) of every file in that run's backup."""
+    root = _run_dir(paths, pair_id, run)
+    found = []
+    for folder, _dirs, names in os.walk(root):
+        for name in names:
+            full = os.path.join(folder, name)
+            try:
+                found.append((os.path.relpath(full, root).replace("\\", "/"), os.lstat(full).st_size))
+            except OSError:
+                pass
+    return sorted(found)
+
+
+def restore_backup(paths: Paths, pair: Pair, run: str, rel: str, now: float | None = None) -> str:
+    """The backed-up file put back in its place in the synced folder; the
+    file there now, if any, goes into a backup run of its own first, so
+    nothing is lost. Returns the name of that run, or "". The next sync
+    uploads what was put back."""
+    if ".." in rel.split("/") or rel.startswith("/") or not rel:
+        raise ValueError(f"not a path inside the folder: {rel!r}")
+    source = _run_dir(paths, pair.id, run) / rel
+    if not source.is_file() or source.is_symlink():
+        raise FileNotFoundError(str(source))
+    target = Path(pair.local) / rel
+    kept = ""
+    if target.exists() or target.is_symlink():
+        stamp = time.strftime(RUN_NAME, time.localtime(time.time() if now is None else now))
+        aside = paths.backup_dir(pair.id) / stamp / rel
+        aside.parent.mkdir(parents=True, exist_ok=True)
+        if aside.exists():
+            aside = aside.with_name(aside.name + f".{int(time.time() * 1000) % 100000}")
+        os.replace(target, aside)
+        kept = stamp
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)        # the backup stays: a restore is not a move
+    return kept
+
+
+def delete_backup_run(paths: Paths, pair_id: str, run: str) -> None:
+    folder = _run_dir(paths, pair_id, run)
+    if folder.is_dir() and not folder.is_symlink():
+        shutil.rmtree(folder)
+
+
+# -- the listings kept after a successful run ----------------------------------
+
+KEPT_LISTINGS = 3
+
+
+def _listing_files(paths: Paths, pair_id: str) -> list[Path]:
+    """The current listings and the filters' fingerprint: what a run needs
+    to know the last synced state."""
+    workdir = paths.workdir(pair_id)
+    files = sorted(workdir.glob("*.lst")) if workdir.is_dir() else []
+    filters = paths.filters_file(pair_id)
+    md5 = filters.with_name(filters.name + ".md5")
+    return files + ([md5] if md5.is_file() else [])
+
+
+def keep_listings(paths: Paths, pair_id: str, now: float | None = None) -> Path | None:
+    """After a successful run: a copy of the two listings (and the filters'
+    fingerprint) in workdir/kept/<time>/, the last KEPT_LISTINGS kept. A
+    listing lost or damaged later is put back from here (restore_listings)
+    rather than replaced by a new alignment."""
+    files = _listing_files(paths, pair_id)
+    if sum(1 for f in files if f.suffix == ".lst") != 2:
+        return None
+    kept = paths.workdir(pair_id) / "kept"
+    stamp = time.strftime(RUN_NAME, time.localtime(time.time() if now is None else now))
+    folder = kept / stamp
+    tmp = kept / (stamp + ".new")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    for f in files:
+        shutil.copy2(f, tmp / f.name)
+    if folder.exists():
+        shutil.rmtree(folder)
+    os.replace(tmp, folder)
+    for old in sorted(d for d in kept.iterdir() if d.is_dir() and _run_time(d.name) is not None)[:-KEPT_LISTINGS]:
+        shutil.rmtree(old, ignore_errors=True)
+    return folder
+
+
+def kept_listings(paths: Paths, pair_id: str) -> list[tuple[str, float]]:
+    """(name, time) of the kept copies that hold both listings, newest first."""
+    kept = paths.workdir(pair_id) / "kept"
+    found = []
+    if kept.is_dir():
+        for d in kept.iterdir():
+            stamp = _run_time(d.name)
+            if stamp is not None and d.is_dir() and len(list(d.glob("*.lst"))) == 2:
+                found.append((d.name, stamp))
+    return sorted(found, key=lambda item: item[1], reverse=True)
+
+
+def restore_listings(paths: Paths, pair_id: str, name: str) -> None:
+    """The kept copy `name` made the current listings: what is in the
+    workdir now (listings, their -old and -err leftovers, bisync's lock)
+    goes aside into kept/replaced-<time>/ first."""
+    if _run_time(name) is None:
+        raise ValueError(f"not a kept copy: {name!r}")
+    workdir = paths.workdir(pair_id)
+    source = workdir / "kept" / name
+    if len(list(source.glob("*.lst"))) != 2:
+        raise FileNotFoundError(str(source))
+    aside = workdir / "kept" / time.strftime("replaced-" + RUN_NAME)
+    aside.mkdir(parents=True, exist_ok=True)
+    for f in list(workdir.glob("*.lst*")) + list(workdir.glob("*.lck")):
+        if f.is_file():
+            os.replace(f, aside / f.name)
+    for f in source.iterdir():
+        if f.suffix == ".lst":
+            shutil.copy2(f, workdir / f.name)
+        elif f.name.endswith(".md5"):
+            filters = paths.filters_file(pair_id)
+            shutil.copy2(f, filters.with_name(filters.name + ".md5"))

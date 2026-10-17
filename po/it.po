@@ -2593,3 +2593,233 @@ msgstr "Cosa ha riportato rclone durante l'ultima sincronizzazione, per la risol
 #: src/spola/window.py
 msgid "Measuring the space taken by the logs and backups…"
 msgstr "Misurazione dello spazio occupato da log e backup…"
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "“{name}”: {what}"
+msgstr "“{name}”: {what}"
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "“{name}”: differences between this computer and Koofr"
+msgstr "“{name}”: differenze tra questo computer e Koofr"
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "“{name}” verified"
+msgstr "“{name}” verificata"
+
+#: src/spola/cli.py
+msgid "compare both sides by size and checksum, changing nothing"
+msgstr "confronta i due lati per dimensione e checksum, senza cambiare nulla"
+
+#: src/spola/cli.py
+#, python-brace-format
+msgid "{n} file the same on both sides"
+msgid_plural "{n} files the same on both sides"
+msgstr[0] "{n} file uguale sui due lati"
+msgstr[1] "{n} file uguali sui due lati"
+
+#: src/spola/cli.py src/spola/window.py
+msgid "Only on this computer"
+msgstr "Solo su questo computer"
+
+#: src/spola/cli.py src/spola/window.py
+msgid "Only on Koofr"
+msgstr "Solo su Koofr"
+
+#: src/spola/cli.py src/spola/window.py
+msgid "Different"
+msgstr "Diversi"
+
+#: src/spola/cli.py src/spola/window.py
+msgid "Could not be compared"
+msgstr "Impossibile confrontarli"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "{n} difference between this computer and Koofr"
+msgid_plural "{n} differences between this computer and Koofr"
+msgstr[0] "{n} differenza tra questo computer e Koofr"
+msgstr[1] "{n} differenze tra questo computer e Koofr"
+
+#: src/spola/engine.py src/spola/window.py
+#, python-brace-format
+msgid "{n} file, the same on both sides"
+msgid_plural "{n} files, the same on both sides"
+msgstr[0] "{n} file, uguale sui due lati"
+msgstr[1] "{n} file, uguali sui due lati"
+
+#: src/spola/verify.py
+msgid "The verification stopped with an error."
+msgstr "La verifica si è fermata con un errore."
+
+#: src/spola/window.py
+msgid "Verify Both Sides"
+msgstr "Verifica i due lati"
+
+#: src/spola/window.py
+msgid "Compare sizes and checksums here and on Koofr. Nothing is changed."
+msgstr "Confronta dimensioni e checksum qui e su Koofr. Niente viene cambiato."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} difference"
+msgid_plural "{n} differences"
+msgstr[0] "{n} differenza"
+msgstr[1] "{n} differenze"
+
+#: src/spola/window.py
+msgid "the same on both sides"
+msgstr "uguali sui due lati"
+
+#: src/spola/window.py
+msgid "Verify Again"
+msgstr "Verifica di nuovo"
+
+#: src/spola/window.py
+msgid "Comparing…"
+msgstr "Confronto in corso…"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} file compared"
+msgid_plural "{n} files compared"
+msgstr[0] "{n} file confrontato"
+msgstr[1] "{n} file confrontati"
+
+#: src/spola/window.py
+msgid "The verification failed"
+msgstr "La verifica non è riuscita"
+
+#: src/spola/window.py
+msgid "Sizes and checksums match. Nothing was changed."
+msgstr "Dimensioni e checksum coincidono. Niente è stato cambiato."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} file is the same on both sides; these differ. Nothing was changed: the preview of the next sync says what it would do about them."
+msgid_plural "{n} files are the same on both sides; these differ. Nothing was changed: the preview of the next sync says what it would do about them."
+msgstr[0] "{n} file è uguale sui due lati; questi differiscono. Niente è stato cambiato: l'anteprima della prossima sincronizzazione dice cosa farebbe con loro."
+msgstr[1] "{n} file sono uguali sui due lati; questi differiscono. Niente è stato cambiato: l'anteprima della prossima sincronizzazione dice cosa farebbe con loro."
+
+#: src/spola/window.py
+msgid "Files changed since: verify again for the current picture."
+msgstr "Da allora dei file sono cambiati: verifica di nuovo per il quadro attuale."
+
+#: src/spola/verify.py
+msgid "Koofr could not be reached."
+msgstr "Impossibile raggiungere Koofr."
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "Syncing from the state known at {time}"
+msgstr "Sincronizzazione dallo stato noto alle {time}"
+
+#: src/spola/engine.py
+msgid "The record of the last synced state is damaged"
+msgstr "Il registro dell'ultimo stato sincronizzato è danneggiato"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Repair “{name}”?"
+msgstr "Riparare “{name}”?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Spola lost track of the last synced state ({reason}).\n\nIt kept a copy of the state known at {time}, after the last successful sync: Spola can go back to it and sync normally from there, the changes since then handled as usual, with the same safety checks. Or a new alignment copies what is missing on each side and deletes nothing; where both sides have a different version, the newer one wins."
+msgstr "Spola ha perso traccia dell'ultimo stato sincronizzato ({reason}).\n\nNe ha conservato una copia dello stato noto alle {time}, dopo l'ultima sincronizzazione riuscita: Spola può tornare a quello stato e sincronizzare normalmente da lì, con le modifiche successive gestite come sempre e le stesse protezioni. Oppure un nuovo allineamento copia ciò che manca da ciascun lato e non elimina nulla; dove i due lati hanno una versione diversa, vince la più recente."
+
+#: src/spola/window.py
+msgid "Go Back to That State"
+msgstr "Torna a quello stato"
+
+#: src/spola/window.py
+msgid "New Alignment…"
+msgstr "Nuovo allineamento…"
+
+#: src/spola/window.py
+msgid "The kept state could not be put back: a new alignment is needed."
+msgstr "Impossibile rimettere lo stato conservato: serve un nuovo allineamento."
+
+#: src/spola/window.py
+msgid "Local Backups"
+msgstr "Backup locali"
+
+#: src/spola/window.py
+msgid "Files replaced or deleted here by past syncs, kept for a while"
+msgstr "File sostituiti o eliminati qui da sincronizzazioni passate, conservati per un po'"
+
+#: src/spola/window.py
+msgid "Delete All…"
+msgstr "Elimina tutti…"
+
+#: src/spola/window.py
+msgid "Looking at the backups…"
+msgstr "Lettura dei backup…"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "A sync that replaces or deletes a file here keeps the old copy for {n} day, in a folder of its own for each sync. Nothing on Koofr is touched from here."
+msgid_plural "A sync that replaces or deletes a file here keeps the old copy for {n} days, in a folder of its own for each sync. Nothing on Koofr is touched from here."
+msgstr[0] "Una sincronizzazione che sostituisce o elimina un file qui ne conserva la vecchia copia per {n} giorno, in una cartella propria per ogni sincronizzazione. Da qui non si tocca nulla su Koofr."
+msgstr[1] "Una sincronizzazione che sostituisce o elimina un file qui ne conserva la vecchia copia per {n} giorni, in una cartella propria per ogni sincronizzazione. Da qui non si tocca nulla su Koofr."
+
+#: src/spola/window.py
+msgid "No backup at the moment."
+msgstr "Nessun backup al momento."
+
+#: src/spola/window.py
+msgid "Delete This Backup"
+msgstr "Elimina questo backup"
+
+#: src/spola/window.py
+msgid "Put it back in its place"
+msgstr "Rimettilo al suo posto"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Put “{name}” back?"
+msgstr "Rimettere “{name}” al suo posto?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "The copy of {time} goes back to its place in the folder. The file there now is kept in a new backup first. The next sync uploads it to Koofr."
+msgstr "La copia delle {time} torna al suo posto nella cartella. Il file che c'è ora viene prima conservato in un nuovo backup. La prossima sincronizzazione la carica su Koofr."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "The copy of {time} goes back to its place in the folder. The next sync uploads it to Koofr."
+msgstr "La copia delle {time} torna al suo posto nella cartella. La prossima sincronizzazione la carica su Koofr."
+
+#: src/spola/window.py
+msgid "Put It Back"
+msgstr "Rimetti al suo posto"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Put back: {path}"
+msgstr "Rimesso al suo posto: {path}"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Delete the backup of {time}?"
+msgstr "Eliminare il backup delle {time}?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{amount} of files replaced or deleted by that sync. Nothing else is touched."
+msgstr "{amount} di file sostituiti o eliminati da quella sincronizzazione. Nient'altro viene toccato."
+
+#: src/spola/window.py
+msgid "Delete every backup of this folder?"
+msgstr "Eliminare tutti i backup di questa cartella?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{amount} of files replaced or deleted by past syncs. Nothing else is touched."
+msgstr "{amount} di file sostituiti o eliminati da sincronizzazioni passate. Nient'altro viene toccato."
+
+#: src/spola/window.py
+msgid "Delete All"
+msgstr "Elimina tutti"

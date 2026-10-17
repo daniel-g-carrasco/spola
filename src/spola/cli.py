@@ -18,15 +18,15 @@ import os
 import sys
 from pathlib import Path
 
-from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_api, listings, preflight
+from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_api, listings, preflight, verify
 from .account import AccountError, Credentials, check
 from .i18n import _, ngettext
 from .paths import Paths
 from .rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
-                     default_excluded, find_rclone, koofr_env)
+                     default_excluded, find_rclone, koofr_env, summarize as rclone_summarize)
 from .runner import BisyncRun, PairBusy
 
-COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync",
+COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync", "verify",
             "import-koofr-desktop", "forget-windows")
 # Developer aid, as in the app: the Koofr side becomes a local folder
 DEV_REMOTE = os.environ.get("SPOLA_DEV_REMOTE") or None
@@ -122,8 +122,15 @@ def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quie
             print(f"\r  {s.get('transfers', 0)}/{s.get('totalTransfers', 0)} files, "
                   f"{s.get('bytes', 0) // 1048576}/{(s.get('totalBytes') or 0) // 1048576} MB", end="", flush=True)
 
-    run = BisyncRun(bisync_args(rclone, job.request), koofr_env(creds.user, creds.obscured),
-                    paths.lock_file(pair.id), paths.log_dir(pair.id), job.path1, job.path2, on_event=on_event)
+    if mode is Mode.CHECK:
+        report = paths.workdir(pair.id) / verify.REPORT
+        argv = verify.check_args(rclone, job.request, report)
+        summarize = lambda code, events, _p1, _p2, cancelled=False: verify.summarize_check(  # noqa: E731
+            code, events, report, cancelled)
+    else:
+        argv, summarize = bisync_args(rclone, job.request), rclone_summarize
+    run = BisyncRun(argv, koofr_env(creds.user, creds.obscured), paths.lock_file(pair.id), paths.log_dir(pair.id),
+                    job.path1, job.path2, on_event=on_event, summarize=summarize)
     try:
         run.start()
     except PairBusy:
@@ -194,7 +201,8 @@ def main(argv: list[str]) -> int:
     for name, text in (("preview", _("show what the next sync would do")),
                        ("align", _("first alignment of a new pair (preview, then asks)")),
                        ("repair", _("new alignment after a critical error (preview, then asks)")),
-                       ("sync", _("sync a pair now"))):
+                       ("sync", _("sync a pair now")),
+                       ("verify", _("compare both sides by size and checksum, changing nothing"))):
         p = sub.add_parser(name, help=text)
         p.add_argument("pair")
         if name in ("sync", "preview"):
@@ -218,7 +226,7 @@ def main(argv: list[str]) -> int:
     # (listings read, the exclude file written) with only rclone's lock
     # between them: the window does it, or Spola quits first
     touches_pair = args.command in ("login", "logout", "add", "remove", "align", "repair", "import-koofr-desktop",
-                                    "sync", "preview")
+                                    "sync", "preview", "verify")
     if touches_pair and _app_running():
         return _fail(_("Spola is running: use its window, or quit it first."))
 
@@ -321,6 +329,23 @@ def main(argv: list[str]) -> int:
     creds = _credentials(cfg, rclone)
     if creds is None:
         return _fail(_("Not signed in: run 'spola login'."))
+
+    if args.command == "verify":
+        outcome = _run(cfg, pair, paths, rclone, creds, Mode.CHECK, dry_run=True, quiet=True)
+        if outcome is None:
+            return 1
+        if outcome.result is not Result.OK:
+            return _fail(outcome.message)
+        plan = outcome.plan
+        print(ngettext("{n} file the same on both sides", "{n} files the same on both sides", outcome.identical)
+              .format(n=outcome.identical))
+        for title, items in ((_("Only on this computer"), plan.upload), (_("Only on Koofr"), plan.download),
+                             (_("Different"), plan.conflicts), (_("Could not be compared"), plan.error_paths)):
+            if items:
+                print(f"{title} ({len(items)}):")
+                for path in items:
+                    print(f"  {path}")
+        return 0 if not (plan.upload or plan.download or plan.conflicts or plan.error_paths) else 1
 
     if args.command == "preview":
         mode = Mode.SYNC if pair.initialized else Mode.RESYNC
