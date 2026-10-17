@@ -966,6 +966,52 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: not self.engine._activity_busy, 10))
         self.assertIs(self.engine.feed_ok, False)
 
+    def test_many_files_changed_here_at_once_wait_for_a_confirmation(self):
+        # a snapshot put back, a bulk edit: the files changed here would go up
+        # over Koofr's copies; above the threshold the run does not start
+        from spola import rclone as rclone_mod
+        rclone_mod.MIN_FREE_CHANGES = 3
+        self.addCleanup(setattr, rclone_mod, "MIN_FREE_CHANGES", 50)
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        self.engine.set_paused("p1", True)
+        for i in range(10):
+            (self.local / f"f{i:02}.txt").write_text(f"rewritten {i}")
+        self.engine.set_paused("p1", False)
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30), rt.message)
+        self.assertEqual(rt.safety, "changes")
+        self.assertIn("10 of 30", rt.message)
+        self.assertIn("confirm", told)
+        self.assertEqual((self.remote / "f03.txt").read_text(), "3")        # nothing went up
+        self.assertIsNone(self.engine.active)
+        self.engine.sync_all("poll")                                       # automatic runs stay stopped
+        spin_until(lambda: False, 1.5)
+        self.assertEqual((self.remote / "f03.txt").read_text(), "3")
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(len(got[0][0].plan.upload), 10)
+        # more files change before the confirmed run is prepared: it stops again
+        self.slow_prepare(1.5)
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append((out, err))))
+        self.assertTrue(spin_until(lambda: rt.task is not None, 5))
+        for i in range(10, 25):
+            (self.local / f"f{i:02}.txt").write_text(f"rewritten {i}")
+        self.assertTrue(spin_until(lambda: results, 30))
+        self.assertEqual(results[0][0], None)
+        self.assertIn("25 of 30", results[0][1])
+        self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)
+        self.assertEqual((self.remote / "f03.txt").read_text(), "3")
+        # seen and confirmed for what it is now: up they go
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got and self.engine.runtime["p1"].preview is kept, 60))
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True))
+        self.assertTrue(spin_until(lambda: (self.remote / "f03.txt").read_text() == "rewritten 3"
+                                   and self.status() is Status.OK, 60))
+
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
         self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
@@ -1188,3 +1234,21 @@ class HelpersTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ChangedHereTest(unittest.TestCase):
+    def test_files_whose_size_or_date_differ_from_the_last_listing(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        (root / "sub").mkdir()
+        stamp = "2026-10-15T09:00:59.704779200+0000"
+        known = listings.modtime_ns(stamp)
+        for name, text, mtime_ns in (("same.txt", "ab", known), ("bigger.txt", "abc", known),
+                                     ("later.txt", "ab", known + 2 * 10**9), ("close.txt", "ab", known + 500_000),
+                                     ("sub/deep.txt", "ab", known - 3 * 10**9)):
+            (root / name).write_text(text)
+            os.utime(root / name, ns=(mtime_ns, mtime_ns))
+        previous = [listings.Entry("sub", True, -1, "-", stamp)] + [
+            listings.Entry(name, False, 2, "-", stamp)
+            for name in ("same.txt", "bigger.txt", "later.txt", "close.txt", "gone.txt", "sub/deep.txt")]
+        self.assertEqual(jobs.changed_here(str(root), previous), ["bigger.txt", "later.txt", "sub/deep.txt"])
+        self.assertEqual(jobs.changed_here(str(root), []), [])

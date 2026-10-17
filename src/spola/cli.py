@@ -22,7 +22,8 @@ from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_
 from .account import AccountError, Credentials, check
 from .i18n import _, ngettext
 from .paths import Paths
-from .rclone import Mode, Outcome, Result, bisync_args, confirmed_max_delete, default_excluded, find_rclone, koofr_env
+from .rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
+                     default_excluded, find_rclone, koofr_env)
 from .runner import BisyncRun, PairBusy
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync",
@@ -88,7 +89,7 @@ def _print_plan(outcome: Outcome) -> None:
 
 
 def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quiet=False,
-         max_delete=None) -> Outcome | None:
+         max_delete=None, max_changes=None) -> Outcome | None:
     override = None
     if DEV_REMOTE:
         override = os.path.join(DEV_REMOTE, pair.remote.lstrip("/"))
@@ -97,9 +98,14 @@ def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quie
         env = koofr_env(creds.user, creds.obscured)
         job = jobs.prepare(cfg, pair, paths, mode, dry_run, force, path2_override=override,
                            koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
-                           max_delete=max_delete)
+                           max_delete=max_delete, max_changes=max_changes)
     except jobs.NotReady as e:
         _fail(e.problems[0].message)
+        return None
+    except jobs.TooManyChanges as e:
+        _fail(_("{n} of {total} files changed on this computer at once").format(n=e.changed, total=e.total)
+              + " " + _("Look at the preview (spola preview {id} --force) and confirm with: spola sync {id} --force")
+              .format(id=pair.id))
         return None
 
     def on_event(ev):
@@ -347,9 +353,10 @@ def main(argv: list[str]) -> int:
             # margin, never more (--force would lift every limit); if every file
             # changed, bisync's second check, once more past it
             bound = confirmed_max_delete(preview.plan, listings.counts(paths.workdir(pair.id)))
-            outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, max_delete=bound)
+            changes = confirmed_max_changes(preview.plan, jobs.listed_files(paths, pair))
+            outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, max_delete=bound, max_changes=changes)
             if outcome is not None and outcome.result is Result.NEEDS_CONFIRMATION and outcome.safety == "all-changed":
-                outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, force=True)
+                outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, force=True, max_changes=changes)
         else:
             outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, dry_run=args.dry_run, force=args.force)
         if outcome is None:

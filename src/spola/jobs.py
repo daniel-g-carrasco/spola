@@ -23,7 +23,7 @@ from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_
                         check_root_identity, koofr_desktop_config, refused_paths)
 from .i18n import _, translation_for
 from .koofr_api import user_agent
-from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, conflict_suffix, default_excluded,
+from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, allowed_changes, conflict_suffix, default_excluded,
                      effective_max_delete, exclude_lines, filter_escape, no_window, remote_spec,
                      reserved_exclude_lines,
                      windows_reserved_names_matter)
@@ -50,6 +50,32 @@ class NotReady(Exception):
 # transcription, a download, a log): copied now, the other side gets half of
 # it, and the next run takes it for changed on both sides.
 SETTLE_S = 30
+
+
+class TooManyChanges(Exception):
+    """More files changed here since the last run than may go up over
+    Koofr's copies unasked: the run waits for a confirmation, with a preview."""
+
+    def __init__(self, changed: int, total: int, examples: list[str]):
+        super().__init__(f"{changed} of {total}")
+        self.changed, self.total, self.examples = changed, total, examples
+
+
+def changed_here(root: str, previous: list[listings.Entry]) -> list[str]:
+    """The files of the last listing whose size or date differ here now:
+    what the next run uploads over Koofr's copy of them."""
+    changed = []
+    for entry in previous:
+        if entry.is_dir:
+            continue
+        try:
+            st = os.stat(os.path.join(root, entry.path))
+        except OSError:
+            continue            # gone: a deletion, bisync's own check
+        known = listings.modtime_ns(entry.modtime)
+        if st.st_size != entry.size or (known is not None and abs(st.st_mtime_ns - known) > 1_000_000):
+            changed.append(entry.path)
+    return changed
 
 
 class Busy(Exception):
@@ -202,7 +228,7 @@ def _folded(files: set[str]) -> set[str]:
 def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
             dry_run: bool = False, force: bool = False,
             path2_override: str | None = None, koofr_files=None, wait_for_writes: bool = False,
-            now: float | None = None, max_delete: int | None = None) -> Job:
+            now: float | None = None, max_delete: int | None = None, max_changes: int | None = None) -> Job:
     """`path2_override` replaces the Koofr side with another path (tests run
     bisync between two local folders); it is never set by the app.
     `koofr_files()` lists the Koofr folder's files, or None if it cannot:
@@ -248,6 +274,12 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         busy, known_busy = being_written(pair.local, previous or [], time.time() if now is None else now)
         if known_busy:
             raise Busy(known_busy)
+    if mode is Mode.SYNC and not dry_run and previous:
+        # too many files changed here at once: not over Koofr's copies unasked
+        changed = changed_here(pair.local, previous)
+        allowed = max_changes if max_changes is not None else allowed_changes(pair.max_delete_percent, len(previous))
+        if len(changed) > allowed:
+            raise TooManyChanges(len(changed), sum(1 for e in previous if not e.is_dir), changed[:5])
     exclude_file = None
     lines = exclude_lines(refused) + "".join(filter_escape(path) + "\n" for path in busy)
     if windows_reserved_names_matter():
