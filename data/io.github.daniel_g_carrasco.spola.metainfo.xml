@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.24" date="2026-10-17" type="development">
+      <description>
+        <p>The window no longer freezes while Spola reads the record of a large folder at start and after each of its syncs (close to a second for 40,000 files, now off the main loop), and a damaged record no longer stops Spola from starting: the folder asks for a repair instead. Renames by case alone inside nested folders were verified on Koofr itself.</p>
+      </description>
+    </release>
     <release version="0.3.23" date="2026-10-17" type="development">
       <description>
         <p>Verify both sides: a folder's page compares every file here and on Koofr by size and checksum, changing nothing, and shows what is only here, only on Koofr, different or could not be compared, each as a tree; every confirmed alignment is followed by a verification of its own, with a word only if the sides differ. On the command line: spola verify.</p>
