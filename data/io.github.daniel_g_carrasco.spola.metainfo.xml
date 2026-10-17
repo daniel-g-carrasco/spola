@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.25" date="2026-10-17" type="development">
+      <description>
+        <p>For the desktop's own widgets: Spola keeps a small status file (status.json in its state folder) current with what it is doing, every folder's state and progress, for a shell widget such as the Noctalia plugin to show; and the icon in the notification area can be switched off in the preferences when such a widget takes its place.</p>
+      </description>
+    </release>
     <release version="0.3.24" date="2026-10-17" type="development">
       <description>
         <p>The window no longer freezes while Spola reads the record of a large folder at start and after each of its syncs (close to a second for 40,000 files, now off the main loop), and a damaged record no longer stops Spola from starting: the folder asks for a repair instead. Renames by case alone inside nested folders were verified on Koofr itself.</p>
