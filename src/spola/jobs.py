@@ -352,6 +352,41 @@ def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Path
     return ""
 
 
+def exclusion_patterns(filters_text: str) -> list[str]:
+    """The "- pattern" rules of a filters file, for excluded_by: what the
+    folder monitor need not watch."""
+    found = []
+    for line in filters_text.splitlines():
+        line = line.strip()
+        if line.startswith("- ") and len(line) > 2:
+            found.append(line[2:].strip())
+    return found
+
+
+def backups_older_than(paths: Paths, pair_id: str, days: int, now: float | None = None) -> tuple[int, int]:
+    """(runs, bytes) of this pair's backups that `days` of retention would
+    delete: what to say before a shorter retention is applied."""
+    root = paths.backup_dir(pair_id)
+    now = time.time() if now is None else now
+    runs = size = 0
+    if not root.is_dir():
+        return 0, 0
+    for run in root.iterdir():
+        try:
+            stamp = time.mktime(time.strptime(run.name, "%Y%m%d-%H%M%S"))
+        except ValueError:
+            continue
+        if now - stamp > days * 86400 and run.is_dir() and not run.is_symlink():
+            runs += 1
+            for folder, _dirs, files in os.walk(run):
+                for name in files:
+                    try:
+                        size += os.lstat(os.path.join(folder, name)).st_size
+                    except OSError:
+                        pass
+    return runs, size
+
+
 def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = None) -> int:
     """Delete this pair's run backups older than `days`; return how many."""
     root = paths.backup_dir(pair_id)

@@ -26,7 +26,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .i18n import count, ngettext
+from .i18n import _, count, ngettext
+from .listings import go_unquote
 
 REMOTE_NAME = "koofr"   # changing it would orphan every pair's bisync listings
 
@@ -34,7 +35,12 @@ FORBIDDEN_FLAGS = frozenset({
     "--delete-excluded", "--inplace", "--copy-links", "-L", "--links", "-l",
     "--ignore-listing-checksum", "--no-cleanup", "--remove-empty-dirs",
     "--delete-before", "--delete-during", "--ignore-errors", "--max-delete=-1",
+    "--size-only", "--ignore-size", "--ignore-checksum", "--immutable", "--backup-dir", "--suffix",
 })
+# flags whose value, not the flag, is the danger: a conflict loser deleted,
+# a conflict settled by a rule instead of kept twice
+FORBIDDEN_VALUES = {"--conflict-loser": {"delete"},
+                    "--conflict-resolve": {"newer", "older", "larger", "smaller", "path1", "path2"}}
 
 # Below this many entries, a percentage is a poor guard ("1 of 4" is 25%):
 # small folders may lose up to this many files without a confirmation.
@@ -72,11 +78,17 @@ DEFAULT_FILTERS = (
 def default_excluded(rel: str) -> bool:
     """Would the default filters leave out this path (relative to the pair's
     root; folders may end with "/")? Used to skip scans and change events."""
+    return excluded_by(rel, DEFAULT_EXCLUDES)
+
+
+def excluded_by(rel: str, patterns) -> bool:
+    """Would these exclusion patterns (rclone's, as in DEFAULT_EXCLUDES or a
+    pair's own filters) leave out this path?"""
     parts = [p for p in rel.split("/") if p]
     if not parts:
         return False
     is_dir = rel.endswith("/")
-    for pattern in DEFAULT_EXCLUDES:
+    for pattern in patterns:
         if pattern.endswith("/**"):
             name = pattern[:-3]
             if name.startswith("/"):
@@ -107,7 +119,10 @@ def filter_escape(path: str) -> str:
 
 
 def exclude_lines(refused) -> str:
-    lines = [filter_escape(r.path) + ("/**" if r.is_dir else "") for r in refused]
+    # a name with a newline would split the file into two wrong rules: such a
+    # character becomes "?", one character of any kind (a near-twin of the
+    # name is left out too, which is rare and harmless)
+    lines = [re.sub(r"[\x00-\x1f\x7f]", "?", filter_escape(r.path)) + ("/**" if r.is_dir else "") for r in refused]
     return "\n".join(lines) + ("\n" if lines else "")
 
 
@@ -311,6 +326,10 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         args.append("--dry-run")
     args += req.extra_test_flags
     bad = [a for a in args if a in FORBIDDEN_FLAGS or a.split("=")[0] in FORBIDDEN_FLAGS]
+    for flag, value in zip(args, args[1:] + [""], strict=True):
+        name, _eq, inline = flag.partition("=")
+        if name in FORBIDDEN_VALUES and (inline or value) in FORBIDDEN_VALUES[name]:
+            bad.append(f"{name} {inline or value}")
     if bad:
         raise ValueError(f"refusing to run rclone with {bad}")
     return args
@@ -352,6 +371,18 @@ class Event:
     target: str = ""             # where a file is moved to (MOVED, a dry run's SKIPPED move)
     size: int = 0                # bytes of a file a dry run would copy (SKIPPED copy)
     stats: dict | None = None
+
+
+def _plain(path: str) -> str:
+    """A path of a log line as bisync writes it: quoted the Go way when the
+    name holds a quote, a backslash or a control character."""
+    path = path.strip()
+    if len(path) >= 2 and path[0] == '"' and path[-1] == '"':
+        try:
+            return go_unquote(path)
+        except ValueError:
+            return path
+    return path
 
 
 _DELTA = re.compile(r"^- (Path[12])\s+(File (?:changed: .*?|is new|was deleted))\s+- (.*)$", re.S)
@@ -399,9 +430,9 @@ def parse_line(line: str) -> Event | None:
     if isinstance(d.get("stats"), dict):
         return Event(Kind.STATS, msg, level, stats=d["stats"])
     if (m := _DELTA.match(msg)):
-        return Event(Kind.DELTA, msg, level, side=m[1], action=m[2], path=m[3].strip())
+        return Event(Kind.DELTA, msg, level, side=m[1], action=m[2], path=_plain(m[3]))
     if (m := _QUEUE.match(msg)):
-        return Event(Kind.QUEUE, msg, level, side=m[1], action=m[2], path=m[3].strip())
+        return Event(Kind.QUEUE, msg, level, side=m[1], action=m[2], path=_plain(m[3]))
     if (m := _CONFLICT.match(msg)):
         return Event(Kind.CONFLICT, msg, level, path=m[1].strip())
     if (m := _EQUAL.match(msg)):
@@ -679,6 +710,18 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             safety = "all-changed" if "all files were changed" in ev.message else "deletes"
 
     kinds = {ev.kind for ev in events}
+    if not first_error:
+        # bisync's own lock, left by a run that ended abruptly: a notice, not an error line
+        if any("prior lock file" in ev.message for ev in events):
+            first_error = "prior lock file found"
+    if plan.empty and exit_code == 0 and stats and any(stats.get(k) for k in ("transfers", "deletes", "renames")):
+        # rclone did (or would do) things the lines above did not say: a run
+        # of a newer rclone wording them differently. Never "nothing to do".
+        first_error = _("The preview could not be read: rclone counts {t} transfers, {d} deletions, {r} renames") \
+            .format(t=count(stats.get("transfers") or 0), d=count(stats.get("deletes") or 0),
+                    r=count(stats.get("renames") or 0))
+        plan.errors.append(first_error)
+        exit_code = 2
     if cancelled:
         result = Result.CANCELLED
     elif Kind.SAFETY_ABORT in kinds:

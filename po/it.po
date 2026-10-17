@@ -2495,3 +2495,32 @@ msgstr "Tieni sveglio il computer durante la sincronizzazione"
 #: src/spola/window.py
 msgid "No sleep, lid closed or not, until the sync is done"
 msgstr "Niente sospensione, coperchio chiuso o no, finché la sincronizzazione non è finita"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "A previous sync was interrupted: trying again in {n} min."
+msgstr "Una sincronizzazione precedente è stata interrotta: riprovo tra {n} min."
+
+#: src/spola/rclone.py
+#, python-brace-format
+msgid "The preview could not be read: rclone counts {t} transfers, {d} deletions, {r} renames"
+msgstr "Impossibile leggere l'anteprima: rclone conta {t} trasferimenti, {d} eliminazioni, {r} rinomine"
+
+#: src/spola/ui.py
+msgid "large folder: some changes are picked up at the periodic check"
+msgstr "cartella grande: alcune modifiche vengono rilevate al controllo periodico"
+
+#: src/spola/window.py
+msgid "Delete Older Backups?"
+msgstr "Eliminare i backup più vecchi?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} backup older than {days} days is deleted at once: {size} of files replaced or deleted by past syncs."
+msgid_plural "{n} backups older than {days} days are deleted at once: {size} of files replaced or deleted by past syncs."
+msgstr[0] "{n} backup più vecchio di {days} giorni viene eliminato subito: {size} di file sostituiti o eliminati da sincronizzazioni passate."
+msgstr[1] "{n} backup più vecchi di {days} giorni vengono eliminati subito: {size} di file sostituiti o eliminati da sincronizzazioni passate."
+
+#: src/spola/window.py
+msgid "Delete"
+msgstr "Elimina"

@@ -46,7 +46,8 @@ from .i18n import _, count, every_translation, ngettext
 from .log import complain
 from .paths import Paths
 from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_delete, default_excluded,
-                     describe, find_rclone, fold_case_renames, koofr_env, no_window, relative_path, remote_spec)
+                     describe, excluded_by, find_rclone, fold_case_renames, koofr_env, no_window, relative_path,
+                     remote_spec)
 from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
@@ -209,6 +210,10 @@ class PairRuntime:
     # (the folder is not on Koofr any more), "koofr-empty", "here-empty"
     gone: str = ""
     safety: str = ""        # which check stopped the run waiting for a confirmation (Outcome.safety)
+    rerun_requested: bool = False   # a run asked for while one ran: again afterwards
+    last_failure: str = ""          # a run that could not start, until one does
+    filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
+    ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     busy_since: float = 0.0                 # monotonic: since when runs wait for files being written
@@ -339,6 +344,10 @@ class Engine(GObject.Object):
                 continue
             self.request_sync(pair.id, "startup")
         return False
+
+    def prune_now(self) -> None:
+        """The retention just shortened: apply it, in a thread (rmtree of gigabytes)."""
+        threading.Thread(target=self._prune_backups, name="prune-backups", daemon=True).start()
 
     def _prune_backups(self) -> bool:
         # also those of pairs removed since: kept as long as any other backup,
@@ -476,12 +485,14 @@ class Engine(GObject.Object):
         self.save_config()
         rt = self.runtime[pair_id]
         if paused:
-            self.queue = [t for t in self.queue if t.pair_id != pair_id or t.dry_run]
+            self._drop_queued(pair_id)
             if rt.watcher:
                 rt.watcher.stop()
                 rt.watcher = None
             if rt.run and rt.run.running and not (rt.task and rt.task.dry_run):
                 rt.run.stop()
+            elif rt.task is not None and rt.run is None and not rt.task.dry_run:
+                rt.task.cancelled = True        # still being prepared: it will not start
             if rt.preview is not None and rt.preview.running and rt.preview.reason == "ahead":
                 self.cancel_preview(pair_id)
             if rt.ahead_source:
@@ -491,6 +502,16 @@ class Engine(GObject.Object):
             self._start_watcher(pair, rt)
             self.request_sync(pair_id, "resume")
         self._set_status(pair, rt, self._idle_status(pair, rt) if not rt.run else rt.status)
+
+    def _drop_queued(self, pair_id: str) -> None:
+        """The pair's real runs out of the queue; a confirmation dropped
+        leaves the pair waiting for it again, not "up to date"."""
+        rt = self.runtime.get(pair_id)
+        dropped = [t for t in self.queue if t.pair_id == pair_id and not t.dry_run]
+        self.queue = [t for t in self.queue if t.pair_id != pair_id or t.dry_run]
+        if rt is not None and any(t.reason == "confirmed" for t in dropped) \
+                and rt.before_run[0] in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+            rt.status, rt.message = rt.before_run
 
     def set_conflict_rule(self, pair_id: str, rule: str) -> None:
         """The folder's own rule for new conflicts ("" = the general one)."""
@@ -503,10 +524,13 @@ class Engine(GObject.Object):
         self.cfg.paused_all = paused
         self.save_config()
         if paused:
-            self.queue = [t for t in self.queue if t.dry_run]
+            for pair_id in list(self.runtime):
+                self._drop_queued(pair_id)
             rt = self.runtime.get(self.active.pair_id) if self.active else None
             if rt and rt.run and rt.run.running:
                 rt.run.stop()
+            elif rt and rt.task is not None and rt.run is None and not rt.task.dry_run:
+                rt.task.cancelled = True
             self._cancel_previews_ahead()
         else:
             self.sync_all("resume")
@@ -594,7 +618,7 @@ class Engine(GObject.Object):
             return Status.NEEDS_SETUP
         if self.blocked_reason():
             return Status.PAUSED
-        if rt.status is Status.ERROR and rt.retry_source:
+        if rt.status is Status.ERROR and (rt.retry_source or rt.last_failure):
             return Status.ERROR
         if rt.debounce_source:
             return Status.PENDING
@@ -758,7 +782,7 @@ class Engine(GObject.Object):
             callback(outcome, error)
         if outcome is None:
             rt.preview = None
-        elif (not listeners and preview.reason == "preview"
+        elif (not listeners and preview.reason == "preview" and not preview.stale
               and self.review_args(pair_id) == (preview.mode, preview.force)):
             # the review the user asked for, its dialog closed while it ran: say it is ready
             plan = outcome.plan
@@ -785,8 +809,8 @@ class Engine(GObject.Object):
                 or self.blocked_reason() or rt.gone == "koofr-gone"):     # (that preview cannot run)
             return False
         kept = rt.preview
-        if kept is not None and (kept.mode, kept.force) == args and (kept.running or kept.fresh()):
-            return False
+        if kept is not None and (kept.mode, kept.force) == args and (kept.running or (kept.outcome and not kept.stale)):
+            return False            # the one there serves, until a change (its age is told on opening)
         self.preview(pair_id, *args, reason="ahead")
         return False
 
@@ -826,6 +850,7 @@ class Engine(GObject.Object):
             GLib.source_remove(rt.ahead_source)
             rt.ahead_source = 0
         max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts) if mode is Mode.SYNC and force else None
+        rt.before_run = (rt.status, rt.message)     # what this answers: back to it if the run is dropped
         rt.preview = None               # what it said is about to happen
         self._enqueue(Task(pair_id, mode, max_delete=max_delete, reason="confirmed", callback=callback), front=True)
         if rt.task is None or rt.task.dry_run:
@@ -919,7 +944,7 @@ class Engine(GObject.Object):
         here = {e.path: e for e in listings.load(workdir, 1) or []}
         remote = override or remote_spec(pair.remote)
         env = koofr_env(creds.user, creds.obscured)
-        listed = subprocess.run([rclone, "lsjson", "-R", remote, "--config", str(paths.rclone_config),
+        listed = subprocess.run([rclone, "lsjson", "-R", "--hash", remote, "--config", str(paths.rclone_config),
                                  "--checkers", "16"], env=env, capture_output=True, text=True, timeout=3600,
                                 **no_window())
         if listed.returncode != 0:
@@ -937,12 +962,21 @@ class Engine(GObject.Object):
             was, mine, there = before.get(rel), here.get(rel), now.get(rel)
             if was is None or mine is None or there is None or was.is_dir or there.get("IsDir"):
                 continue
+            # the same file still, by size, by the date this computer's listing
+            # has for it (within Koofr's millisecond) and by Koofr's own md5 of
+            # the restored copy: otherwise bisync settles it, with its backups
             local = os.path.join(pair.local, rel)
             try:
-                same_here = os.path.getsize(local) == mine.size == was.size == there.get("Size")
+                st = os.stat(local)
             except OSError:
-                same_here = False
-            if same_here:
+                continue
+            known = listings.modtime_ns(mine.modtime)
+            md5 = (there.get("Hashes") or {}).get("md5", "")
+            # the content, where the listing knows a hash: Koofr's listings do,
+            # a local "Koofr" of the tests does not ("-")
+            same_content = was.hash == "-" or (bool(md5) and was.hash == f"md5:{md5}")
+            if (st.st_size == mine.size == was.size == there.get("Size") and same_content
+                    and known is not None and abs(st.st_mtime_ns - known) <= 1_000_000):
                 times[rel] = listings.bisync_time(there["ModTime"])
         if times:
             listings.retime(lst2, times)
@@ -1044,8 +1078,7 @@ class Engine(GObject.Object):
             if rt.run is None or (rt.task and rt.task.dry_run):
                 self._set_status(pair, rt, Status.NEEDS_REPAIR, _("The exclusions changed"))
             else:
-                rt.status = Status.NEEDS_REPAIR
-                rt.message = _("The exclusions changed")
+                rt.filters_changed = True       # once the run ends (bisync would refuse the next one)
         return True
 
     def conditions_changed(self) -> None:
@@ -1186,7 +1219,7 @@ class Engine(GObject.Object):
             return
         if running_same:
             # it will run again afterwards if the changes need it
-            self.runtime[task.pair_id].changed_during_run.add("")
+            self.runtime[task.pair_id].rerun_requested = True
             return
         if front and task.reason == "confirmed" and not task.dry_run:
             # confirmations in the order the user gave them
@@ -1255,7 +1288,8 @@ class Engine(GObject.Object):
         # A preview leaves the pair's status alone: it decides nothing.
         self._set_lane(task, task)
         rt.task = task
-        rt.before_run = (rt.status, rt.message)
+        if task.reason != "confirmed":          # a confirmation remembers what it answered
+            rt.before_run = (rt.status, rt.message)
         if not task.dry_run:
             self._set_status(pair, rt, Status.SYNCING, _("Preparing…"))
         else:
@@ -1340,6 +1374,9 @@ class Engine(GObject.Object):
                 if rt.before_run != (status, message):
                     # a run that cannot start says so once, not at every poll
                     self.emit("attention", pair.id, "error", message)
+                rt.last_failure = message
+                if not rt.retry_source:
+                    rt.retry_source = GLib.timeout_add_seconds(RETRY_DELAYS_MIN[0] * 60, self._retry, pair.id)
                 self._set_status(pair, rt, status, message)
             GLib.idle_add(self._next)
             return False
@@ -1380,6 +1417,8 @@ class Engine(GObject.Object):
             return fail(f"{type(e).__name__}: {e}")
         self._set_lane(task, task)
         rt.run, rt.task = run, task
+        rt.last_failure = ""
+        rt.ran_resync = job.request.mode is Mode.RESYNC
         rt.pending_refused = job.refused
         if not task.dry_run:
             rt.busy_since, rt.pending_busy = 0.0, list(job.busy)
@@ -1558,7 +1597,8 @@ class Engine(GObject.Object):
                 # new files left out while being written: synced once they settle
                 rt.pending_busy = []
                 self._settle_then_sync(pair, rt)
-            if task.mode is Mode.RESYNC:
+            if task.mode is Mode.RESYNC or (rt.ran_resync and task.reason != "seal"):
+                # (a seal that became a resync itself, both sides still empty, is not sealed again)
                 if not pair.initialized:
                     pair.initialized = True
                     self.save_config()
@@ -1582,7 +1622,11 @@ class Engine(GObject.Object):
             self.emit("root-changed", pair.id)
             if plan.conflicts:
                 self._new_conflicts(pair, rt, plan.conflicts)
-            self._set_status(pair, rt, self._idle_status(pair, rt))
+            if rt.filters_changed:
+                rt.filters_changed = False
+                self._set_status(pair, rt, Status.NEEDS_REPAIR, _("The exclusions changed"))
+            else:
+                self._set_status(pair, rt, self._idle_status(pair, rt))
         elif (result is Result.NEEDS_CONFIRMATION and task.reason == "confirmed" and task.max_delete is not None
               and not task.force and outcome.safety == "all-changed"):
             # the deletions passed the bound of the confirmed preview (bisync
@@ -1599,17 +1643,30 @@ class Engine(GObject.Object):
         elif result is Result.NEEDS_REPAIR and (outcome.empty_side or outcome.root_missing):
             self._side_gone(pair, rt, outcome)
         elif result is Result.NEEDS_REPAIR:
-            self._set_status(pair, rt, Status.NEEDS_REPAIR, outcome.message)
-            self.emit("attention", pair.id, "repair", outcome.message)
+            message = outcome.message
+            if rt.filters_changed:          # bisync noticed the new exclusions too: say it in Spola's words
+                rt.filters_changed = False
+                message = _("The exclusions changed")
+            self._set_status(pair, rt, Status.NEEDS_REPAIR, message)
+            self.emit("attention", pair.id, "repair", message)
         elif result is Result.CANCELLED:
             self._set_status(pair, rt, self._idle_status(pair, rt))
+            if rt.rerun_requested:
+                rt.rerun_requested = False
+                self.request_sync(pair.id, "rerun")
         else:
-            delay = RETRY_DELAYS_MIN[min(rt.retries, len(RETRY_DELAYS_MIN) - 1)]
-            rt.retries += 1
+            locked = "prior lock file" in (outcome.message or "")
+            delay = 3 if locked else RETRY_DELAYS_MIN[min(rt.retries, len(RETRY_DELAYS_MIN) - 1)]
+            if not locked:
+                rt.retries += 1
             if rt.retry_source:
                 GLib.source_remove(rt.retry_source)
             rt.retry_source = GLib.timeout_add_seconds(delay * 60, self._retry, pair.id)
             message = outcome.message or _("The sync stopped with an error.")
+            if locked:
+                # bisync's own lock, left by a run that ended abruptly (a crash, a
+                # hard power-off); it expires two minutes after its last renewal
+                message = _("A previous sync was interrupted: trying again in {n} min.").format(n=delay)
             if outcome.network:
                 message = _("Koofr cannot be reached right now: trying again in {n} min.").format(n=delay)
             self._set_status(pair, rt, Status.ERROR, message)
@@ -1646,7 +1703,8 @@ class Engine(GObject.Object):
         foreign = {rel for rel in rt.changed_during_run
                    if rel not in touched and rel not in parents and not self._conflict_name.search(rel)}
         rt.changed_during_run.clear()
-        if foreign:
+        if foreign or rt.rerun_requested:
+            rt.rerun_requested = False
             self._schedule_debounced(pair, rt)
         return foreign
 
@@ -1655,8 +1713,9 @@ class Engine(GObject.Object):
     def _start_watcher(self, pair: Pair, rt: PairRuntime) -> None:
         if rt.watcher or not pair.initialized or pair.paused or not os.path.isdir(pair.local):
             return
+        patterns = jobs.exclusion_patterns(jobs.read_filters(self.paths, pair))
         rt.watcher = TreeWatcher(pair.local, lambda rel, pid=pair.id: self._on_local_change(pid, rel),
-                                 ignore=quick_ignore)
+                                 ignore=lambda rel: quick_ignore(rel) or excluded_by(rel, patterns))
         rt.watcher.start()
 
     def _on_local_change(self, pair_id: str, rel: str) -> None:
@@ -1723,7 +1782,7 @@ class Engine(GObject.Object):
             try:
                 mount = mount_id or koofr_api.primary_mount_id(creds.user, creds.password)
                 result = (mount, koofr_api.activity(creds.user, creds.password, mount, since)), None
-            except koofr_api.ApiError as e:
+            except Exception as e:          # an API answer not as expected, too: the feed falls back
                 result = None, e
             GLib.idle_add(self._activity_done, *result)
 

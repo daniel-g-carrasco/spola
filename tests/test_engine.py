@@ -464,6 +464,9 @@ class EngineTest(unittest.TestCase):
         self.engine.request_sync(pair.id, "manual")
         self.assertTrue(spin_until(lambda: (self.remote_root / "empty" / "first.txt").exists()
                                    and rt.status is Status.OK, 60), (rt.status, rt.message))
+        # the sync that became a resync was sealed too: --recover has its .lst-old
+        self.assertTrue(spin_until(lambda: not self.engine.queue and self.engine.active is None, 30))
+        self.assertTrue(list(self.engine.paths.workdir(pair.id).glob("*.lst-old")))
 
     def test_two_empty_folders_with_the_same_new_file_ask_first(self):
         # the run of two empty folders is a resync, which settles a file new
@@ -717,21 +720,23 @@ class EngineTest(unittest.TestCase):
         self.assertEqual((len(deletion.entries), error), (5, ""))
         finished, outcome = [], []
         self.engine.connect("run-finished", lambda _e, pid, reason: finished.append(reason))
+        (self.local / "sub" / "s4.txt").write_text("s4")     # changed here since: the same size, a new date
         self.assertTrue(self.engine.restore_from_trash("p1", deletion.entries, lambda n, t: None,
                                                        lambda r, up, err: outcome.append((r, up, err))))
         self.assertIs(self.status(), Status.SYNCING)
         self.engine.request_sync("p1", "manual")               # waits: no run while restoring
         self.assertTrue(spin_until(lambda: outcome, 30))
         result, reuploads, error = outcome[0]
-        self.assertEqual((result.restored, result.left, reuploads, error), (5, [], 5, ""))
+        self.assertEqual((result.restored, result.left, reuploads, error), (5, [], 4, ""))
         self.assertTrue((self.remote / "sub" / "empty").is_dir())
         self.assertTrue(spin_until(lambda: "manual" in finished and self.engine.active is None
                                    and not self.engine.queue, 60))
         last = self.engine.runtime["p1"].last_outcome
         self.assertIs(last.result, Result.OK, last.message)
-        for i in range(5):
+        for i in range(4):
             self.assertAlmostEqual((self.remote / "sub" / f"s{i}.txt").stat().st_mtime, 1_600_000_000 + i, delta=0.01)
-        self.assertIs(self.status(), Status.OK)
+        self.assertEqual((self.local / "sub" / "s4.txt").read_text(), "s4")       # this computer's version kept
+        self.assertIn(self.status(), (Status.OK, Status.CONFLICTS))
 
     def test_a_preview_knows_the_files_of_the_last_run(self):
         # before a first alignment there is no last run; after it, both sides' files
@@ -872,6 +877,95 @@ class EngineTest(unittest.TestCase):
         self.engine.after_sleep()
         self.assertTrue(spin_until(lambda: "big.bin" in self.remote_files() and self.status() is Status.OK, 60))
 
+    def test_a_run_asked_for_during_a_run_goes_afterwards(self):
+        # the run downloads a file into the folder's root; a request made
+        # meanwhile (the feed, a retry) is kept for afterwards
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.remote / "from-koofr.txt").write_text("there")
+        (self.local / "big.bin").write_bytes(os.urandom(1_500_000))
+        before = self.logs("p1")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        self.engine.request_sync("p1", "poll")
+        self.assertTrue(self.engine.runtime["p1"].rerun_requested)
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.assertTrue(spin_until(lambda: self.logs("p1") >= before + 2 and self.engine.active is None, 120))
+
+    def test_a_lock_left_by_a_crash_is_said_and_tried_again(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(1_500_000))
+        self.engine.request_sync("p1", "manual")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: rt.run is not None and rt.stats is not None, 20))
+        rt.run._proc.kill()                                   # as a crash or a power-off would
+        self.assertTrue(spin_until(lambda: self.engine.active is None, 30))
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR and "interrupted" in rt.message, 30),
+                        rt.message)
+        self.assertTrue(rt.retry_source)
+
+    def test_pausing_cancels_a_run_being_prepared(self):
+        self.align()
+        self.slow_prepare(1.5)
+        before = self.logs("p1")
+        (self.local / "new.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].task is not None, 5))
+        self.engine.set_paused("p1", True)
+        self.assertTrue(spin_until(lambda: self.engine.active is None, 10))
+        spin_until(lambda: False, 0.5)
+        self.assertEqual(self.logs("p1"), before)             # never started
+        self.assertIs(self.status(), Status.PAUSED)
+
+    def test_stop_while_a_confirmation_is_prepared_keeps_the_question(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        for i in range(10):
+            (self.local / f"f{i:02}.txt").unlink()
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30))
+        _kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.slow_prepare(1.5)
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True))
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].task is not None, 5))
+        self.engine.stop("p1")
+        self.assertTrue(spin_until(lambda: self.engine.active is None and self.status() is not Status.SYNCING, 10))
+        self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)   # not "up to date"
+        self.assertEqual(len(self.remote_files()), 30)
+
+    def test_exclusions_changed_during_a_run_ask_for_a_repair_afterwards(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(1_500_000))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        self.engine.set_filters("p1", jobs.read_filters(self.engine.paths, self.pair) + "- *.tmp\n")
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.assertTrue(spin_until(lambda: self.engine.active is None, 120))
+        self.assertIs(self.status(), Status.NEEDS_REPAIR)
+        self.assertIn("exclusions", self.engine.runtime["p1"].message)
+
+    def test_the_activity_feed_falls_back_on_any_failure(self):
+        self.engine.feed_enabled = True
+        self.engine.cfg.mount_id = ""
+        real = engine_mod.koofr_api.primary_mount_id
+        engine_mod.koofr_api.primary_mount_id = lambda *a: {}["mounts"]      # a KeyError, not an ApiError
+        self.addCleanup(setattr, engine_mod.koofr_api, "primary_mount_id", real)
+        self.engine.set_credentials(Credentials("dev", "", "secret"))
+        self.pair.initialized = True
+        self.engine._poll_activity()
+        self.assertTrue(spin_until(lambda: not self.engine._activity_busy, 10))
+        self.assertIs(self.engine.feed_ok, False)
+
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
         self.assertIs(self.status(), Status.NEEDS_SETUP)        # a preview decides nothing
@@ -989,6 +1083,9 @@ class EngineTest(unittest.TestCase):
         self.engine.request_sync("p1", "manual")
         self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 20))
         self.assertIn("Koofr Desktop", self.engine.runtime["p1"].message)
+        self.engine._on_conditions()                              # the error stays until a run starts
+        self.assertIs(self.status(), Status.ERROR)
+        self.assertTrue(self.engine.runtime["p1"].retry_source)   # and it is tried again
         self.assertNotIn("new.txt", self.remote_files())
         self.engine.request_sync("p1", "poll")                 # the next attempt: same error, told once
         spin_until(lambda: False, 2)
@@ -1052,6 +1149,20 @@ class EngineTest(unittest.TestCase):
 
 
 class HelpersTest(unittest.TestCase):
+    def test_what_a_shorter_retention_would_delete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = Paths(Path(tmp) / "c", Path(tmp) / "s", Path(tmp) / "d")
+            now = time.mktime(time.strptime("20261017-120000", "%Y%m%d-%H%M%S"))
+            for stamp, size in (("20261001-120000", 10), ("20261010-120000", 20), ("20261016-120000", 30)):
+                run = paths.backup_dir("p1") / stamp
+                run.mkdir(parents=True)
+                (run / "f").write_bytes(b"x" * size)
+            (paths.backup_dir("p1") / "not-ours").mkdir()
+            self.assertEqual(jobs.backups_older_than(paths, "p1", 30, now), (0, 0))
+            self.assertEqual(jobs.backups_older_than(paths, "p1", 10, now), (1, 10))
+            self.assertEqual(jobs.backups_older_than(paths, "p1", 3, now), (2, 30))
+            self.assertEqual(jobs.backups_older_than(paths, "none", 3, now), (0, 0))
+
     def test_conflict_words_follow_the_chosen_language(self):
         from spola.jobs import conflict_words
         if not (Path(__file__).resolve().parent.parent / "locale/it/LC_MESSAGES/spola.mo").exists():

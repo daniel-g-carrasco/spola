@@ -1447,7 +1447,15 @@ class PreferencesDialog(Adw.PreferencesDialog):
         days.set_title(_("Keep replaced and deleted files for"))
         days.set_subtitle(_("Days, in Spola’s local backup"))
         days.set_value(cfg.backup_days)
-        days.connect("notify::value", lambda r, _p: self._set("backup_days", int(r.get_value())))
+        # applied once the value settles, and, when it goes down and would
+        # delete backups, after a word about them
+        self._days_source = 0
+
+        def days_changed(row, _p):
+            if self._days_source:
+                GLib.source_remove(self._days_source)
+            self._days_source = GLib.timeout_add(800, lambda: self._backup_days(int(row.get_value()), row) or False)
+        days.connect("notify::value", days_changed)
         group.add(days)
         page.add(group)
 
@@ -1481,6 +1489,39 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 self.account_row.set_subtitle(_("{used} used of {total}").format(
                     used=GLib.format_size(quota.used or 0), total=GLib.format_size(quota.total)))
         run_in_thread(lambda: account.check(self.engine.rclone, self.engine.paths, creds), done)
+
+    def _backup_days(self, days: int, row) -> None:
+        self._days_source = 0
+        cfg, paths = self.engine.cfg, self.engine.paths
+        if days >= cfg.backup_days:
+            self._set("backup_days", days)
+            return
+        runs = size = 0
+        for pair in cfg.pairs:
+            n, b = jobs.backups_older_than(paths, pair.id, days)
+            runs, size = runs + n, size + b
+        if not runs:
+            self._set("backup_days", days)
+            return
+        dialog = Adw.AlertDialog(
+            heading=_("Delete Older Backups?"),
+            body=ngettext("{n} backup older than {days} days is deleted at once: {size} of files replaced or "
+                          "deleted by past syncs.",
+                          "{n} backups older than {days} days are deleted at once: {size} of files replaced or "
+                          "deleted by past syncs.", runs).format(n=count(runs), days=days, size=GLib.format_size(size)))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("delete", _("Delete"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+
+        def chosen(_d, response):
+            if response == "delete":
+                self._set("backup_days", days)
+                self.engine.prune_now()
+            else:
+                row.set_value(cfg.backup_days)
+        dialog.connect("response", chosen)
+        dialog.present(self)
 
     def _set(self, name: str, value, conditions: bool = False) -> None:
         setattr(self.engine.cfg, name, value)

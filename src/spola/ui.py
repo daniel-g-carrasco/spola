@@ -143,6 +143,11 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
         base = rt.message if rt.message != status_text(rt.status) and not (rt.gone and short) else ""
         return " · ".join(part for part in (base, preview_summary(rt.preview)) if part)
     if rt.status is Status.OK and rt.last_sync:
+        if rt.watcher is not None and rt.watcher.overflow:
+            # too many folders to watch them all: changes in the rest wait for the periodic check
+            note = _("large folder: some changes are picked up at the periodic check")
+            return (when(rt.last_sync) + " · " + note) if short else _("Last sync: {time}").format(
+                time=when(rt.last_sync)) + " · " + note
         if short:
             return when(rt.last_sync)
         line = _("Last sync: {time}").format(time=when(rt.last_sync))
