@@ -2823,3 +2823,11 @@ msgstr "{amount} di file sostituiti o eliminati da sincronizzazioni passate. Nie
 #: src/spola/window.py
 msgid "Delete All"
 msgstr "Elimina tutti"
+
+#: src/spola/window.py
+msgid "Icon in the notification area"
+msgstr "Icona nell'area di notifica"
+
+#: src/spola/window.py
+msgid "Off when a widget of the desktop shows Spola's status instead, like the Noctalia plugin"
+msgstr "Da spegnere quando lo stato di Spola lo mostra un widget del desktop, come il plugin per Noctalia"

@@ -1725,6 +1725,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
                               subtitle=_("No sleep, lid closed or not, until the sync is done"), active=cfg.keep_awake)
         awake.connect("notify::active", lambda r, _p: self._set("keep_awake", r.get_active()))
         group.add(awake)
+        if not WINDOWS:
+            tray = Adw.SwitchRow(title=_("Icon in the notification area"),
+                                 subtitle=_("Off when a widget of the desktop shows Spola's status instead, "
+                                            "like the Noctalia plugin"), active=cfg.tray_icon)
+            tray.connect("notify::active", lambda r, _p: self._set_tray(r.get_active()))
+            group.add(tray)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Speed Limits"), description=_("In KB/s; 0 means no limit. Applied from the next sync."))
@@ -1860,6 +1866,12 @@ class PreferencesDialog(Adw.PreferencesDialog):
         self.engine.save_config()
         if conditions:
             self.engine.conditions_changed()
+
+    def _set_tray(self, enabled: bool) -> None:
+        self._set("tray_icon", enabled)
+        app = getattr(self.engine, "app", None)
+        if app is not None and hasattr(app, "apply_tray"):
+            app.apply_tray()
 
     def _set_explorer_menu(self, enabled: bool) -> None:
         self._set("explorer_menu", enabled)

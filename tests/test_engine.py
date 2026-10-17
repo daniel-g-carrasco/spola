@@ -1030,6 +1030,23 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: rt.preview is None or rt.preview.mode is not Mode.CHECK, 30))
         self.assertTrue(spin_until(lambda: (self.remote / "new.txt").exists() and self.status() is Status.OK, 60))
 
+    def test_the_status_file_follows_the_engine(self):
+        from spola import status as status_mod
+        status_mod.DEBOUNCE_MS = 100
+        self.addCleanup(setattr, status_mod, "DEBOUNCE_MS", 1000)
+        path = self.engine.paths.state / "status.json"
+        following = status_mod.StatusFile(self.engine)
+        self.assertTrue(path.exists())                               # written at once
+        data = json.loads(path.read_text())
+        self.assertEqual(data["pairs"][0]["status"], "needs_setup")
+        self.align()
+        self.assertTrue(spin_until(lambda: json.loads(path.read_text())["pairs"][0]["status"] == "ok", 60))
+        data = json.loads(path.read_text())
+        self.assertEqual((data["overall"], data["pid"], data["pairs"][0]["initialized"]), ("ok", os.getpid(), True))
+        self.assertLess(time.time() - data["updated"], 60)
+        following.stop()
+        self.assertFalse(path.exists())                              # Spola quitting: nothing stale left
+
     def test_a_nearly_full_disk_stops_a_run_before_it_starts(self):
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))

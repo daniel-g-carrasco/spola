@@ -71,6 +71,7 @@ class Config:
     pause_on_metered: bool = True
     pause_on_power_saver: bool = True
     keep_awake: bool = True         # no sleep while a sync runs (logind, or the desktop's inhibit)
+    tray_icon: bool = True          # the notification area icon (off when a shell widget shows the status)
     backup_days: int = 30
     paused_all: bool = False
     nautilus_integration: bool = False
