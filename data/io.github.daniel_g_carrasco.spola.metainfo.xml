@@ -114,6 +114,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.22" date="2026-10-17" type="development">
+      <description>
+        <p>Settings that survive accidents: every save keeps the previous file next to it, a damaged settings file is set aside and the previous save used (Spola says so at start), a file written by a newer Spola is read for what this version knows and written back whole, and a save that fails is said instead of swallowed.</p>
+        <p>Troubleshooting: the About window has a Troubleshooting page with versions, paths, every folder's state and last outcome, and the room the logs, listings and backups take, with a Save button; a folder's page opens the log of its last sync. Logs leave out the statistics lines past 50 MB and older logs are compressed, the newest kept readable.</p>
+        <p>A nearly full disk stops a sync before it starts, with a clear message: the disk of the folder must hold what a preview says would come down, with a margin; the disk holding Spola's own files must not be nearly full either.</p>
+      </description>
+    </release>
     <release version="0.3.21" date="2026-10-17" type="development">
       <description>
         <p>Two more safety thresholds, from the audit. Deletions: the share of a folder a sync may delete unasked (10 percent by default) now also has a cap of about 500 files, so a folder of 40,000 files no longer allows 4,000 deletions without a word; a confirmed sync still deletes what its preview showed. Overwrites: a sync that would upload many files changed on this computer at once (a snapshot put back, a program rewriting a whole library, a restore from a backup) stops before it starts, says "N of T files changed on this computer at once" and waits for a look at the preview; the threshold is the folder's percentage, between 50 and 500 files. A confirmed sync may upload what its preview showed and little more: if more files change meanwhile, it asks again. The command line refuses such a sync the same way and says how to confirm it.</p>
