@@ -813,17 +813,18 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: rt.gone == "here-empty", 30), rt.gone)
         self.assertEqual(len(self.remote_files()), 30)                     # nothing touched on Koofr
 
-    def test_a_corrupt_listing_is_an_error_not_a_lane_taken_for_good(self):
+    def test_a_corrupt_listing_is_a_repair_not_a_lane_taken_for_good(self):
         # the listing cannot be parsed (a crash with the disk full, a format
-        # change): the run fails with the reason, the lane is free, another
-        # folder still syncs
+        # change): a repair in plain words (the kept copy, or a new
+        # alignment), never a retry; the lane is free, another folder still syncs
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
         lst = listings.find(self.engine.paths.workdir("p1"), 1)
         lst.write_text("# bisync listing v1 from x\nweird line\n", encoding="utf-8")
         self.engine.request_sync("p1", "manual")
-        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 20))
-        self.assertIn("ValueError", self.engine.runtime["p1"].message)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_REPAIR, 20))
+        self.assertIn("damaged", self.engine.runtime["p1"].message)
+        self.assertTrue(self.engine.kept_listings("p1"))
         self.assertIsNone(self.engine.active)
         other = self.other_pair()
         _kept, got = self.preview_of(other.id)
@@ -965,6 +966,69 @@ class EngineTest(unittest.TestCase):
         self.engine._poll_activity()
         self.assertTrue(spin_until(lambda: not self.engine._activity_busy, 10))
         self.assertIs(self.engine.feed_ok, False)
+
+    def test_a_damaged_listing_is_repaired_from_the_kept_copy(self):
+        rt = self.engine.runtime["p1"]
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        kept = self.engine.kept_listings("p1")
+        self.assertTrue(kept, "a successful run keeps its listings")
+        workdir = self.engine.paths.workdir("p1")
+        listing = listings.find(workdir, 1)
+        listing.write_text("# bisync listing v1 from garbage\n@@@ not a line\n")   # a bad day: damaged
+        (self.local / "f05.txt").write_text("changed here")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_REPAIR, 60), rt.message)
+        self.assertEqual((self.remote / "f05.txt").read_text(), "5")
+        # the other way round than a new alignment: the state known is put back, the change synced from it
+        self.assertTrue(self.engine.restore_listings("p1", kept[0][0]))
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and (self.remote / "f05.txt").read_text()
+                                   == "changed here", 60), rt.message)
+        self.assertNotIn(kept[0][0], [k for k, _t in self.engine.kept_listings("p1")])       # tried: not offered again
+
+    def test_a_verification_compares_both_sides_and_changes_nothing(self):
+        rt = self.engine.runtime["p1"]
+        self.align()
+        # the alignment the user confirmed is followed by a verification of its own
+        self.assertTrue(spin_until(lambda: rt.preview is not None and rt.preview.mode is Mode.CHECK
+                                   and rt.preview.outcome is not None, 60))
+        self.assertEqual(rt.preview.reason, "after-align")
+        self.assertEqual(rt.preview.outcome.identical, 30)
+        self.assertEqual(rt.preview.outcome.plan.conflicts, [])
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
+        # Koofr's copy rewritten with the same size and date: only a checksum tells
+        stamp = os.stat(self.remote / "f03.txt").st_mtime_ns
+        (self.remote / "f03.txt").write_text("4")
+        os.utime(self.remote / "f03.txt", ns=(stamp, stamp))
+        (self.local / "only-here.txt").write_text("x")
+        (self.remote / "only-there.txt").write_text("y")
+        self.engine.set_paused("p1", True)                   # no sync meanwhile
+        results = []
+        self.engine.verify("p1", lambda out, err: results.append((out, err)))
+        self.assertTrue(spin_until(lambda: results, 60))
+        out, err = results[0]
+        self.assertEqual(err, "")
+        self.assertEqual(out.plan.conflicts, ["f03.txt"])
+        self.assertEqual(out.plan.upload, ["only-here.txt"])
+        self.assertEqual(out.plan.download, ["only-there.txt"])
+        self.assertEqual(out.identical, 29)
+        self.assertEqual((self.remote / "f03.txt").read_text(), "4")        # nothing changed
+        self.assertEqual((self.local / "f03.txt").read_text(), "3")
+        self.assertFalse((self.local / "only-there.txt").exists())
+        self.assertIn(("verify", "3 differences between this computer and Koofr"), told)
+        self.assertIs(rt.preview.outcome, out)                             # kept for the dialog
+
+    def test_an_automatic_verification_yields_to_a_sync(self):
+        rt = self.engine.runtime["p1"]
+        self.slow_prepare(2.0)
+        self.align()
+        self.assertTrue(spin_until(lambda: rt.preview is not None and rt.preview.mode is Mode.CHECK, 60))
+        (self.local / "new.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: rt.preview is None or rt.preview.mode is not Mode.CHECK, 30))
+        self.assertTrue(spin_until(lambda: (self.remote / "new.txt").exists() and self.status() is Status.OK, 60))
 
     def test_a_nearly_full_disk_stops_a_run_before_it_starts(self):
         self.align()

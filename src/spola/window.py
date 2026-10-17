@@ -366,12 +366,48 @@ class MainWindow(_WindowBase):
         self.show_pair(pair_id)
         if rt.status is Status.NEEDS_REPAIR and rt.gone:
             self.ask_gone(pair_id)
+        elif rt.status is Status.NEEDS_REPAIR and self.engine.kept_listings(pair_id):
+            self.ask_repair(pair_id)
         elif rt.status in (Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
             self.open_preview(pair_id)
+        elif verification_differences(rt.preview):
+            VerifyDialog(self, pair_id).present(self)
         elif rt.conflicts:
             ConflictsDialog(self, pair_id).present(self)
         elif rt.refused:
             LeftOutDialog(self, pair_id).present(self)
+
+    def ask_repair(self, pair_id: str) -> None:
+        """Spola lost track of the last synced state, but a copy of it was
+        kept after the last successful sync: going back to it and syncing
+        normally keeps every safety check; a new alignment is the other way."""
+        pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
+        kept = self.engine.kept_listings(pair_id) if pair is not None else []
+        if pair is None or rt is None or not kept:
+            return
+        name, stamp = kept[0]
+        dialog = Adw.AlertDialog(
+            heading=_("Repair “{name}”?").format(name=pair.name),
+            body=_("Spola lost track of the last synced state ({reason}).\n\n"
+                   "It kept a copy of the state known at {time}, after the last successful sync: Spola can go "
+                   "back to it and sync normally from there, the changes since then handled as usual, with the "
+                   "same safety checks. Or a new alignment copies what is missing on each side and deletes "
+                   "nothing; where both sides have a different version, the newer one wins.").format(
+                reason=rt.message, time=when(stamp)))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("restore", _("Go Back to That State"))
+        dialog.add_response("align", _("New Alignment…"))
+        dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("restore")
+
+        def chosen(_d, response):
+            if response == "restore":
+                if not self.engine.restore_listings(pair_id, name):
+                    self.toast(_("The kept state could not be put back: a new alignment is needed."))
+            elif response == "align":
+                self.open_preview(pair_id)
+        dialog.connect("response", chosen)
+        dialog.present(self)
 
     def ask_gone(self, pair_id: str) -> None:
         """One side has nothing left (gone from Koofr, emptied there or here):
@@ -804,11 +840,17 @@ class PairPage(Adw.NavigationPage):
                                            lambda: LeftOutDialog(self.window, self.pair_id).present(self.window))
         self.preview_row = self._link_row(group, _("Preview Next Sync"), self._preview,
                                           _("What the next sync would do, without changing anything"))
+        self.verify_row = self._link_row(group, _("Verify Both Sides"),
+                                         lambda: VerifyDialog(self.window, self.pair_id).present(self.window),
+                                         _("Compare sizes and checksums here and on Koofr. Nothing is changed."))
         self.exclusions_row = self._link_row(group, _("Exclusions"),
                                              lambda: ExclusionsDialog(self.window, self.pair_id).present(self.window))
         self.trash_row = self._link_row(group, _("Restore from Koofr's Trash"),
                                         lambda: TrashDialog(self.window, self.pair_id).present(self.window),
                                         _("Files of this folder deleted on Koofr in the last 30 days"))
+        self.backups_row = self._link_row(group, _("Local Backups"),
+                                          lambda: BackupsDialog(self.window, self.pair_id).present(self.window),
+                                          _("Files replaced or deleted here by past syncs, kept for a while"))
         self.log_row = self._link_row(group, _("Last Sync Log"), self._open_log,
                                       _("What rclone reported during the last sync, for troubleshooting"))
         if windows_reserved_names_matter():
@@ -892,7 +934,12 @@ class PairPage(Adw.NavigationPage):
         self.trash_row.set_visible(pair.initialized)
         self.trash_row.set_sensitive(signed_in)
         self.preview_row.set_sensitive(rt.status is not Status.SYNCING and signed_in)
+        self.verify_row.set_visible(pair.initialized)
+        self.verify_row.set_sensitive(signed_in)
+        self.verify_row.set_subtitle(escape(verification_summary(rt.preview)
+                                            or _("Compare sizes and checksums here and on Koofr. Nothing is changed.")))
         self.log_row.set_visible(newest_log(self.engine.paths.log_dir(self.pair_id)) is not None)
+        self.backups_row.set_visible(self.engine.paths.backup_dir(self.pair_id).is_dir())
         patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
                     if line.strip() and not line.lstrip().startswith("#")]
         self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
@@ -1235,6 +1282,272 @@ class TrashDialog(Adw.Dialog):
         self._replace(group)
         if self.closed and lines:       # closed meanwhile: the window says it
             self.window.toast(lines[0])
+
+
+def moment(timestamp: float) -> str:
+    """"16 Oct 23:11": a backup's run, two of one day told apart."""
+    return GLib.DateTime.new_from_unix_local(int(timestamp)).format("%-d %b %H:%M")
+
+
+class BackupsDialog(Adw.Dialog):
+    """This pair's local backups, one row per sync that replaced or deleted
+    files here: open a run as a tree, put a file back (the one in its place
+    now kept in a new backup first), delete a run or all of them."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Local Backups"), content_width=560, content_height=560)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.delete_all = Gtk.Button(label=_("Delete All…"), sensitive=False)
+        self.delete_all.connect("clicked", lambda *_: self._delete_all())
+        header.pack_start(self.delete_all)
+        view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        self.group: Adw.PreferencesGroup | None = None
+        self.runs: list = []
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
+        self.nav = Adw.NavigationView()
+        self.nav.add(Adw.NavigationPage(title=_("Local Backups"), child=view))
+        self.set_child(self.nav)
+        self._fill()
+
+    def _fill(self) -> None:
+        if self.group is not None:
+            self.page.remove(self.group)
+        self.group = Adw.PreferencesGroup()
+        row = Adw.ActionRow(title=_("Looking at the backups…"))
+        row.add_prefix(Adw.Spinner())
+        self.group.add(row)
+        self.page.add(self.group)
+        paths, pair_id = self.engine.paths, self.pair_id
+        run_in_thread(lambda: jobs.backup_runs(paths, pair_id), self._listed)
+
+    def _listed(self, runs, error) -> None:
+        if self.group is not None:
+            self.page.remove(self.group)
+        self.runs = runs or []
+        days = self.engine.cfg.backup_days
+        self.group = Adw.PreferencesGroup(description=escape(ngettext(
+            "A sync that replaces or deletes a file here keeps the old copy for {n} day, in a folder of its own "
+            "for each sync. Nothing on Koofr is touched from here.",
+            "A sync that replaces or deletes a file here keeps the old copy for {n} days, in a folder of its own "
+            "for each sync. Nothing on Koofr is touched from here.", days).format(n=count(days))))
+        if error is not None:
+            self.group.add(Adw.ActionRow(title=escape(str(error)), title_lines=3))
+        elif not self.runs:
+            self.group.add(Adw.ActionRow(title=_("No backup at the moment.")))
+        for run in self.runs:
+            row = Adw.ActionRow(title=escape(moment(run.time)), subtitle=escape(plan_tree.amount(run.files, run.size)),
+                                activatable=True)
+            delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                                tooltip_text=_("Delete This Backup"))
+            delete.connect("clicked", lambda _b, r=run: self._delete(r))
+            row.add_suffix(delete)
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+            row.connect("activated", lambda _r, r=run: self._open(r))
+            self.group.add(row)
+        self.delete_all.set_sensitive(bool(self.runs))
+        self.page.add(self.group)
+
+    def _open(self, run) -> None:
+        files = jobs.backup_files(self.engine.paths, self.pair_id, run.name)
+        nodes = filetree.build([(path, "", path) for path, _size in files], dict(files))
+        self.nav.push(plan_tree.PlanTreePage(moment(run.time), nodes, lambda node, r=run: self._restore(r, node.path),
+                                             _("Put it back in its place")))
+
+    def _restore(self, run, rel: str) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        there = os.path.exists(os.path.join(pair.local, rel))
+        dialog = Adw.AlertDialog(
+            heading=_("Put “{name}” back?").format(name=os.path.basename(rel)),
+            body=(_("The copy of {time} goes back to its place in the folder. The file there now is kept in a new "
+                    "backup first. The next sync uploads it to Koofr.") if there else
+                  _("The copy of {time} goes back to its place in the folder. The next sync uploads it to Koofr."))
+            .format(time=moment(run.time)))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("restore", _("Put It Back"))
+        dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
+
+        def chosen(_d, response):
+            if response != "restore":
+                return
+            try:
+                jobs.restore_backup(self.engine.paths, pair, run.name, rel)
+            except (OSError, ValueError) as e:
+                tell(self.toasts, "", [str(e)])
+                return
+            self.engine.invalidate_preview(self.pair_id)
+            tell(self.toasts, _("Put back: {path}").format(path=rel), [])
+        dialog.connect("response", chosen)
+        dialog.present(self)
+
+    def _delete(self, run) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_("Delete the backup of {time}?").format(time=moment(run.time)),
+            body=_("{amount} of files replaced or deleted by that sync. Nothing else is touched.").format(
+                amount=plan_tree.amount(run.files, run.size)))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("delete", _("Delete"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        paths, pair_id = self.engine.paths, self.pair_id
+        dialog.connect("response", lambda _d, r: run_in_thread(
+            lambda: jobs.delete_backup_run(paths, pair_id, run.name), lambda _r, _e: self._fill()) if r == "delete"
+            else None)
+        dialog.present(self)
+
+    def _delete_all(self) -> None:
+        files, size = sum(r.files for r in self.runs), sum(r.size for r in self.runs)
+        dialog = Adw.AlertDialog(
+            heading=_("Delete every backup of this folder?"),
+            body=_("{amount} of files replaced or deleted by past syncs. Nothing else is touched.").format(
+                amount=plan_tree.amount(files, size)))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("delete", _("Delete All"))
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        paths, pair_id, runs = self.engine.paths, self.pair_id, list(self.runs)
+
+        def wipe():
+            for run in runs:
+                jobs.delete_backup_run(paths, pair_id, run.name)
+        dialog.connect("response", lambda _d, r: run_in_thread(wipe, lambda _r, _e: self._fill()) if r == "delete"
+                       else None)
+        dialog.present(self)
+
+
+def verification_differences(preview) -> int:
+    """How many files a kept verification found different, 0 for none or
+    for no verification."""
+    if preview is None or preview.mode is not Mode.CHECK or preview.outcome is None:
+        return 0
+    plan = preview.outcome.plan
+    return len(plan.upload) + len(plan.download) + len(plan.conflicts) + len(plan.error_paths)
+
+
+def verification_summary(preview) -> str:
+    """"14:20 · the same on both sides", or how many differences; "" when
+    there is no verification to tell about."""
+    if preview is None or preview.mode is not Mode.CHECK or preview.outcome is None:
+        return ""
+    n = verification_differences(preview)
+    what = ngettext("{n} difference", "{n} differences", n).format(n=count(n)) if n else _("the same on both sides")
+    return f"{when(preview.finished)} · {what}"
+
+
+class VerifyDialog(Adw.Dialog):
+    """Both sides compared by size and checksum (verify.py): the same, or
+    what differs, each kind on a tree page of its own. Nothing is changed;
+    the preview of the next sync says what it would do about them."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Verify Both Sides"), content_width=560, content_height=560)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        self.waiting = False
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        self.again = Gtk.Button(label=_("Verify Again"), sensitive=False)
+        self.again.connect("clicked", lambda *_: self._start(refresh=True))
+        header.pack_start(self.again)
+        view.add_top_bar(header)
+        self.page = Adw.PreferencesPage()
+        self.spinner_group = Adw.PreferencesGroup()
+        self.progress_row = Adw.ActionRow(title=_("Comparing…"), subtitle_lines=0)
+        self.progress_row.add_prefix(Adw.Spinner())
+        self.spinner_group.add(self.progress_row)
+        self.result_group: Adw.PreferencesGroup | None = None
+        self.toasts = Adw.ToastOverlay(child=self.page)
+        view.set_content(self.toasts)
+        self.nav = Adw.NavigationView()
+        self.nav.add(Adw.NavigationPage(title=_("Verify Both Sides"), child=view))
+        self.set_child(self.nav)
+        self._handler = self.engine.connect("pair-changed",
+                                            lambda _e, pid: self._changed() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self._start()
+
+    def _start(self, refresh: bool = False) -> None:
+        if self.result_group is not None:
+            self.page.remove(self.result_group)
+            self.result_group = None
+        if self.spinner_group.get_parent() is None:
+            self.page.add(self.spinner_group)
+        self.again.set_sensitive(False)
+        self.waiting = True
+        self.engine.preview(self.pair_id, Mode.CHECK, False, self._done, reason="verify", refresh=refresh)
+        self._changed()
+
+    def _changed(self) -> None:
+        rt = self.engine.runtime.get(self.pair_id)
+        preview = rt.preview if rt else None
+        if not self.waiting or preview is None or preview.mode is not Mode.CHECK or not preview.running:
+            return
+        if rt.task is not preview.task:
+            text = (_("Waiting for this folder's sync to finish…") if rt.task is not None
+                    else _("Waiting for another preview to finish…"))
+        elif rt.run is None:
+            text = _("Looking at the files on this computer…")
+        else:
+            checks = (preview.stats or {}).get("checks") or 0
+            text = ngettext("{n} file compared", "{n} files compared", checks).format(n=count(checks))
+        self.progress_row.set_subtitle(escape(text))
+
+    def _done(self, outcome: Outcome | None, error: str) -> None:
+        self.waiting = False
+        self.again.set_sensitive(True)
+        if self.spinner_group.get_parent() is not None:
+            self.page.remove(self.spinner_group)
+        group = Adw.PreferencesGroup()
+        if outcome is None:
+            row = Adw.ActionRow(title=escape(error or _("The verification failed")), title_lines=3)
+            row.add_prefix(Gtk.Image(icon_name="dialog-error-symbolic"))
+            group.add(row)
+        else:
+            plan = outcome.plan
+            kinds = ((_("Only on this computer"), plan.upload, False), (_("Only on Koofr"), plan.download, True),
+                     (_("Different"), plan.conflicts, False), (_("Could not be compared"), plan.error_paths, False))
+            if not any(items for _t, items, _k in kinds):
+                row = Adw.ActionRow(title=escape(ngettext("{n} file, the same on both sides",
+                                                          "{n} files, the same on both sides", outcome.identical)
+                                                 .format(n=count(outcome.identical))),
+                                    subtitle=escape(_("Sizes and checksums match. Nothing was changed.")))
+                row.add_prefix(Gtk.Image(icon_name="emblem-ok-symbolic"))
+                group.add(row)
+            else:
+                group.set_description(escape(ngettext(
+                    "{n} file is the same on both sides; these differ. Nothing was changed: the preview of "
+                    "the next sync says what it would do about them.",
+                    "{n} files are the same on both sides; these differ. Nothing was changed: the preview of "
+                    "the next sync says what it would do about them.", outcome.identical)
+                    .format(n=count(outcome.identical))))
+                for title, items, on_koofr in kinds:
+                    if not items:
+                        continue
+                    nodes = filetree.build([(path, "", path) for path in items])
+                    files, _size = filetree.totals(nodes)
+                    row = Adw.ActionRow(title=title, subtitle=escape(plan_tree.amount(files, 0)), activatable=True)
+                    row.add_suffix(Gtk.Image(icon_name="go-next-symbolic",
+                                             accessible_role=Gtk.AccessibleRole.PRESENTATION))
+                    row.connect("activated", lambda _r, t=title, n=nodes, k=on_koofr: self.nav.push(
+                        plan_tree.PlanTreePage(t, n, lambda node, k=k: self._show(node.show, k),
+                                               _("Open on Koofr") if k else _("Show in the file manager"))))
+                    group.add(row)
+            rt = self.engine.runtime.get(self.pair_id)
+            if rt is not None and rt.preview is not None and rt.preview.stale:
+                group.add(Adw.ActionRow(title=escape(_("Files changed since: verify again for the current picture.")),
+                                        title_lines=2))
+        self.result_group = group
+        self.page.add(group)
+
+    def _show(self, path: str, on_koofr: bool) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if on_koofr:
+            url = koofr_api.folder_url(self.engine.cfg.mount_id, pair.remote, path)
+            Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
+        else:
+            reveal(self.window, os.path.join(pair.local, path))
 
 
 class LeftOutDialog(Adw.Dialog):
@@ -1871,7 +2184,7 @@ class PreviewDialog(Adw.Dialog):
         self.close()
 
 
-def about_dialog(parent, engine: Engine | None = None) -> None:
+def about_dialog(parent, engine: Engine | None = None, present: bool = True) -> Adw.AboutDialog:
     from . import WEBSITE, __version__
     dialog = Adw.AboutDialog(
         application_name=APP_NAME, application_icon=APP_ID, version=__version__,
@@ -1887,5 +2200,7 @@ def about_dialog(parent, engine: Engine | None = None) -> None:
         paths, rclone = engine.paths, engine.rclone
         run_in_thread(lambda: diagnostics.storage(paths, rclone),
                       lambda text, error: dialog.set_debug_info(head + "\n" + (text if error is None else str(error))))
-    dialog.present(parent)
+    if present:
+        dialog.present(parent)
+    return dialog
 

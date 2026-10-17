@@ -507,9 +507,11 @@ class SpolaApp(Adw.Application):
     def _on_attention(self, _engine, pair_id: str, kind: str, message: str) -> None:
         pair = self.engine.cfg.pair(pair_id)
         name = pair.name if pair else APP_NAME
-        if kind == "preview-ready" and self.window is not None and self.window.is_active():
+        if kind in ("preview-ready", "verify", "verified") and self.window is not None and self.window.is_active():
             # the window is in front: it says so there, with the button to look
-            self.window.toast_review(_("The preview of “{name}” is ready").format(name=name), pair_id)
+            text = _("The preview of “{name}” is ready").format(name=name) if kind == "preview-ready" \
+                else _("“{name}”: {what}").format(name=name, what=message)
+            self.window.toast_review(text, pair_id)
             return
         titles = {
             "conflicts": _("Conflicts in “{name}”"),
@@ -521,6 +523,8 @@ class SpolaApp(Adw.Application):
             "error": _("“{name}” cannot be synced"),
             "refused": _("Some files in “{name}” are not synced"),
             "settings": _("A word about Spola's settings"),
+            "verify": _("“{name}”: differences between this computer and Koofr"),
+            "verified": _("“{name}” verified"),
         }
         if WINDOWS:
             # GLib has no notifications on Windows: a toast of Spola's own
