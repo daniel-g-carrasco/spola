@@ -45,7 +45,8 @@ from .config import Config, Pair
 from .i18n import _, count, every_translation, ngettext
 from .log import complain
 from .paths import Paths
-from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_delete, default_excluded,
+from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
+                     default_excluded,
                      describe, excluded_by, find_rclone, fold_case_renames, koofr_env, no_window, relative_path,
                      remote_spec)
 from .states import PathStates, ancestors_and_self
@@ -170,6 +171,7 @@ class Task:
     bases: tuple | None = None          # a preview's Preview.bases, read in the preparing thread
     counts: tuple | None = None         # a preview's Preview.counts, likewise
     max_delete: int | None = None       # a confirmed run: what its preview showed, not the pair's limit
+    max_changes: int | None = None      # likewise for the files changed here at once
 
 
 def gone_message(gone: str) -> str:
@@ -849,10 +851,14 @@ class Engine(GObject.Object):
         if rt.ahead_source:
             GLib.source_remove(rt.ahead_source)
             rt.ahead_source = 0
-        max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts) if mode is Mode.SYNC and force else None
+        max_delete = max_changes = None
+        if mode is Mode.SYNC and force:
+            max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts)
+            max_changes = confirmed_max_changes(kept.outcome.plan, kept.bases)
         rt.before_run = (rt.status, rt.message)     # what this answers: back to it if the run is dropped
         rt.preview = None               # what it said is about to happen
-        self._enqueue(Task(pair_id, mode, max_delete=max_delete, reason="confirmed", callback=callback), front=True)
+        self._enqueue(Task(pair_id, mode, max_delete=max_delete, max_changes=max_changes, reason="confirmed",
+                           callback=callback), front=True)
         if rt.task is None or rt.task.dry_run:
             self._set_status(pair, rt, Status.PENDING)
         return True
@@ -1301,14 +1307,14 @@ class Engine(GObject.Object):
                 and (not rt.busy_since or time.monotonic() - rt.busy_since < BUSY_WAIT_MAX_S))
 
         def work():
-            free = busy = None
+            free = busy = changes = None
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
                 env = koofr_env(creds.user, creds.obscured)
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
                                    koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
-                                   wait_for_writes=wait, max_delete=task.max_delete)
+                                   wait_for_writes=wait, max_delete=task.max_delete, max_changes=task.max_changes)
                 result = (job, bisync_args(rclone, job.request), "")
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
@@ -1323,6 +1329,8 @@ class Engine(GObject.Object):
                     task.counts = listings.counts(paths.workdir(pair.id))
             except jobs.Busy as e:
                 result, busy = (None, None, ""), e.paths
+            except jobs.TooManyChanges as e:
+                result, changes = (None, None, ""), e
             except jobs.NotReady as e:
                 result = (None, None, e.problems[0].message)
             except OSError as e:
@@ -1330,12 +1338,12 @@ class Engine(GObject.Object):
             except Exception as e:      # said, never a lane taken for good
                 complain(f"preparing a run of {pair.name}", e)
                 result = (None, None, f"{type(e).__name__}: {e}")
-            GLib.idle_add(self._start_prepared, task, *result, free, busy)
+            GLib.idle_add(self._start_prepared, task, *result, free, busy, changes)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
 
     def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None,
-                        busy: list[str] | None = None) -> bool:
+                        busy: list[str] | None = None, changes=None) -> bool:
         """The run prepared in a thread: start it, unless things changed
         meanwhile (shutdown, pair removed or paused, Stop pressed), or files
         already in sync are being written (`busy`): then it waits for them."""
@@ -1395,6 +1403,19 @@ class Engine(GObject.Object):
                              _("Waiting for a file still being written: {name}").format(
                                  name=os.path.basename(busy[0])))
             self._settle_then_sync(pair, rt)
+            GLib.idle_add(self._next)
+            return False
+        if changes is not None:
+            # more files changed here at once than may go up over Koofr's
+            # copies unasked: the run did not start; a preview, then a word
+            rt.safety = "changes"
+            message = _("{n} of {total} files changed on this computer at once").format(
+                n=count(changes.changed), total=count(changes.total))
+            if task.callback:
+                task.callback(None, message)
+            self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, message)
+            if rt.before_run[0] is not Status.NEEDS_CONFIRMATION:
+                self.emit("attention", pair.id, "confirm", message)
             GLib.idle_add(self._next)
             return False
         if error:
@@ -1632,8 +1653,8 @@ class Engine(GObject.Object):
             # the deletions passed the bound of the confirmed preview (bisync
             # checks them first); every file changed, as the preview showed:
             # once more, past that check, with the callback for the real end
-            self._enqueue(Task(pair.id, task.mode, force=True, reason="confirmed", callback=task.callback),
-                          front=True)
+            self._enqueue(Task(pair.id, task.mode, force=True, max_changes=task.max_changes, reason="confirmed",
+                               callback=task.callback), front=True)
             task.callback = None
             self._set_status(pair, rt, Status.PENDING)
         elif result is Result.NEEDS_CONFIRMATION:

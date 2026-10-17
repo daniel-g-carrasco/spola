@@ -80,7 +80,7 @@ class ArgsTest(unittest.TestCase):
 
     def test_max_delete(self):
         self.assertEqual(effective_max_delete(10, None), 10)
-        self.assertEqual(effective_max_delete(10, 60000), 10)
+        self.assertEqual(effective_max_delete(10, 60000), 1)     # 1%: 600 files, about the cap, not 6,000
         self.assertEqual(effective_max_delete(10, 20), 25)     # 5 of 20 files
         self.assertEqual(effective_max_delete(10, 3), 100)     # tiny folder
         self.assertEqual(effective_max_delete(0, None), 1)     # never "no limit"
@@ -211,6 +211,28 @@ class ParseTest(unittest.TestCase):
         out = summarize(1, [parse_line(line)], "/ROOT/a/", "/ROOT/b/")
         self.assertEqual((out.result, out.safety), (Result.NEEDS_CONFIRMATION, "all-changed"))
         self.assertEqual(summarize(0, events("koofr-sync.jsonl"), "/home/user/x/", "koofr:x").safety, "")
+
+    def test_the_deletion_limit_has_a_floor_and_a_cap(self):
+        from spola.rclone import MAX_FREE_DELETES, MIN_FREE_DELETES, allowed_changes
+        self.assertEqual(effective_max_delete(10, 20), 25)                  # 5 files of 20 may go
+        self.assertEqual(effective_max_delete(10, 1000), 10)
+        self.assertEqual(effective_max_delete(10, 42579), 2)                # not 4,257 files unasked
+        self.assertEqual(effective_max_delete(100, 42579), 2)
+        self.assertGreaterEqual(effective_max_delete(10, 42579) * 42579 // 100, MAX_FREE_DELETES)
+        self.assertEqual(effective_max_delete(10, None), 10)
+        self.assertEqual(MIN_FREE_DELETES, 5)
+        self.assertEqual(allowed_changes(10, 100), 50)                      # the floor
+        self.assertEqual(allowed_changes(10, 3000), 300)
+        self.assertEqual(allowed_changes(10, 42579), 500)                   # the cap
+
+    def test_a_confirmed_run_may_change_what_its_preview_showed_and_little_more(self):
+        from spola.rclone import confirmed_max_changes
+        plan = Plan(upload=["a", "b", "c", "new1", "new2"])
+        bases = ({"a": 1, "b": 1, "c": 1, "d": 1}, {})                       # here: a, b, c changed; the rest new
+        self.assertEqual(confirmed_max_changes(plan, bases), 5)
+        self.assertEqual(confirmed_max_changes(Plan(upload=[f"f{i}" for i in range(400)]),
+                                               ({f"f{i}": 1 for i in range(400)}, {})), 408)
+        self.assertEqual(confirmed_max_changes(plan, None), 2)
 
     def test_a_confirmed_run_may_delete_what_its_preview_showed_and_little_more(self):
         plan = Plan(delete_remote=["a", "b", "c"], moved_remote=[("d", "e")], delete_local=["f"])

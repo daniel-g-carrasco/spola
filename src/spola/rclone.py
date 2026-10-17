@@ -45,6 +45,15 @@ FORBIDDEN_VALUES = {"--conflict-loser": {"delete"},
 # Below this many entries, a percentage is a poor guard ("1 of 4" is 25%):
 # small folders may lose up to this many files without a confirmation.
 MIN_FREE_DELETES = 5
+# Above, a percentage is too generous: 10% of 40,000 files is 4,000 gone
+# without a word. Never more than this many unasked (bisync takes whole
+# percentage points, so the real cap is the first point at or above it).
+MAX_FREE_DELETES = 500
+# The same for files changed here at once (a snapshot put back, a bulk edit,
+# a program that rewrites a tree): what goes up over Koofr's copies without
+# asking. bisync has no such check; Spola counts them before it runs.
+MIN_FREE_CHANGES = 50
+MAX_FREE_CHANGES = 500
 
 # Default exclusions, in rclone filter syntax. A pattern without a leading
 # "/" matches at any depth; "dir/**" leaves out a whole folder. The same list
@@ -204,8 +213,26 @@ def effective_max_delete(percent: int, previous_entries: int | None) -> int:
     percent = max(1, min(100, int(percent)))
     if previous_entries:
         needed = math.ceil(100 * MIN_FREE_DELETES / previous_entries)
-        percent = max(percent, min(100, needed))
+        cap = math.ceil(100 * MAX_FREE_DELETES / previous_entries)
+        percent = max(min(percent, cap), min(100, needed))
     return percent
+
+
+def allowed_changes(percent: int, previous_entries: int) -> int:
+    """How many files may change here at once without a confirmation:
+    `percent` of the last listing, never below MIN_FREE_CHANGES, never
+    above MAX_FREE_CHANGES."""
+    share = previous_entries * max(1, min(100, int(percent))) // 100
+    return max(MIN_FREE_CHANGES, min(share, MAX_FREE_CHANGES))
+
+
+def confirmed_max_changes(plan: Plan, bases) -> int:
+    """The files changed here a confirmed preview showed (its uploads of
+    files this computer's listing already had), plus a small margin: what
+    the run that carries it out may find changed, no more."""
+    known = bases[0] if bases else {}
+    changed = sum(1 for path in plan.upload if path in known)
+    return changed + max(2, math.ceil(changed * CONFIRMED_MARGIN / 100))
 
 
 # what a confirmed run may delete beyond what its preview showed: bisync

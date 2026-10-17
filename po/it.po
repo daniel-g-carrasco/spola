@@ -2524,3 +2524,8 @@ msgstr[1] "{n} backup più vecchi di {days} giorni vengono eliminati subito: {si
 #: src/spola/window.py
 msgid "Delete"
 msgstr "Elimina"
+
+#: src/spola/cli.py src/spola/engine.py
+#, python-brace-format
+msgid "{n} of {total} files changed on this computer at once"
+msgstr "{n} file su {total} cambiati su questo computer tutti insieme"
