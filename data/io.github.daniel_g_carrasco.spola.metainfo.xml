@@ -114,6 +114,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.19" date="2026-10-17" type="development">
+      <description>
+        <p>A confirmation is worth what its preview showed, no more: a confirmed sync may delete the share of files the preview listed, with a small margin, instead of going past every limit; if more would go, it stops and asks again. A preview overtaken by a change (here, or on Koofr) can no longer be confirmed: the dialog says so and prepares it again.</p>
+        <p>The computer stays awake while a sync runs, on every Linux desktop (through logind, lid closed or not; a switch in Preferences turns it off), and a sleep that comes anyway stops the sync gracefully and starts it again after the wake. An unexpected failure while a run is prepared, followed or read no longer leaves a folder stuck in "Preparing…" or Spola unable to quit: it is reported as an error of that folder. Quitting waits for a preview being prepared too, and ends a stuck rclone after two minutes.</p>
+        <p>Nothing is published to the Flatpak repository, nor packaged for Windows, without the tests; the dialog tests now run in the build too.</p>
+      </description>
+    </release>
     <release version="0.3.18" date="2026-10-17" type="development">
       <description>
         <p>A folder deleted or emptied on Koofr (from another computer, from the web), or emptied here, no longer shows as "needs a repair", which could not help: Spola says what happened ("is no longer on Koofr", "is empty on Koofr", "is empty on this computer") and offers what does: restore it from Koofr's trash, upload this computer's files again (after a preview), copy Koofr's files here again, or stop syncing it. The files on the other side are never touched meanwhile.</p>
