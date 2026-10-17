@@ -88,6 +88,14 @@ def _print_plan(outcome: Outcome) -> None:
         print("\n" + outcome.message)
 
 
+def _save(cfg, paths) -> None:
+    try:
+        config.save(cfg, paths.config_file)
+    except OSError as e:
+        _fail(_("The settings could not be saved: {error}").format(error=e.strerror or str(e)))
+        raise SystemExit(1) from None
+
+
 def _run(cfg, pair, paths, rclone, creds, mode, dry_run=False, force=False, quiet=False,
          max_delete=None, max_changes=None) -> Outcome | None:
     override = None
@@ -200,6 +208,9 @@ def main(argv: list[str]) -> int:
 
     paths = Paths.from_env()
     cfg = config.load(paths.config_file)
+    for notice in cfg.notices:
+        print(_("Settings: {what}").format(what=f"{notice.kind} {notice.detail} {notice.reason}".rstrip()),
+              file=sys.stderr)
     rclone = find_rclone()
     if rclone is None:
         return _fail(_("rclone was not found."))
@@ -227,7 +238,7 @@ def main(argv: list[str]) -> int:
             cfg.mount_id = koofr_api.primary_mount_id(user, password)
         except koofr_api.ApiError:
             pass
-        config.save(cfg, paths.config_file)
+        _save(cfg, paths)
         print(_("Signed in. Free space: {free} GB").format(free=(quota.free or 0) // 1024**3))
         return 0
 
@@ -251,7 +262,7 @@ def main(argv: list[str]) -> int:
             report = migrate.import_koofr_desktop(cfg, Path(args.config) if args.config else None)
         except migrate.KoofrDesktopActive as e:
             return _fail(str(e))
-        config.save(cfg, paths.config_file)
+        _save(cfg, paths)
         for item in report.added:
             state = _("paused") if item.pair.paused else _("to align")
             print(f"+ [{item.pair.id}] {item.pair.local}  \u21c4  Koofr {item.pair.remote}  ({state})")
@@ -291,7 +302,7 @@ def main(argv: list[str]) -> int:
         pair = config.Pair(config.Pair.new_id(), local, remote, root_dev=dev, root_ino=ino)
         preflight.claim_root(pair)
         cfg.pairs.append(pair)
-        config.save(cfg, paths.config_file)
+        _save(cfg, paths)
         print(_("Added [{id}]. Next: spola align {id}").format(id=pair.id))
         return 0
 
@@ -301,7 +312,7 @@ def main(argv: list[str]) -> int:
 
     if args.command == "remove":
         cfg.pairs.remove(pair)
-        config.save(cfg, paths.config_file)
+        _save(cfg, paths)
         preflight.release_root(pair)
         paths.forget(pair.id)
         print(_("Removed. No file was deleted."))
@@ -332,7 +343,7 @@ def main(argv: list[str]) -> int:
         outcome = _run(cfg, pair, paths, rclone, creds, Mode.RESYNC)
         if outcome and outcome.result is Result.OK:
             pair.initialized = True
-            config.save(cfg, paths.config_file)
+            _save(cfg, paths)
             # writes the .lst-old that --recover needs if a later run is interrupted
             _run(cfg, pair, paths, rclone, creds, Mode.SYNC, quiet=True)
             print(_("Aligned."))

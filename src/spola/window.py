@@ -15,11 +15,12 @@ from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL, WINDOWS  # noqa: E402
 from . import account, activity, autostart, conflicts, file_managers, filetree, jobs, koofr_api  # noqa: E402
-from . import plan_tree, preflight, secrets  # noqa: E402
+from . import diagnostics, plan_tree, preflight, secrets  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, count, ngettext, pgettext  # noqa: E402
 from .rclone import Mode, Outcome, Result, describe, windows_reserved_names_matter  # noqa: E402
+from .runner import newest_log  # noqa: E402
 from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
                  pair_status_text, place_name, status_badge, status_css, status_detail, status_icon, status_line,
                  status_text, syncing_for_real, when)
@@ -808,6 +809,8 @@ class PairPage(Adw.NavigationPage):
         self.trash_row = self._link_row(group, _("Restore from Koofr's Trash"),
                                         lambda: TrashDialog(self.window, self.pair_id).present(self.window),
                                         _("Files of this folder deleted on Koofr in the last 30 days"))
+        self.log_row = self._link_row(group, _("Last Sync Log"), self._open_log,
+                                      _("What rclone reported during the last sync, for troubleshooting"))
         if windows_reserved_names_matter():
             group.add(Adw.ActionRow(title=_("Names Windows 10 Reserves"), subtitle_lines=0, subtitle=escape(_(
                 "Files and folders named CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, with any extension, "
@@ -889,6 +892,7 @@ class PairPage(Adw.NavigationPage):
         self.trash_row.set_visible(pair.initialized)
         self.trash_row.set_sensitive(signed_in)
         self.preview_row.set_sensitive(rt.status is not Status.SYNCING and signed_in)
+        self.log_row.set_visible(newest_log(self.engine.paths.log_dir(self.pair_id)) is not None)
         patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
                     if line.strip() and not line.lstrip().startswith("#")]
         self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
@@ -918,6 +922,21 @@ class PairPage(Adw.NavigationPage):
         pair = self.engine.cfg.pair(self.pair_id)
         url = koofr_api.web_url(self.engine.cfg.mount_id, pair.remote)
         Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
+
+    def _open_log(self) -> None:
+        log = newest_log(self.engine.paths.log_dir(self.pair_id))
+        if log is None:
+            return
+        launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(log)))
+
+        def done(launcher, result):
+            try:
+                launcher.launch_finish(result)
+            except GLib.Error:
+                # no application for a .jsonl file: the folder, with the file selected
+                launcher.open_containing_folder(self.window, None, None, None)
+
+        launcher.launch(self.window, None, done)
 
     def _remove(self) -> None:
         pair = self.engine.cfg.pair(self.pair_id)
@@ -1852,12 +1871,21 @@ class PreviewDialog(Adw.Dialog):
         self.close()
 
 
-def about_dialog(parent) -> None:
+def about_dialog(parent, engine: Engine | None = None) -> None:
     from . import WEBSITE, __version__
     dialog = Adw.AboutDialog(
         application_name=APP_NAME, application_icon=APP_ID, version=__version__,
         developer_name="Daniel Grasso", license_type=Gtk.License.MIT_X11, website=WEBSITE,
         comments=_("Keep your folders in sync with Koofr.\nNot affiliated with Koofr."))
     dialog.add_credit_section(_("Sync engine"), ["rclone https://rclone.org"])
+    if engine is not None:
+        # Troubleshooting: what a report needs, with its Save button; the
+        # slow part (rclone's version, the room the backups take) follows
+        head = diagnostics.summary(engine)
+        dialog.set_debug_info_filename("spola-debug-info.txt")
+        dialog.set_debug_info(head + "\n" + _("Measuring the space taken by the logs and backups…"))
+        paths, rclone = engine.paths, engine.rclone
+        run_in_thread(lambda: diagnostics.storage(paths, rclone),
+                      lambda text, error: dialog.set_debug_info(head + "\n" + (text if error is None else str(error))))
     dialog.present(parent)
 

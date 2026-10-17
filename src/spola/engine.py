@@ -30,6 +30,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from gi.repository import Gio, GLib, GObject
 
@@ -124,6 +125,34 @@ def free_space(rclone: str, paths: Paths, creds: Credentials | None, dev_remote:
     """Free space on Koofr, for a preview's summary."""
     space = space_of(rclone, paths, creds, dev_remote)
     return space.free if space is not None else None
+
+
+MIN_FREE_LOCAL = 200 * 2**20    # on the folder's disk, beyond what comes down: below it, no run
+MIN_FREE_STATE = 50 * 2**20     # on the disk of the listings, which bisync writes at the end of every run
+
+
+def local_space_problem(local: str, state: Path, downloads: int = 0) -> str:
+    """Why a run must not start, in the user's words, or "": the folder's
+    disk would not hold what the preview says comes down from Koofr (with a
+    margin), or is nearly full anyway, or the disk of Spola's own listings
+    is (a run that cannot write them ends in a repair). rclone would stop
+    halfway with "no space left on device"; better not to start."""
+    try:
+        here = shutil.disk_usage(local).free
+        where = state if state.is_dir() else state.parent
+        own = shutil.disk_usage(where).free if where.is_dir() else None
+    except OSError:
+        return ""
+    if downloads and here < downloads + MIN_FREE_LOCAL:
+        return _("Not enough space on this computer: the sync would download {need}, and {free} is free").format(
+            need=GLib.format_size(downloads), free=GLib.format_size(here))
+    if here < MIN_FREE_LOCAL:
+        return _("The disk of this folder is nearly full ({free} free): free some space, and the sync goes on").format(
+            free=GLib.format_size(here))
+    if own is not None and own < MIN_FREE_STATE:
+        return _("The disk holding Spola's own files is nearly full ({free} free): free some space, "
+                 "and the sync goes on").format(free=GLib.format_size(own))
+    return ""
 
 
 @dataclass
@@ -420,7 +449,14 @@ class Engine(GObject.Object):
         return runs
 
     def save_config(self) -> None:
-        config_mod.save(self.cfg, self.paths.config_file)
+        """A save that fails is said (the window, a notification), never
+        swallowed: the pairs and settings would be lost at the next start."""
+        try:
+            config_mod.save(self.cfg, self.paths.config_file)
+        except OSError as e:
+            complain("saving the settings", e)
+            self.emit("attention", "", "settings",
+                      _("The settings could not be saved: {error}").format(error=e.strerror or str(e)))
 
     # -- pairs -----------------------------------------------------------------
 
@@ -1305,6 +1341,10 @@ class Engine(GObject.Object):
         # an automatic run waits for the files being written, but not for ever
         wait = (task.reason not in ("manual", "confirmed", "preview") and not task.dry_run
                 and (not rt.busy_since or time.monotonic() - rt.busy_since < BUSY_WAIT_MAX_S))
+        # what a fresh preview of this run says comes down: the disk must hold it
+        preview = rt.preview
+        downloads = (preview.outcome.plan.download_bytes if preview is not None and preview.outcome is not None
+                     and preview.fresh() and preview.mode is task.mode else 0)
 
         def work():
             free = busy = changes = None
@@ -1316,6 +1356,8 @@ class Engine(GObject.Object):
                                    koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
                                    wait_for_writes=wait, max_delete=task.max_delete, max_changes=task.max_changes)
                 result = (job, bisync_args(rclone, job.request), "")
+                if not task.dry_run and (problem := local_space_problem(pair.local, paths.state, downloads)):
+                    result = (None, None, problem)
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
                     task.case_renames = jobs.case_renames(paths, pair)

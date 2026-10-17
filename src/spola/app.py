@@ -30,6 +30,23 @@ SOURCE_ICONS = Path(__file__).resolve().parent.parent.parent / "data" / "icons"
 UPDATE_CHECK_DELAY_S = 60
 
 
+def settings_notice_text(notice: config.Notice) -> str:
+    """What load() had to do, in the user's words."""
+    if notice.kind == "recovered":
+        return _("The settings file was damaged: the previous save was used. "
+                 "The damaged file is kept at {path}.").format(path=notice.detail)
+    if notice.kind == "fresh":
+        return _("The settings file was damaged and there was no previous save: Spola starts with no folders. "
+                 "Add them again (nothing is copied before you confirm an alignment). "
+                 "The damaged file is kept at {path}.").format(path=notice.detail)
+    if notice.kind == "missing":
+        return _("The settings file was missing: the previous save was used.")
+    if notice.kind == "newer":
+        return _("The settings were saved by a newer Spola (format {version}): "
+                 "what this version does not know is kept untouched.").format(version=notice.detail)
+    return f"{notice.kind} {notice.detail}"
+
+
 class SpolaApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -58,6 +75,9 @@ class SpolaApp(Adw.Application):
         paths = Paths.from_env()
         cfg = config.load(paths.config_file)
         self.engine = Engine(paths, cfg)
+        for notice in cfg.notices:
+            print(f"spola: settings: {notice.kind} {notice.detail} {notice.reason}".rstrip(), file=sys.stderr, flush=True)
+            GLib.idle_add(self._on_attention, self.engine, "", "settings", settings_notice_text(notice))
         self.engine.app = self
         self._sleep_guard()
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
@@ -73,7 +93,7 @@ class SpolaApp(Adw.Application):
         for name, handler in (("quit", self._quit), ("show", lambda: self.activate()),
                               ("sync-all", lambda: self.engine.sync_all("manual")),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
-                              ("about", lambda: about_dialog(self._window())),
+                              ("about", lambda: about_dialog(self._window(), self.engine)),
                               ("import-koofr-desktop", lambda: self._window().import_koofr_desktop()),
                               ("check-updates", lambda: self.check_updates(manual=True)),
                               ("preferences", lambda: PreferencesDialog(self._window()).present(self._window()))):
@@ -500,6 +520,7 @@ class SpolaApp(Adw.Application):
             "gone": _("“{name}” stopped to keep your files safe"),
             "error": _("“{name}” cannot be synced"),
             "refused": _("Some files in “{name}” are not synced"),
+            "settings": _("A word about Spola's settings"),
         }
         if WINDOWS:
             # GLib has no notifications on Windows: a toast of Spola's own
@@ -509,7 +530,7 @@ class SpolaApp(Adw.Application):
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)
         note.set_default_action_and_target("app.review", GLib.Variant("s", pair_id))
-        if kind in ("confirm", "repair", "error", "gone"):
+        if kind in ("confirm", "repair", "error", "gone", "settings"):
             note.set_priority(Gio.NotificationPriority.HIGH)
         self.send_notification(f"{kind}-{pair_id}", note)
 

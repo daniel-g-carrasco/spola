@@ -749,6 +749,8 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
                     r=count(stats.get("renames") or 0))
         plan.errors.append(first_error)
         exit_code = 2
+    if any("no space left on device" in message.lower() for message in plan.errors):
+        first_error = _("A disk of this computer is full: free some space, and the sync goes on")
     if cancelled:
         result = Result.CANCELLED
     elif Kind.SAFETY_ABORT in kinds:
