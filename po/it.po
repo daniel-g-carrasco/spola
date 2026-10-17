@@ -2466,3 +2466,32 @@ msgstr "Vuota su questo computer"
 #, python-brace-format
 msgid "“{name}” stopped to keep your files safe"
 msgstr "“{name}” si è fermata per proteggere i tuoi file"
+
+#: src/spola/engine.py
+msgid "The preview is no longer current."
+msgstr "L'anteprima non è più attuale."
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "The outcome of the sync could not be read: {error}"
+msgstr "Impossibile leggere l'esito della sincronizzazione: {error}"
+
+#: src/spola/window.py
+msgid "Something Changed Since This Preview"
+msgstr "Qualcosa è cambiato dopo questa anteprima"
+
+#: src/spola/window.py
+msgid "What the sync would do may differ now: look at it again before confirming."
+msgstr "Quello che la sincronizzazione farebbe potrebbe essere diverso: guardala di nuovo prima di confermare."
+
+#: src/spola/window.py
+msgid "The preview is no longer current: it is prepared again."
+msgstr "L'anteprima non è più attuale: la preparo di nuovo."
+
+#: src/spola/window.py
+msgid "Keep the computer awake while syncing"
+msgstr "Tieni sveglio il computer durante la sincronizzazione"
+
+#: src/spola/window.py
+msgid "No sleep, lid closed or not, until the sync is done"
+msgstr "Niente sospensione, coperchio chiuso o no, finché la sincronizzazione non è finita"

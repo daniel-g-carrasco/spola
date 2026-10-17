@@ -193,6 +193,27 @@ def effective_max_delete(percent: int, previous_entries: int | None) -> int:
     return percent
 
 
+# what a confirmed run may delete beyond what its preview showed: bisync
+# counts whole percentage points, and the preview's deletions and the run's
+# deltas can differ by a folder or two
+CONFIRMED_MARGIN = 2
+
+
+def confirmed_max_delete(plan: Plan, counts: tuple[int, int] | None) -> int:
+    """The --max-delete for the run that carries out a confirmed preview:
+    the share of each side's entries the preview deletes (moves count as
+    deletions there, as bisync counts them), plus a small margin. A run that
+    would delete more than that stops again and asks again, instead of
+    carrying it out on the strength of a confirmation given for less.
+    Without the listings' counts, nothing to bound against: 100."""
+    if not counts:
+        return 100
+    deleted = (len(plan.delete_remote) + len(plan.moved_remote),      # gone here, deleted on Koofr
+               len(plan.delete_local) + len(plan.moved_local))       # gone on Koofr, deleted here
+    percent = max(math.ceil(100 * n / c) if c else 0 for n, c in zip(deleted, counts, strict=True))
+    return max(1, min(100, percent + CONFIRMED_MARGIN))
+
+
 class Mode(enum.Enum):
     SYNC = "sync"           # a normal run
     RESYNC = "resync"       # first alignment or repair, never deletes
@@ -511,6 +532,9 @@ class Outcome:
     plan: Plan = field(default_factory=Plan)
     stats: dict | None = None
     network: bool = False      # the run failed because Koofr could not be reached
+    # which safety check stopped the run: "deletes" (too many deletions on
+    # one side) or "all-changed" (every file of one side changed)
+    safety: str = ""
     # a side with nothing at all ("Path1" here, "Path2" Koofr): bisync stops
     # rather than empty the other one; the folder may also be gone there
     empty_side: str = ""
@@ -645,12 +669,14 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             copies[:] = [p for p in copies if p not in news]
             deletes[:] = [p for p in deletes if p not in olds]
 
-    empty_side, root_missing = "", False
+    empty_side, root_missing, safety = "", False, ""
     for ev in events:
         if (m := _EMPTY_SIDE.search(ev.message)):
             empty_side = m[1]
         elif "root directory: directory not found" in ev.message:
             root_missing = True
+        elif ev.kind is Kind.SAFETY_ABORT:
+            safety = "all-changed" if "all files were changed" in ev.message else "deletes"
 
     kinds = {ev.kind for ev in events}
     if cancelled:
@@ -673,4 +699,4 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
         result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
         setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
-    return Outcome(result, exit_code, first_error, plan, stats, network, empty_side, root_missing)
+    return Outcome(result, exit_code, first_error, plan, stats, network, safety, empty_side, root_missing)

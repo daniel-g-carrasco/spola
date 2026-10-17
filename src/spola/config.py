@@ -58,6 +58,7 @@ class Config:
     full_check_minutes: int = DEFAULT_FULL_CHECK_MINUTES
     pause_on_metered: bool = True
     pause_on_power_saver: bool = True
+    keep_awake: bool = True         # no sleep while a sync runs (logind, or the desktop's inhibit)
     backup_days: int = 30
     paused_all: bool = False
     nautilus_integration: bool = False

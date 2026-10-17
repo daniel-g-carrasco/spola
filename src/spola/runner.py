@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from . import WINDOWS
+from .log import complain
 from .rclone import Event, Outcome, Result, parse_line, summarize
 
 if WINDOWS:
@@ -87,6 +88,12 @@ class BisyncRun:
         if self._interrupts == 0:
             self.cancel()
 
+    def kill(self) -> None:
+        """The last resort, after two interrupts went unheard (rclone stuck
+        in a system call): the next run recovers (--recover)."""
+        if self._proc and self._proc.poll() is None:
+            self._proc.kill()
+
     def cancel(self) -> None:
         """First call: graceful stop. Second call: stop now."""
         if self._proc and self._proc.poll() is None:
@@ -149,32 +156,54 @@ class BisyncRun:
             self._lock_fd = None
 
     def _read(self) -> None:
+        """The reader thread: rclone's lines to the log and to the engine,
+        then the outcome. Whatever fails here, the outcome is reported and
+        rclone is never left frozen on a pipe nobody reads: a log that
+        cannot be written is skipped, anything else ends the run."""
         assert self._proc and self._proc.stderr
+        log = None
         try:
-            with open(self._log_path, "w", encoding="utf-8") as log:
-                for line in self._proc.stderr:
-                    log.write(line)
-                    ev = parse_line(line)
-                    if ev is None:
-                        continue
-                    self.events.append(ev)
-                    if self.on_event:
-                        try:
-                            self.on_event(ev)
-                        except Exception:  # a UI bug must not stop the run
-                            pass
+            try:
+                log = open(self._log_path, "w", encoding="utf-8")
+            except OSError as e:
+                complain("opening the run's log", e)
+            for line in self._proc.stderr:
+                if log is not None:
+                    try:
+                        log.write(line)
+                    except OSError as e:
+                        complain("writing the run's log", e)
+                        log.close()
+                        log = None
+                ev = parse_line(line)
+                if ev is None:
+                    continue
+                self.events.append(ev)
+                if self.on_event:
+                    try:
+                        self.on_event(ev)
+                    except Exception as e:  # a UI bug must not stop the run
+                        complain("handling a line of rclone", e)
             self._proc.stderr.close()
             code = self._proc.wait()
             self.outcome = summarize(code, self.events, self.path1, self.path2,
                                      cancelled=self._interrupts > 0 and code != 0)
             if self._interrupts > 0 and code != 0 and self.outcome.result is Result.CANCELLED:
                 self.outcome.message = "stopped"
+        except Exception as e:
+            complain("following the run", e)
+            if self._proc.poll() is None:
+                self._proc.kill()           # nobody reads its output any more
+                self._proc.wait()
+            self.outcome = Outcome(Result.FAILED, -1, f"{type(e).__name__}: {e}")
         finally:
+            if log is not None:
+                log.close()
             self._release_lock()
             self._prune_logs()
             self._done.set()
-        if self.on_exit:
-            self.on_exit(self.outcome)
+            if self.on_exit:
+                self.on_exit(self.outcome)
 
     def _prune_logs(self) -> None:
         try:

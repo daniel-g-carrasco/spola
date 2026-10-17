@@ -32,6 +32,17 @@ class ListingTest(unittest.TestCase):
         self.assertEqual([e.path for e in entries], ['con "virgolette" e àccènti.txt', "tab\there"])
         self.assertEqual(listings.go_unquote(r'"\x41è\U0001F600"'), "Aè\U0001F600")
 
+    def test_counts_of_both_sides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            wd = Path(tmp)
+            text = (FIXTURES / "listing.path1.lst").read_text(encoding="utf-8")
+            (wd / "a..b.path1.lst").write_text(text, encoding="utf-8")
+            self.assertIsNone(listings.counts(wd))                           # one side only
+            (wd / "a..b.path2.lst").write_text(text + '-        1 - - 2026-10-10T12:52:41.508231189+0000 "x"\n',
+                                               encoding="utf-8")
+            n1, n2 = listings.counts(wd)
+            self.assertEqual((n1, n2, listings.count(wd)), (n1, n1 + 1, n1))
+
     def test_unknown_format_is_an_error(self):
         with self.assertRaises(ValueError):
             listings.parse("# bisync listing v2 from ...\n")
