@@ -1177,6 +1177,32 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: got2, 5))
         self.assertTrue(kept.seen)
 
+    def test_a_first_alignment_with_nothing_to_align_goes_on_its_own(self):
+        engine_mod.PREVIEW_AHEAD_DELAY_S = 2
+        # the two sides already match: the preview prepared ahead finds
+        # nothing to do, so the alignment needs no word from the user
+        local, remote = self.tmp / "same", self.remote_root / "same"
+        local.mkdir()
+        remote.mkdir()
+        for i in range(5):
+            (local / f"same-{i}.txt").write_text(str(i))
+            shutil.copy2(local / f"same-{i}.txt", remote / f"same-{i}.txt")
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        pair = self.engine.add_pair(str(local), "/same")
+        rt = self.engine.runtime[pair.id]
+        self.assertIs(rt.status, Status.NEEDS_SETUP)
+        self.assertTrue(spin_until(lambda: rt.status is Status.OK and pair.initialized, 60), rt.message)
+        self.assertEqual(sorted(os.listdir(remote)), sorted(n for n in os.listdir(local) if not n.startswith(".")))
+        self.assertNotIn("preview-ready", told)
+        # a side with more than the other: the first alignment still waits for the user
+        other = self.other_pair()
+        rt2 = self.engine.runtime[other.id]
+        self.assertTrue(spin_until(lambda: rt2.preview is not None and rt2.preview.fresh(), 60))
+        spin_until(lambda: False, 2)
+        self.assertIs(rt2.status, Status.NEEDS_SETUP)
+        self.assertEqual(len(rt2.preview.outcome.plan.upload), 5)
+
     def test_a_folder_waiting_for_the_user_gets_its_preview_ahead(self):
         engine_mod.PREVIEW_AHEAD_DELAY_S = 1
         told = []
