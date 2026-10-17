@@ -27,6 +27,8 @@ finish-args:
   - --share=network
   # the tray icon registers itself with the host's tray (no name is owned)
   - --talk-name=org.kde.StatusNotifierWatcher
+  # logind: no sleep while a sync runs, and a word before one that comes anyway (sleep.py)
+  - --system-talk-name=org.freedesktop.login1
   # The synced folders are the user's own, anywhere in the home folder, and
   # they must be watched for changes made by every other program: folders
   # granted through the document portal give no change notifications

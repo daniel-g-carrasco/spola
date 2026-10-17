@@ -202,7 +202,7 @@ def _folded(files: set[str]) -> set[str]:
 def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
             dry_run: bool = False, force: bool = False,
             path2_override: str | None = None, koofr_files=None, wait_for_writes: bool = False,
-            now: float | None = None) -> Job:
+            now: float | None = None, max_delete: int | None = None) -> Job:
     """`path2_override` replaces the Koofr side with another path (tests run
     bisync between two local folders); it is never set by the app.
     `koofr_files()` lists the Koofr folder's files, or None if it cannot:
@@ -255,7 +255,10 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     if lines:
         exclude_file = paths.exclude_file(pair.id)
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
-        exclude_file.write_text(lines, encoding="utf-8", newline="\n")
+        # whole or not at all: a torn file would be a wrong set of rules
+        tmp = exclude_file.with_name(exclude_file.name + ".new")
+        tmp.write_text(lines, encoding="utf-8", newline="\n")
+        tmp.replace(exclude_file)
 
     path2 = path2_override or remote_spec(pair.remote)
     request = BisyncRequest(
@@ -265,7 +268,8 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         rclone_config=paths.rclone_config,
         filters_file=paths.filters_file(pair.id),
         backup_dir1=backup,
-        max_delete=effective_max_delete(pair.max_delete_percent, listings.count(workdir)),
+        max_delete=max_delete if max_delete is not None
+        else effective_max_delete(pair.max_delete_percent, listings.count(workdir)),
         mode=mode,
         dry_run=dry_run,
         force=force,

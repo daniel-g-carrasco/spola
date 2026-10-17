@@ -1389,6 +1389,10 @@ class PreferencesDialog(Adw.PreferencesDialog):
         saver = Adw.SwitchRow(title=_("Pause in power saver mode"), active=cfg.pause_on_power_saver)
         saver.connect("notify::active", lambda r, _p: self._set("pause_on_power_saver", r.get_active(), conditions=True))
         group.add(saver)
+        awake = Adw.SwitchRow(title=_("Keep the computer awake while syncing"),
+                              subtitle=_("No sleep, lid closed or not, until the sync is done"), active=cfg.keep_awake)
+        awake.connect("notify::active", lambda r, _p: self._set("keep_awake", r.get_active()))
+        group.add(awake)
         page.add(group)
 
         group = Adw.PreferencesGroup(title=_("Speed Limits"), description=_("In KB/s; 0 means no limit. Applied from the next sync."))
@@ -1562,16 +1566,21 @@ class PreviewDialog(Adw.Dialog):
         self.nav = Adw.NavigationView()
         self.nav.add(Adw.NavigationPage(title=title, child=view))
         self.set_child(self.nav)
+        self.shown: Outcome | None = None          # the outcome on screen
+        self.outdated_group: Adw.PreferencesGroup | None = None
         self._handler = self.engine.connect("pair-changed",
-                                            lambda _e, pid: self._progress() if pid == pair_id else None)
+                                            lambda _e, pid: self._changed() if pid == pair_id else None)
+        # the preview ages too: after its time, Confirm would act on an old picture
+        self._tick = GLib.timeout_add_seconds(30, lambda: self._check_current() or True)
         self.connect("closed", lambda *_: self._closed())
         self._start()
 
     def _start(self, refresh: bool = False) -> None:
-        for group in (self.info_group, self.result_group):
+        for group in (self.info_group, self.result_group, self.outdated_group):
             if group is not None:
                 self.page.remove(group)
-        self.info_group = self.result_group = None
+        self.info_group = self.result_group = self.outdated_group = None
+        self.shown = None
         if self.spinner_group.get_parent() is None:
             self.page.add(self.spinner_group)
         if self.confirm is not None:
@@ -1599,7 +1608,36 @@ class PreviewDialog(Adw.Dialog):
                              listed).format(n=count(listed)) if listed else _("Listing the files on both sides…"))
         self.spinner_row.set_subtitle(escape(text + "\n" + _("Nothing is changed while the preview runs.")))
 
+    def _changed(self) -> None:
+        if self.waiting:
+            self._progress()
+        else:
+            self._check_current()
+
+    def _check_current(self) -> None:
+        """Shown and finished: is the preview on screen still the one the
+        engine keeps, fresh and not overtaken by a change? Otherwise Confirm
+        goes off, and the way to go on is to prepare it again."""
+        if self.confirm is None or self.waiting or self.closing or self.shown is None or self.outdated_group:
+            return
+        rt = self.engine.runtime.get(self.pair_id)
+        preview = rt.preview if rt else None
+        if preview is not None and preview.outcome is self.shown and preview.fresh() and not preview.stale:
+            return
+        self.confirm.set_sensitive(False)
+        group = self.outdated_group = Adw.PreferencesGroup()
+        row = Adw.ActionRow(title=escape(_("Something Changed Since This Preview")),
+                            subtitle=escape(_("What the sync would do may differ now: look at it again before confirming.")),
+                            subtitle_lines=3)
+        row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
+        refresh = Gtk.Button(label=_("Refresh"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        refresh.connect("clicked", lambda *_: self._start(refresh=True))
+        row.add_suffix(refresh)
+        group.add(row)
+        self.page.add(group)
+
     def _closed(self) -> None:
+        GLib.source_remove(self._tick)
         self.engine.disconnect(self._handler)
         if self.waiting and not self.closing:
             # closed while it runs: it goes on, and tells the user when it is ready
@@ -1623,6 +1661,7 @@ class PreviewDialog(Adw.Dialog):
             group.add(Adw.ActionRow(title=_("The preview failed"), subtitle=GLib.markup_escape_text(error)))
             return
         plan = outcome.plan
+        self.shown = outcome
         self._info(outcome)
         self.page.add(group)
         if outcome.result is not Result.OK and not plan.empty:
@@ -1759,7 +1798,11 @@ class PreviewDialog(Adw.Dialog):
             reveal(self.window, os.path.join(pair.local, path))
 
     def _confirm(self) -> None:
-        self.engine.confirm(self.pair_id, self.mode, self.force)
+        if not self.engine.confirm(self.pair_id, self.mode, self.force):
+            # the preview was overtaken while the dialog was open: again, before confirming
+            tell(self.toasts, _("The preview is no longer current: it is prepared again."), [])
+            self._start(refresh=True)
+            return
         pair = self.engine.cfg.pair(self.pair_id)
         if pair is not None and self.engine.confirmed_waiting(self.pair_id) and self.engine.active is not None:
             # another folder is syncing: the confirmation is not lost, it waits

@@ -27,7 +27,7 @@ from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, sle
 from spola.paths import Paths
 from spola import preflight
 from spola.preflight import rename_plan, root_identity
-from spola import jobs
+from spola import jobs, listings
 from spola.rclone import Mode, Result
 
 RCLONE = rclone_binary()
@@ -454,7 +454,9 @@ class EngineTest(unittest.TestCase):
         (self.remote_root / "empty").mkdir()
         pair = self.engine.add_pair(str(local), "/empty")
         rt = self.engine.runtime[pair.id]
-        self.engine.confirm(pair.id, Mode.RESYNC, False)
+        _kept, seen = self.preview_of(pair.id)                 # the first alignment: its preview, then the confirmation
+        self.assertTrue(spin_until(lambda: seen, 60))
+        self.assertTrue(self.engine.confirm(pair.id, Mode.RESYNC, False))
         self.assertTrue(spin_until(lambda: pair.initialized and self.engine.active is None
                                    and not self.engine.queue, 60))          # the alignment and its seal
         self.assertIsNot(rt.status, Status.NEEDS_REPAIR, rt.message)
@@ -472,7 +474,9 @@ class EngineTest(unittest.TestCase):
         remote.mkdir()
         pair = self.engine.add_pair(str(local), "/empty")
         rt = self.engine.runtime[pair.id]
-        self.engine.confirm(pair.id, Mode.RESYNC, False)
+        _kept, seen = self.preview_of(pair.id)                 # the first alignment: its preview, then the confirmation
+        self.assertTrue(spin_until(lambda: seen, 60))
+        self.assertTrue(self.engine.confirm(pair.id, Mode.RESYNC, False))
         self.assertTrue(spin_until(lambda: pair.initialized and self.engine.active is None
                                    and not self.engine.queue, 60))
         (remote / "same.txt").write_text("from Koofr")
@@ -538,10 +542,12 @@ class EngineTest(unittest.TestCase):
         self.engine.request_sync("p1", "manual")
         self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
         first, second = self.other_pair("first"), self.other_pair("second")
+        seen = {pair.id: self.preview_of(pair.id)[1] for pair in (first, second)}
+        self.assertTrue(spin_until(lambda: all(seen.values()), 60))
         changed = []
         self.engine.connect("pair-changed", lambda _e, pid: changed.append(pid))
-        self.engine.confirm(second.id, Mode.RESYNC, False)
-        self.engine.confirm(first.id, Mode.RESYNC, False)
+        self.assertTrue(self.engine.confirm(second.id, Mode.RESYNC, False))
+        self.assertTrue(self.engine.confirm(first.id, Mode.RESYNC, False))
         for pair in (first, second):
             self.assertIs(self.engine.runtime[pair.id].status, Status.PENDING)
             self.assertTrue(self.engine.confirmed_waiting(pair.id))
@@ -586,13 +592,82 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
         self.assertEqual(sorted(p.name for p in self.local.iterdir() if p.is_dir()), ["caps"])
 
-    def test_confirming_stops_a_preview_still_running(self):
+    def test_confirming_needs_the_finished_preview(self):
+        # nothing to confirm without the preview, nor while it still runs, nor
+        # for another question: the preview goes on, and once it is done the
+        # confirmation is taken
+        refused = []
+        self.assertFalse(self.engine.confirm("p1", Mode.RESYNC, False, lambda out, err: refused.append(err)))
         kept, got = self.preview_of("p1")
-        self.engine.confirm("p1", Mode.RESYNC, False)
-        self.assertEqual(got, [(None, "Stopped.")])
+        self.assertFalse(self.engine.confirm("p1", Mode.RESYNC, False))
+        self.assertFalse(self.engine.confirm("p1", Mode.SYNC, True))
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(got[0][1], "")                                   # not stopped
+        self.assertIs(self.status(), Status.NEEDS_SETUP)
+        self.assertTrue(self.engine.confirm("p1", Mode.RESYNC, False))
         self.assertIs(self.status(), Status.PENDING)
         self.assertTrue(spin_until(lambda: self.pair.initialized and self.status() is Status.OK, 60))
         self.assertEqual(len(self.remote_files()), 30)
+        self.assertTrue(spin_until(lambda: refused, 5))
+        self.assertEqual(refused, ["The preview is no longer current."])
+
+    def test_a_preview_overtaken_by_a_change_cannot_be_confirmed(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        for i in range(10):
+            (self.local / f"f{i:02}.txt").unlink()
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30))
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(len(got[0][0].plan.delete_remote), 10)
+        (self.local / "later.txt").write_text("x")                       # the folder monitor sees it
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].preview is None, 10))
+        self.assertFalse(self.engine.confirm("p1", Mode.SYNC, True))
+        self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)
+        self.assertEqual(len(self.remote_files()), 30)
+
+    def test_a_confirmation_is_bound_to_the_deletions_it_was_given_for(self):
+        # confirmed for 10 deletions; before its turn, 15 more files vanish on
+        # Koofr (unseen: no feed in the tests): the run stops again instead of
+        # deleting them here on the strength of that confirmation
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        for i in range(10):
+            (self.local / f"f{i:02}.txt").unlink()
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30))
+        self.assertEqual(self.engine.runtime["p1"].safety, "deletes")
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(kept.counts, (30, 30))                            # the entries of the last run's listings
+        for name in self.remote_files()[:15]:
+            (self.remote / name).unlink()
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out)))
+        self.assertTrue(spin_until(lambda: results, 60))
+        self.assertIs(results[0].result, Result.NEEDS_CONFIRMATION)
+        self.assertEqual(results[0].safety, "deletes")
+        self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 20)       # nothing deleted here
+        self.assertEqual(len(self.remote_files()), 15)                     # nor there
+
+    def test_every_file_changed_is_confirmed_in_two_steps(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        self.engine.set_paused("p1", True)                                 # the monitor must not sync each one
+        for i in range(30):
+            (self.local / f"f{i:02}.txt").write_text(f"changed {i}")
+        self.engine.set_paused("p1", False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30))
+        self.assertEqual(self.engine.runtime["p1"].safety, "all-changed")
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(len(got[0][0].plan.upload), 30)
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out)))
+        self.assertTrue(spin_until(lambda: results, 60))
+        self.assertIs(results[0].result, Result.OK)                        # the bounded run, then --force
+        self.assertEqual((self.remote / "f07.txt").read_text(), "changed 7")
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
 
     def test_restore_from_trash_puts_files_folders_and_dates_back(self):
         # a folder deleted on Koofr by mistake, Spola not run since: back from
@@ -705,7 +780,9 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: made, 30))
         self.assertEqual((made[0], rt.gone), ("", "koofr-empty"))
         self.assertTrue(self.remote.is_dir())
-        self.engine.confirm("p1", Mode.RESYNC, False)                       # the repair, after its preview
+        _kept, seen = self.preview_of("p1")                                 # the repair, after its preview
+        self.assertTrue(spin_until(lambda: seen, 60))
+        self.assertTrue(self.engine.confirm("p1", Mode.RESYNC, False))
         self.assertTrue(spin_until(lambda: self.status() is Status.OK and len(self.remote_files()) == 30, 60))
         self.assertEqual(rt.gone, "")
 
@@ -730,6 +807,70 @@ class EngineTest(unittest.TestCase):
         self.engine.request_sync("p1", "manual")
         self.assertTrue(spin_until(lambda: rt.gone == "here-empty", 30), rt.gone)
         self.assertEqual(len(self.remote_files()), 30)                     # nothing touched on Koofr
+
+    def test_a_corrupt_listing_is_an_error_not_a_lane_taken_for_good(self):
+        # the listing cannot be parsed (a crash with the disk full, a format
+        # change): the run fails with the reason, the lane is free, another
+        # folder still syncs
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        lst = listings.find(self.engine.paths.workdir("p1"), 1)
+        lst.write_text("# bisync listing v1 from x\nweird line\n", encoding="utf-8")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 20))
+        self.assertIn("ValueError", self.engine.runtime["p1"].message)
+        self.assertIsNone(self.engine.active)
+        other = self.other_pair()
+        _kept, got = self.preview_of(other.id)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(len(got[0][0].plan.upload), 5)
+
+    def test_an_outcome_that_cannot_be_read_frees_the_lane(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+
+        def broken(pair, rt):
+            raise RuntimeError("listing exploded")
+        self.engine._update_conflicts = broken
+        (self.local / "new.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30))
+        self.assertIn("listing exploded", self.engine.runtime["p1"].message)
+        self.assertIsNone(self.engine.active)
+        self.assertIn("new.txt", self.remote_files())             # the run itself was done
+        del self.engine._update_conflicts
+        other = self.other_pair()
+        _kept, got = self.preview_of(other.id)
+        self.assertTrue(spin_until(lambda: got, 60))              # the pump still runs
+
+    def test_a_log_that_cannot_be_written_does_not_stop_the_run(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        log_dir = self.engine.paths.log_dir("p1")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(log_dir, 0o500)
+        self.addCleanup(os.chmod, log_dir, 0o700)
+        (self.local / "quiet.txt").write_text("x")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "quiet.txt" in self.remote_files() and self.engine.active is None
+                                   and not self.engine.queue and self.status() is Status.OK, 30))
+
+    def test_the_machine_about_to_sleep_stops_the_run_and_goes_on_after(self):
+        # logind's PrepareForSleep: the run stops gracefully (bisync saves its
+        # state), and goes again once the machine is awake
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        os.environ["SPOLA_DEV_BWLIMIT"] = "20k"
+        self.addCleanup(os.environ.pop, "SPOLA_DEV_BWLIMIT", None)
+        (self.local / "big.bin").write_bytes(os.urandom(2_000_000))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.runtime["p1"].run is not None, 20))
+        self.engine.before_sleep()
+        self.assertTrue(spin_until(lambda: self.engine.active is None, 60))
+        self.assertNotIn("big.bin", self.remote_files())
+        os.environ.pop("SPOLA_DEV_BWLIMIT")
+        self.engine.after_sleep()
+        self.assertTrue(spin_until(lambda: "big.bin" in self.remote_files() and self.status() is Status.OK, 60))
 
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")
@@ -889,8 +1030,10 @@ class EngineTest(unittest.TestCase):
         spin_until(lambda: False, 2)
         self.assertEqual(len(self.remote_files()), 31)
 
+        _kept, seen = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: seen, 60))
         results = []
-        self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out))
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out)))
         self.assertTrue(spin_until(lambda: results, 30))
         self.assertIs(results[0].result, Result.OK)
         self.assertEqual(len(self.remote_files()), 21)

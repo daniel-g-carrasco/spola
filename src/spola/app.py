@@ -59,8 +59,7 @@ class SpolaApp(Adw.Application):
         cfg = config.load(paths.config_file)
         self.engine = Engine(paths, cfg)
         self.engine.app = self
-        self.engine.inhibit = lambda reason: self.inhibit(None, Gtk.ApplicationInhibitFlags.SUSPEND, reason)
-        self.engine.uninhibit = self.uninhibit
+        self._sleep_guard()
         self.engine.connect("pair-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", self.register_explorer)
@@ -159,6 +158,29 @@ class SpolaApp(Adw.Application):
         window = self._window()
         window.present()
         UpdateDialog(release).present(window)
+
+    def _sleep_guard(self) -> None:
+        """No sleep while a sync runs: logind's lock where it is (every Linux
+        desktop; the Inhibit portal does nothing under niri or sway), the
+        desktop's inhibit otherwise; and a word before a sleep that comes
+        regardless, so that bisync stops gracefully and goes on after."""
+        desktop = lambda reason: self.inhibit(None, Gtk.ApplicationInhibitFlags.SUSPEND, reason)  # noqa: E731
+        self.sleep = None
+        if WINDOWS:
+            self.engine.inhibit, self.engine.uninhibit = desktop, self.uninhibit
+            return
+        from .sleep import SleepWatch
+        self.sleep = SleepWatch(self.engine.before_sleep, self.engine.after_sleep)
+        self.sleep.start()
+
+        def inhibit(reason):
+            cookie = self.sleep.inhibit(reason)
+            return ("logind", cookie) if cookie else ("desktop", desktop(reason))
+
+        def uninhibit(cookie):
+            kind, value = cookie
+            (self.sleep.release if kind == "logind" else self.uninhibit)(value)
+        self.engine.inhibit, self.engine.uninhibit = inhibit, uninhibit
 
     def _load_credentials(self) -> None:
         if self.engine.dev_remote:
@@ -507,6 +529,8 @@ class SpolaApp(Adw.Application):
                 self.tray.stop()
             if self.sync_service:
                 self.sync_service.stop()
+            if self.sleep is not None:
+                self.sleep.stop()
             if self.explorer_status:
                 self.explorer_status.stop()
             self.release()

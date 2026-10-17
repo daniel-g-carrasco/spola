@@ -91,6 +91,19 @@ def load(workdir: Path, side: int) -> list[Entry] | None:
     return parse(path.read_text(encoding="utf-8", errors="surrogateescape"))
 
 
+def counts(workdir: Path) -> tuple[int, int] | None:
+    """Entries of the last run's listing on each side (files and folders:
+    what bisync's deletion check divides by), or None without them."""
+    found = []
+    for side in (1, 2):
+        path = find(workdir, side)
+        if path is None:
+            return None
+        with open(path, encoding="utf-8", errors="surrogateescape") as f:
+            found.append(sum(1 for line in f if line[:1] in ("-", "d")))
+    return found[0], found[1]
+
+
 def count(workdir: Path) -> int | None:
     """Entries agreed on by the last run (the smaller side), or None."""
     counts = []

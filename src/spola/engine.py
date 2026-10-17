@@ -43,9 +43,10 @@ from . import account as account_mod
 from .account import Credentials
 from .config import Config, Pair
 from .i18n import _, count, every_translation, ngettext
+from .log import complain
 from .paths import Paths
-from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, default_excluded, describe, find_rclone,
-                     fold_case_renames, koofr_env, no_window, relative_path, remote_spec)
+from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_delete, default_excluded,
+                     describe, find_rclone, fold_case_renames, koofr_env, no_window, relative_path, remote_spec)
 from .states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
 from .watcher import TreeWatcher
@@ -140,6 +141,7 @@ class Preview:
     # the files of the last listings, {path: size}, here and on Koofr: what
     # share of a folder a change touches (None before a first alignment)
     bases: tuple[dict[str, int], dict[str, int]] | None = None
+    counts: tuple[int, int] | None = None       # entries of those listings, each side
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
     seen: bool = False                  # its answer reached a dialog
@@ -165,6 +167,8 @@ class Task:
     cancelled: bool = False         # Stop while the run was still being prepared
     case_renames: list = field(default_factory=list)    # preflight.CaseRename, done on Koofr first
     bases: tuple | None = None          # a preview's Preview.bases, read in the preparing thread
+    counts: tuple | None = None         # a preview's Preview.counts, likewise
+    max_delete: int | None = None       # a confirmed run: what its preview showed, not the pair's limit
 
 
 def gone_message(gone: str) -> str:
@@ -204,6 +208,7 @@ class PairRuntime:
     # a side with nothing left, which bisync will not sync from: "koofr-gone"
     # (the folder is not on Koofr any more), "koofr-empty", "here-empty"
     gone: str = ""
+    safety: str = ""        # which check stopped the run waiting for a confirmation (Outcome.safety)
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     busy_since: float = 0.0                 # monotonic: since when runs wait for files being written
@@ -274,6 +279,7 @@ class Engine(GObject.Object):
         self.inhibit: Callable[[str], int] = lambda reason: 0
         self.uninhibit: Callable[[int], None] = lambda cookie: None
         self._inhibit_cookie = 0
+        self._rerun_after_wake = ""            # the pair whose run a sleep interrupted
         self.network = Gio.NetworkMonitor.get_default()
         self.power = Gio.PowerProfileMonitor.dup_default()
         self.network.connect("notify::network-available", self._on_conditions)
@@ -299,6 +305,23 @@ class Engine(GObject.Object):
         GLib.timeout_add_seconds(ACTIVITY_INTERVAL_S, self._poll_activity)
         GLib.timeout_add_seconds(60, self._prune_backups)
         GLib.timeout_add_seconds(24 * 3600, self._prune_backups)
+
+    def before_sleep(self) -> None:
+        """The machine is about to sleep regardless of the lock (a privileged
+        or a critical-battery suspend): the real run stops gracefully, so
+        that bisync saves its state, and goes again after the wake."""
+        task = self.active
+        if task is not None and not task.dry_run:
+            self._rerun_after_wake = task.pair_id
+            self.stop(task.pair_id)
+        self._cancel_previews_ahead()
+
+    def after_sleep(self) -> None:
+        pair_id, self._rerun_after_wake = self._rerun_after_wake, ""
+        if pair_id:
+            self.request_sync(pair_id, "resume")
+        self.sync_all("resume")
+        self._on_conditions()
 
     def _check_clock(self) -> bool:
         wall, mono = time.time(), time.monotonic()
@@ -354,19 +377,26 @@ class Engine(GObject.Object):
             if rt.watcher:
                 rt.watcher.stop()
         runs = self._current_runs()
-        if not runs:
+        if not runs and self.active is None and self.previewing is None:
             done()
             return
-        self._shutdown_cb = done
+        self._shutdown_cb = done        # called when both lanes are free (a prepare ends too)
         for run in runs:
             run.stop()
         # bisync needs up to 30 s for transfers plus 60 s to save its state;
-        # after that a second SIGINT stops it at once (--recover handles it).
+        # after that a second SIGINT stops it at once (--recover handles it),
+        # and one stuck in a system call is killed half a minute later.
         GLib.timeout_add_seconds(95, self._force_stop)
+        GLib.timeout_add_seconds(125, self._kill_stuck)
 
     def _force_stop(self) -> bool:
         for run in self._current_runs():
             run.cancel()
+        return False
+
+    def _kill_stuck(self) -> bool:
+        for run in self._current_runs():
+            run.kill()
         return False
 
     def _current_runs(self) -> list[BisyncRun]:
@@ -768,24 +798,39 @@ class Engine(GObject.Object):
                 self.cancel_preview(pair_id)
 
     def confirm(self, pair_id: str, mode: Mode, force: bool,
-                callback: Callable[[Outcome | None, str], None] | None = None) -> None:
-        """The real run the user confirmed after a preview. It goes before
-        every automatic run, after the ones confirmed earlier, and never stops
-        the sync in progress: until its turn the pair says it is confirmed
-        and waiting, not "waiting for your confirmation" any more."""
+                callback: Callable[[Outcome | None, str], None] | None = None) -> bool:
+        """The real run the user confirmed after a preview: only with the
+        preview the user saw, the one kept for this question, finished,
+        fresh and not overtaken by a change (False otherwise: the dialog
+        prepares it again). A confirmation of a run stopped by the deletion
+        check carries the share of deletions that preview showed, with a
+        small margin, as the run's --max-delete, never --force: a run that
+        would delete more stops again and asks again. If bisync then stops
+        because every file changed (its second check, made only once the
+        deletions passed the first), the run is repeated with --force at
+        once, as the preview showed that too. The run goes before every
+        automatic run, after the ones confirmed earlier, and never stops the
+        sync in progress: until its turn the pair says it is confirmed."""
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if pair is None or rt is None:
             if callback:
                 GLib.idle_add(lambda: callback(None, _("This folder is no longer synced.")) and False)
-            return
+            return False
+        kept = rt.preview
+        if (kept is None or kept.running or kept.outcome is None or kept.stale or not kept.fresh()
+                or (kept.mode, kept.force) != (mode, force)):
+            if callback:
+                GLib.idle_add(lambda: callback(None, _("The preview is no longer current.")) and False)
+            return False
         if rt.ahead_source:
             GLib.source_remove(rt.ahead_source)
             rt.ahead_source = 0
-        self.cancel_preview(pair_id)    # one still running: its answer is not wanted now
+        max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts) if mode is Mode.SYNC and force else None
         rt.preview = None               # what it said is about to happen
-        self._enqueue(Task(pair_id, mode, force=force, reason="confirmed", callback=callback), front=True)
+        self._enqueue(Task(pair_id, mode, max_delete=max_delete, reason="confirmed", callback=callback), front=True)
         if rt.task is None or rt.task.dry_run:
             self._set_status(pair, rt, Status.PENDING)
+        return True
 
     # -- Koofr's trash ---------------------------------------------------------------------
 
@@ -1229,7 +1274,7 @@ class Engine(GObject.Object):
                 env = koofr_env(creds.user, creds.obscured)
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
                                    koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
-                                   wait_for_writes=wait)
+                                   wait_for_writes=wait, max_delete=task.max_delete)
                 result = (job, bisync_args(rclone, job.request), "")
                 if task.mode is Mode.SYNC:
                     # a rename by case alone: on Koofr first (a preview only says it)
@@ -1241,12 +1286,16 @@ class Engine(GObject.Object):
                 if task.dry_run:
                     free = free_space(rclone, paths, creds, override)
                     task.bases = jobs.listed_files(paths, pair)
+                    task.counts = listings.counts(paths.workdir(pair.id))
             except jobs.Busy as e:
                 result, busy = (None, None, ""), e.paths
             except jobs.NotReady as e:
                 result = (None, None, e.problems[0].message)
             except OSError as e:
                 result = (None, None, str(e))
+            except Exception as e:      # said, never a lane taken for good
+                complain(f"preparing a run of {pair.name}", e)
+                result = (None, None, f"{type(e).__name__}: {e}")
             GLib.idle_add(self._start_prepared, task, *result, free, busy)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
@@ -1258,6 +1307,7 @@ class Engine(GObject.Object):
         already in sync are being written (`busy`): then it waits for them."""
         self._set_lane(task, None)
         if self._closing:
+            self._lane_freed()
             return False
         pair = self.cfg.pair(task.pair_id)
         rt = self.runtime.get(task.pair_id)
@@ -1336,13 +1386,14 @@ class Engine(GObject.Object):
         rt.run_roots = (job.path1, job.path2)
         if task.dry_run:
             if rt.preview is not None and rt.preview.task is task:
-                rt.preview.free_bytes, rt.preview.bases = free, task.bases
+                rt.preview.free_bytes, rt.preview.bases, rt.preview.counts = free, task.bases, task.counts
             self.emit("pair-changed", pair.id)
             return False
         rt.stats, rt.transferring = None, []
         rt.changed_during_run.clear()
         rt.activity = activity_mod.RunActivity()
-        self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
+        if self.cfg.keep_awake:
+            self._inhibit_cookie = self.inhibit(_("Syncing with Koofr"))
         self._set_status(pair, rt, Status.SYNCING, _("Syncing…"))
         return False
 
@@ -1377,10 +1428,13 @@ class Engine(GObject.Object):
                     self._events_scheduled = False
                     return False
                 pair_id, item = self._events.popleft()
-            if pair_id is None:
-                self._on_exit(*item)
-            else:
-                self._on_event(pair_id, item)
+            try:
+                if pair_id is None:
+                    self._on_exit(*item)
+                else:
+                    self._on_event(pair_id, item)
+            except Exception as e:      # one bad line or outcome must not stop the pump
+                complain("handling rclone's output", e)
         return True
 
     def _on_event(self, pair_id: str, ev: Event) -> bool:
@@ -1447,25 +1501,36 @@ class Engine(GObject.Object):
             self._inhibit_cookie = 0
         pair = self.cfg.pair(task.pair_id)
         rt = self.runtime.get(task.pair_id)
-        fold_case_renames(outcome.plan, task.case_renames)
-        if pair is not None and rt is not None:
-            rt.run, rt.task = None, None
-            if not task.dry_run:
-                rt.transferring = []
-                rt.activity.run_ended(outcome.result is Result.OK)
-                self.invalidate_preview(pair.id)        # the folders are not what it saw
-            self._handle_outcome(pair, rt, task, outcome)
-            if not task.dry_run:
-                self.emit("run-finished", pair.id, task.reason)
-        if task.callback:
-            task.callback(outcome, "")
+        try:
+            fold_case_renames(outcome.plan, task.case_renames)
+            if pair is not None and rt is not None:
+                rt.run, rt.task = None, None
+                if not task.dry_run:
+                    rt.transferring = []
+                    rt.activity.run_ended(outcome.result is Result.OK)
+                    self.invalidate_preview(pair.id)        # the folders are not what it saw
+                try:
+                    self._handle_outcome(pair, rt, task, outcome)
+                except Exception as e:      # the outcome could not be read: said, and the pair in error
+                    complain(f"reading the outcome of {pair.name}", e)
+                    self._set_status(pair, rt, Status.ERROR, _("The outcome of the sync could not be read: {error}")
+                                     .format(error=f"{type(e).__name__}: {e}"))
+                if not task.dry_run:
+                    self.emit("run-finished", pair.id, task.reason)
+            if task.callback:
+                task.callback(outcome, "")
+        finally:
+            self._lane_freed()
+        return False
+
+    def _lane_freed(self) -> None:
+        """A lane was just released: the shutdown waiting for both, or the next task."""
         if self._shutdown_cb:
             if self.active is None and self.previewing is None:
                 cb, self._shutdown_cb = self._shutdown_cb, None
                 cb()
-            return False
+            return
         GLib.idle_add(self._next)
-        return False
 
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
         outcome.plan.refused = [r.path for r in rt.pending_refused]
@@ -1518,7 +1583,17 @@ class Engine(GObject.Object):
             if plan.conflicts:
                 self._new_conflicts(pair, rt, plan.conflicts)
             self._set_status(pair, rt, self._idle_status(pair, rt))
+        elif (result is Result.NEEDS_CONFIRMATION and task.reason == "confirmed" and task.max_delete is not None
+              and not task.force and outcome.safety == "all-changed"):
+            # the deletions passed the bound of the confirmed preview (bisync
+            # checks them first); every file changed, as the preview showed:
+            # once more, past that check, with the callback for the real end
+            self._enqueue(Task(pair.id, task.mode, force=True, reason="confirmed", callback=task.callback),
+                          front=True)
+            task.callback = None
+            self._set_status(pair, rt, Status.PENDING)
         elif result is Result.NEEDS_CONFIRMATION:
+            rt.safety = outcome.safety
             self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
             self.emit("attention", pair.id, "confirm", outcome.message)
         elif result is Result.NEEDS_REPAIR and (outcome.empty_side or outcome.root_missing):

@@ -9,7 +9,8 @@ from _setup import fixture_lines
 
 from spola.rclone import (
     DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
-    bisync_args, clean_env, conflict_suffix, default_excluded, describe, effective_max_delete, fold_case_renames,
+    bisync_args, clean_env, confirmed_max_delete, conflict_suffix, default_excluded, describe, effective_max_delete,
+    fold_case_renames,
     koofr_env, parse_line, relative_path, remote_spec, summarize,
 )
 
@@ -201,6 +202,23 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(relative_path("koofr{kFw_7}:data/work/x.txt", ["C:\\Users\\me\\work/", "koofr:data/work"]), "x.txt")
         # on Linux a backslash is part of a name
         self.assertEqual(relative_path("/home/u/a\\b.txt", ["/home/u/"]), "a\\b.txt")
+
+    def test_which_safety_check_stopped_the_run(self):
+        out = summarize(1, events("max-delete-abort.jsonl"), "/ROOT/a/", "/ROOT/b/")
+        self.assertEqual((out.result, out.safety), (Result.NEEDS_CONFIRMATION, "deletes"))
+        line = json.dumps({"level": "error", "object": "Safety abort",
+                           "msg": 'Safety abort: all files were changed on Path1 "x". Run with --force if desired.'})
+        out = summarize(1, [parse_line(line)], "/ROOT/a/", "/ROOT/b/")
+        self.assertEqual((out.result, out.safety), (Result.NEEDS_CONFIRMATION, "all-changed"))
+        self.assertEqual(summarize(0, events("koofr-sync.jsonl"), "/home/user/x/", "koofr:x").safety, "")
+
+    def test_a_confirmed_run_may_delete_what_its_preview_showed_and_little_more(self):
+        plan = Plan(delete_remote=["a", "b", "c"], moved_remote=[("d", "e")], delete_local=["f"])
+        # 4 gone here of 20 entries (20%), 1 gone on Koofr of 40: 20 + the margin
+        self.assertEqual(confirmed_max_delete(plan, (20, 40)), 22)
+        self.assertEqual(confirmed_max_delete(plan, (3, 3)), 100)          # more than all: capped
+        self.assertEqual(confirmed_max_delete(Plan(), (20, 20)), 2)         # nothing to delete: next to none
+        self.assertEqual(confirmed_max_delete(plan, None), 100)            # no listing to bound against
 
     def test_a_side_with_nothing_left(self):
         # recorded with rclone 1.75: a side emptied or gone stops bisync; a
