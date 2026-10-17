@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.26" date="2026-10-17" type="development">
+      <description>
+        <p>A folder whose two sides already match no longer waits for a confirmation of its first alignment: the preview Spola prepares on its own finds nothing to copy, and the alignment goes on by itself. With anything to copy, the preview still asks.</p>
+      </description>
+    </release>
     <release version="0.3.25" date="2026-10-17" type="development">
       <description>
         <p>For the desktop's own widgets: Spola keeps a small status file (status.json in its state folder) current with what it is doing, every folder's state and progress, for a shell widget such as the Noctalia plugin to show; and the icon in the notification area can be switched off in the preferences when such a widget takes its place.</p>
