@@ -19,6 +19,7 @@ from . import (APP_ID, APP_NAME, WINDOWS, __version__, autostart, config, file_m
                secrets)
 from .account import Credentials  # noqa: E402
 from .dbus_service import SyncService  # noqa: E402
+from .status import StatusFile  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
@@ -113,8 +114,9 @@ class SpolaApp(Adw.Application):
             self.tray.start()
             self.sync_service = None
         else:
-            self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path)
-            self.tray.start(self.get_dbus_connection())
+            self._icon_path = icon_path
+            self.tray = None
+            self.apply_tray()
             self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
                                             else self.activate(),
                                             open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
@@ -122,6 +124,8 @@ class SpolaApp(Adw.Application):
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
+        # what Spola is doing, for the desktop's own widgets (the Noctalia plugin)
+        self.status_file = StatusFile(self.engine) if not WINDOWS else None
         self.register_explorer()
         # (SPOLA_DEV_EXPLORER, a developer aid: also from the sources)
         if WINDOWS and (getattr(sys, "frozen", False) or os.environ.get("SPOLA_DEV_EXPLORER")):
@@ -380,6 +384,20 @@ class SpolaApp(Adw.Application):
 
     # -- tray, status, notifications ------------------------------------------------------
 
+    def apply_tray(self) -> None:
+        """The notification area icon as the preference says: off when a
+        widget of the desktop (the Noctalia plugin) shows the status instead."""
+        if WINDOWS or self.engine is None:
+            return
+        if self.engine.cfg.tray_icon and self.tray is None:
+            self.tray = TrayIcon(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=self._icon_path)
+            self.tray.start(self.get_dbus_connection())
+            self._last_summary = ""
+            self._refresh_tray()
+        elif not self.engine.cfg.tray_icon and self.tray is not None:
+            self.tray.stop()
+            self.tray = None
+
     def _refresh_tray(self) -> None:
         if self.tray is None or self.engine is None:
             return
@@ -550,6 +568,8 @@ class SpolaApp(Adw.Application):
             self.tray.set_tooltip(APP_NAME, _("Stopping…"))
 
         def done():
+            if self.status_file is not None:
+                self.status_file.stop()
             if self.tray:
                 self.tray.stop()
             if self.sync_service:

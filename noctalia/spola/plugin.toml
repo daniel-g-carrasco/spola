@@ -1,0 +1,70 @@
+# Spola for Noctalia: what Spola is doing, in the bar, a panel, the control
+# centre and the launcher. Spola writes status.json in its state folder at
+# every change (and every minute as a heartbeat); the service here reads it
+# (no process started) and runs the actions through Spola's D-Bus interface
+# with gdbus, one process per click. See README.md for the install.
+id = "daniel-g-carrasco/spola"
+name = "Spola"
+version = "0.1.0"
+plugin_api = 24
+author = "daniel-g-carrasco"
+license = "MIT"
+icon = "cloud"
+description = "Koofr sync with Spola: status in the bar, a panel with every folder, a control-centre tile and launcher actions."
+tags = ["sync", "koofr", "cloud", "spola"]
+dependencies = ["spola", "gdbus"]
+
+[[setting]]
+key = "status_file"
+type = "string"
+label_key = "settings.status_file.label"
+description_key = "settings.status_file.description"
+default = ""
+advanced = true
+
+[[service]]
+id = "service"
+entry = "service.luau"
+
+[[widget]]
+id = "indicator"
+entry = "indicator.luau"
+
+  [[widget.setting]]
+  key = "show_text"
+  type = "select"
+  label_key = "settings.show_text.label"
+  description_key = "settings.show_text.description"
+  default = "progress"
+  options = [
+    { value = "none", label_key = "settings.show_text.none" },
+    { value = "progress", label_key = "settings.show_text.progress" },
+    { value = "folder", label_key = "settings.show_text.folder" },
+  ]
+
+  [[widget.setting]]
+  key = "hide_when_ok"
+  type = "bool"
+  label_key = "settings.hide_when_ok.label"
+  description_key = "settings.hide_when_ok.description"
+  default = false
+
+[[shortcut]]
+id = "tile"
+entry = "tile.luau"
+
+[[panel]]
+id = "panel"
+entry = "panel.luau"
+width = 400
+height = 540
+placement = "attached"
+position = "auto"
+open_near_click = true
+
+[[launcher_provider]]
+id = "launcher"
+entry = "launcher.luau"
+prefix = "spola"
+glyph = "cloud"
+include_in_global_search = true
