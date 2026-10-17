@@ -2,7 +2,12 @@
 
 The password is never here: it lives in the keyring (see secrets.py).
 Writes are atomic (temporary file, fsync, rename) so a crash or a full disk
-can never leave a half-written file behind.
+can never leave a half-written file behind, and the file as it was before
+stays next to it (config.json.bak): a damaged file, or one that is gone, is
+replaced by that previous save rather than by nothing, and what happened is
+told (Config.notices). The file carries a format version: an older format
+is migrated on reading; a newer one (a Spola downgraded) is read for what
+this version knows and written back whole, the unknown settings kept.
 """
 
 from __future__ import annotations
@@ -10,11 +15,16 @@ from __future__ import annotations
 import json
 import os
 import secrets
+import shutil
 import tempfile
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 CONFIG_VERSION = 1
+# from one format version to the next, in order: {from_version: step}
+MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
 DEFAULT_MAX_DELETE_PERCENT = 10
 DEFAULT_POLL_MINUTES = 10        # full runs when Koofr's activity feed is not available
 DEFAULT_FULL_CHECK_MINUTES = 60  # full runs while the activity feed works
@@ -38,6 +48,8 @@ class Pair:
     # what to do with a file changed on both sides: "" follows the general
     # setting, else "ask", "newer", "both", "local", "koofr" (conflicts.py)
     conflict_rule: str = ""
+    # settings of a newer Spola this one does not know, written back as they were
+    extra: dict = field(default_factory=dict, compare=False, repr=False)
 
     @staticmethod
     def new_id() -> str:
@@ -71,6 +83,10 @@ class Config:
     last_update_check: str = ""          # ISO date of the last check made on its own
     explorer_status: bool = True         # Windows: the sync status in File Explorer (cloudfiles.py)
     explorer_menu: bool = True           # Windows: "Open on Koofr", "Copy Koofr Share Link" (explorer.py)
+    # settings of a newer Spola this one does not know, written back as they were
+    extra: dict = field(default_factory=dict, compare=False, repr=False)
+    # what load() had to do to read the file (Notice); never saved
+    notices: list = field(default_factory=list, compare=False, repr=False)
 
     @property
     def bwlimit(self) -> str | None:
@@ -86,37 +102,158 @@ class Config:
 
     def to_json(self) -> dict:
         data = asdict(self)
-        data["version"] = CONFIG_VERSION
-        return data
+        extra, pairs = data.pop("extra"), data.pop("pairs")
+        del data["notices"]
+        out = {**extra, **data}
+        out["pairs"] = [{**p.pop("extra"), **p} for p in pairs]
+        out["version"] = CONFIG_VERSION
+        return out
 
     @classmethod
-    def from_json(cls, data: dict) -> "Config":
-        known = {f.name for f in fields(cls)}
-        pair_known = {f.name for f in fields(Pair)}
-        kwargs = {k: v for k, v in data.items() if k in known and k != "pairs"}
-        cfg = cls(**kwargs)
-        cfg.pairs = [Pair(**{k: v for k, v in p.items() if k in pair_known})
-                     for p in data.get("pairs", [])]
+    def from_json(cls, data) -> "Config":
+        """ValueError or TypeError when `data` is not a configuration."""
+        if not isinstance(data, dict) or not isinstance(data.get("pairs", []), list):
+            raise ValueError("not a Spola configuration")
+        own = {"extra", "notices", "version", "pairs"}
+        known = {f.name for f in fields(cls)} - own
+        pair_known = {f.name for f in fields(Pair)} - own
+        cfg = cls(**_typed(cls, {k: v for k, v in data.items() if k in known}))
+        cfg.extra = {k: v for k, v in data.items() if k not in known and k not in own}
+        for p in data.get("pairs", []):
+            if not isinstance(p, dict):
+                raise ValueError("not a Spola configuration")
+            pair = Pair(**_typed(Pair, {k: v for k, v in p.items() if k in pair_known}))
+            pair.extra = {k: v for k, v in p.items() if k not in pair_known}
+            cfg.pairs.append(pair)
         return cfg
 
 
-def load(path: Path) -> Config:
+def _typed(cls, kwargs: dict) -> dict:
+    """ValueError when a value has not the type of the field's default (a
+    number for a switch, a word for a number): such a file is damaged, and
+    the previous save is a better start than a crash later on."""
+    for f in fields(cls):
+        if f.name not in kwargs or f.default is None or f.default.__class__ not in (bool, int, str):
+            continue            # id, local, remote (no default), root_dev/root_ino (None or int)
+        value = kwargs[f.name]
+        if f.default.__class__ is bool and value.__class__ is not bool:
+            raise ValueError(f"{f.name}: {value!r} is not a switch")
+        if f.default.__class__ is int and (value.__class__ is not int):
+            raise ValueError(f"{f.name}: {value!r} is not a number")
+        if f.default.__class__ is str and value.__class__ is not str:
+            raise ValueError(f"{f.name}: {value!r} is not text")
+    for name in ("id", "local", "remote"):
+        if name in kwargs and kwargs[name].__class__ is not str:
+            raise ValueError(f"{name}: {kwargs[name]!r} is not text")
+    return kwargs
+
+
+@dataclass(frozen=True)
+class Notice:
+    """What load() had to do: "recovered" (the file was damaged: the previous
+    save was used; `detail` is where the damaged file was put), "fresh" (damaged
+    and nothing to recover: Spola starts anew; `detail` as above), "missing"
+    (the file was gone: the previous save was used), "newer" (saved by a
+    newer Spola; `detail` is its format version)."""
+    kind: str
+    detail: str = ""
+    reason: str = ""
+
+
+class Damaged(Exception):
+    """The file is there and is not a configuration."""
+
+
+def backup_file(path: Path) -> Path:
+    return path.with_name(path.name + ".bak")
+
+
+def migrate(data: dict) -> dict:
+    """An older format brought to this one, one version at a time."""
+    version = data.get("version", 1)
+    if version.__class__ is not int:
+        raise ValueError(f"format version {version!r}")
+    while version < CONFIG_VERSION:
+        step = MIGRATIONS.get(version)
+        if step is None:
+            raise ValueError(f"no migration from format version {version}")
+        data = step(data)
+        version += 1
+        data["version"] = version
+    return data
+
+
+def _read(path: Path) -> tuple[Config, int]:
+    """The configuration in `path` and its format version; FileNotFoundError,
+    or Damaged with the reason."""
     try:
         with open(path, encoding="utf-8") as f:
-            cfg = Config.from_json(json.load(f))
+            data = json.load(f)
     except FileNotFoundError:
-        cfg = Config()
+        raise
+    except (OSError, ValueError) as e:          # bad JSON and bad UTF-8 are ValueErrors
+        raise Damaged(f"{type(e).__name__}: {e}") from e
+    try:
+        if not isinstance(data, dict):
+            raise ValueError("not a Spola configuration")
+        version = data.get("version", 1)
+        return Config.from_json(migrate(data)), version if version.__class__ is int else 1
+    except (TypeError, ValueError) as e:
+        raise Damaged(f"{type(e).__name__}: {e}") from e
+
+
+def _set_aside(path: Path) -> Path:
+    """The damaged file, kept next to the settings under another name."""
+    aside = path.with_name(path.name + time.strftime(".broken-%Y%m%d-%H%M%S"))
+    try:
+        os.replace(path, aside)
+    except OSError:
+        pass
+    return aside
+
+
+def load(path: Path) -> Config:
+    """The settings, whatever the file's state (see the module's docstring);
+    cfg.notices says what had to be done."""
+    notices: list[Notice] = []
+    version = CONFIG_VERSION
+    recovered = False
+    try:
+        cfg, version = _read(path)
+    except FileNotFoundError:
+        try:
+            cfg, version = _read(backup_file(path))
+            notices.append(Notice("missing"))
+            recovered = True
+        except (FileNotFoundError, Damaged):
+            cfg = Config()
+    except Damaged as e:
+        aside = _set_aside(path)
+        try:
+            cfg, version = _read(backup_file(path))
+            notices.append(Notice("recovered", str(aside), str(e)))
+            recovered = True
+        except (FileNotFoundError, Damaged):
+            cfg = Config()
+            notices.append(Notice("fresh", str(aside), str(e)))
+    if version > CONFIG_VERSION:
+        notices.append(Notice("newer", str(version)))
     if not cfg.instance_id:
         # saved at once: the window and the command line must share it
         cfg.instance_id = secrets.token_hex(4)
+    if not path.exists() or recovered:
         try:
             save(cfg, path)
         except OSError:
             pass
+    cfg.notices = notices
     return cfg
 
 
 def save(cfg: Config, path: Path) -> None:
+    """Atomic: the new file is complete before it takes the old one's place,
+    and the old one stays as the backup (a hard link where the disk allows,
+    a copy elsewhere: never a moment without a settings file)."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".config-", suffix=".json", dir=path.parent)
     try:
@@ -125,6 +262,7 @@ def save(cfg: Config, path: Path) -> None:
             f.write("\n")
             f.flush()
             os.fsync(f.fileno())
+        _keep_previous(path)
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -132,6 +270,20 @@ def save(cfg: Config, path: Path) -> None:
         except FileNotFoundError:
             pass
         raise
+
+
+def _keep_previous(path: Path) -> None:
+    bak = backup_file(path)
+    try:
+        if not path.exists():
+            return
+        bak.unlink(missing_ok=True)
+        try:
+            os.link(path, bak)
+        except OSError:
+            shutil.copyfile(path, bak)
+    except OSError:
+        pass                    # a backup that cannot be made must not stop the save
 
 
 def normalize_remote(path: str) -> str:

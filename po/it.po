@@ -2529,3 +2529,67 @@ msgstr "Elimina"
 #, python-brace-format
 msgid "{n} of {total} files changed on this computer at once"
 msgstr "{n} file su {total} cambiati su questo computer tutti insieme"
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "The settings file was damaged: the previous save was used. The damaged file is kept at {path}."
+msgstr "Il file delle impostazioni era danneggiato: è stato usato il salvataggio precedente. Il file danneggiato è conservato in {path}."
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "The settings file was damaged and there was no previous save: Spola starts with no folders. Add them again (nothing is copied before you confirm an alignment). The damaged file is kept at {path}."
+msgstr "Il file delle impostazioni era danneggiato e non c'era un salvataggio precedente: Spola parte senza cartelle. Aggiungile di nuovo (niente viene copiato prima che tu confermi un allineamento). Il file danneggiato è conservato in {path}."
+
+#: src/spola/app.py
+msgid "The settings file was missing: the previous save was used."
+msgstr "Il file delle impostazioni mancava: è stato usato il salvataggio precedente."
+
+#: src/spola/app.py
+#, python-brace-format
+msgid "The settings were saved by a newer Spola (format {version}): what this version does not know is kept untouched."
+msgstr "Le impostazioni sono state salvate da uno Spola più recente (formato {version}): ciò che questa versione non conosce viene lasciato com'è."
+
+#: src/spola/app.py
+msgid "A word about Spola's settings"
+msgstr "Una parola sulle impostazioni di Spola"
+
+#: src/spola/cli.py src/spola/engine.py
+#, python-brace-format
+msgid "The settings could not be saved: {error}"
+msgstr "Impossibile salvare le impostazioni: {error}"
+
+#: src/spola/cli.py
+#, python-brace-format
+msgid "Settings: {what}"
+msgstr "Impostazioni: {what}"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "Not enough space on this computer: the sync would download {need}, and {free} is free"
+msgstr "Spazio insufficiente su questo computer: la sincronizzazione scaricherebbe {need}, e lo spazio libero è {free}"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "The disk of this folder is nearly full ({free} free): free some space, and the sync goes on"
+msgstr "Il disco di questa cartella è quasi pieno ({free} liberi): libera un po' di spazio e la sincronizzazione riprende"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "The disk holding Spola's own files is nearly full ({free} free): free some space, and the sync goes on"
+msgstr "Il disco che contiene i file di Spola è quasi pieno ({free} liberi): libera un po' di spazio e la sincronizzazione riprende"
+
+#: src/spola/rclone.py
+msgid "A disk of this computer is full: free some space, and the sync goes on"
+msgstr "Un disco di questo computer è pieno: libera un po' di spazio e la sincronizzazione riprende"
+
+#: src/spola/window.py
+msgid "Last Sync Log"
+msgstr "Log dell'ultima sincronizzazione"
+
+#: src/spola/window.py
+msgid "What rclone reported during the last sync, for troubleshooting"
+msgstr "Cosa ha riportato rclone durante l'ultima sincronizzazione, per la risoluzione dei problemi"
+
+#: src/spola/window.py
+msgid "Measuring the space taken by the logs and backups…"
+msgstr "Misurazione dello spazio occupato da log e backup…"

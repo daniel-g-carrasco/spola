@@ -512,7 +512,7 @@ class EngineTest(unittest.TestCase):
 
     def logs(self, pair_id):
         folder = self.engine.paths.log_dir(pair_id)
-        return len(list(folder.glob("*.jsonl"))) if folder.exists() else 0
+        return len(list(folder.glob("*.jsonl*"))) if folder.exists() else 0
 
     def test_a_preview_runs_next_to_another_folders_sync(self):
         self.align()
@@ -965,6 +965,34 @@ class EngineTest(unittest.TestCase):
         self.engine._poll_activity()
         self.assertTrue(spin_until(lambda: not self.engine._activity_busy, 10))
         self.assertIs(self.engine.feed_ok, False)
+
+    def test_a_nearly_full_disk_stops_a_run_before_it_starts(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        rt = self.engine.runtime["p1"]
+        (self.local / "new.txt").write_text("x")
+        usage = shutil._ntuple_diskusage(10**12, 10**12 - 10**7, 10**7)        # 10 MB free
+        with mock.patch.object(engine_mod.shutil, "disk_usage", return_value=usage):
+            self.engine.request_sync("p1", "manual")
+            self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30), rt.message)
+            self.assertIn("nearly full", rt.message)
+            self.assertFalse((self.remote / "new.txt").exists())
+        # a preview knows what would come down: the disk must hold it, with a margin
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: (self.remote / "new.txt").exists() and self.status() is Status.OK, 60))
+        with open(self.remote / "big.bin", "wb") as f:
+            f.truncate(100 * 2**20)                                           # sparse: nothing on disk
+        kept, got = self.preview_of("p1", Mode.SYNC)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertGreaterEqual(got[0][0].plan.download_bytes, 100 * 2**20)
+        usage = shutil._ntuple_diskusage(10**12, 10**12 - 250 * 2**20, 250 * 2**20)     # 250 MB free
+        with mock.patch.object(engine_mod.shutil, "disk_usage", return_value=usage):
+            self.engine.request_sync("p1", "manual")
+            self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30), rt.message)
+            self.assertIn("would download", rt.message)
+            self.assertFalse((self.local / "big.bin").exists())
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: (self.local / "big.bin").exists() and self.status() is Status.OK, 60))
 
     def test_many_files_changed_here_at_once_wait_for_a_confirmation(self):
         # a snapshot put back, a bulk edit: the files changed here would go up

@@ -14,7 +14,10 @@ signal a Ctrl+Break (see win32.py).
 
 from __future__ import annotations
 
+import gzip
+import json
 import os
+import shutil
 import signal
 import subprocess
 import threading
@@ -32,6 +35,9 @@ else:
     import fcntl
 
 KEEP_LOGS = 20
+# past this, the statistics lines (one a second, for hours) are left out of
+# the log; the lines about files, errors and the outcome go on
+MAX_LOG_BYTES = 50 * 2**20
 
 
 class PairBusy(Exception):
@@ -109,7 +115,10 @@ class BisyncRun:
                 pass
 
     def wait(self, timeout: float | None = None) -> Outcome | None:
-        self._done.wait(timeout)
+        """The outcome, once there is one; the reader thread is then over
+        too (the logs tidied), so that a command line may exit."""
+        if self._done.wait(timeout) and self._thread is not None:
+            self._thread.join(timeout)
         return self.outcome
 
     @property
@@ -162,20 +171,27 @@ class BisyncRun:
         cannot be written is skipped, anything else ends the run."""
         assert self._proc and self._proc.stderr
         log = None
+        written, capped = 0, False
         try:
             try:
                 log = open(self._log_path, "w", encoding="utf-8")
             except OSError as e:
                 complain("opening the run's log", e)
             for line in self._proc.stderr:
-                if log is not None:
+                ev = parse_line(line)
+                if log is not None and not (capped and ev is not None and ev.kind is Kind.STATS):
                     try:
                         log.write(line)
+                        written += len(line)
+                        if written > MAX_LOG_BYTES and not capped:
+                            capped = True
+                            log.write(json.dumps({"level": "notice", "msg": "spola: the log passed "
+                                                  f"{MAX_LOG_BYTES >> 20} MiB: the statistics lines are left out "
+                                                  "from here on"}) + "\n")
                     except OSError as e:
                         complain("writing the run's log", e)
                         log.close()
                         log = None
-                ev = parse_line(line)
                 if ev is None:
                     continue
                 if ev.kind is Kind.STATS and self.events and self.events[-1].kind is Kind.STATS:
@@ -203,15 +219,40 @@ class BisyncRun:
             if log is not None:
                 log.close()
             self._release_lock()
-            self._prune_logs()
             self._done.set()
             if self.on_exit:
                 self.on_exit(self.outcome)
+            self._tidy_logs()
 
-    def _prune_logs(self) -> None:
+    def _tidy_logs(self) -> None:
+        """After the outcome is out: the logs beyond KEEP_LOGS go, the ones
+        kept are compressed (a long run's log reaches 100 MB, a tenth
+        compressed), but the newest, readable as it is for "Open Log"."""
         try:
-            logs = sorted(self.log_dir.glob("*.jsonl"))
+            for tmp in self.log_dir.glob("*.gz.tmp"):
+                tmp.unlink(missing_ok=True)         # a compression cut short
+            logs = sorted(self.log_dir.glob("*.jsonl*"))
             for old in logs[:-KEEP_LOGS]:
-                old.unlink()
-        except OSError:
-            pass
+                old.unlink(missing_ok=True)
+            for log in logs[-KEEP_LOGS:-1]:
+                if log.suffix == ".jsonl":
+                    compress(log)
+        except OSError as e:
+            complain("tidying the run logs", e)
+
+
+def compress(path: Path) -> Path:
+    """`path` gzipped next to it (complete before it appears), then removed."""
+    target = path.with_name(path.name + ".gz")
+    tmp = target.with_name(target.name + ".tmp")
+    with open(path, "rb") as src, gzip.open(tmp, "wb", compresslevel=6) as dst:
+        shutil.copyfileobj(src, dst)
+    os.replace(tmp, target)
+    path.unlink()
+    return target
+
+
+def newest_log(log_dir: Path) -> Path | None:
+    """The last run's log, when there is one still readable as text."""
+    logs = sorted(log_dir.glob("*.jsonl")) if log_dir.is_dir() else []
+    return logs[-1] if logs else None
