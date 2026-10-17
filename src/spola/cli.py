@@ -197,8 +197,12 @@ def main(argv: list[str]) -> int:
     rclone = find_rclone()
     if rclone is None:
         return _fail(_("rclone was not found."))
-    changes_config = args.command in ("login", "logout", "add", "remove", "align", "repair", "import-koofr-desktop")
-    if changes_config and _app_running():
+    # a run from here next to the window's own would share the pair's state
+    # (listings read, the exclude file written) with only rclone's lock
+    # between them: the window does it, or Spola quits first
+    touches_pair = args.command in ("login", "logout", "add", "remove", "align", "repair", "import-koofr-desktop",
+                                    "sync", "preview")
+    if touches_pair and _app_running():
         return _fail(_("Spola is running: use its window, or quit it first."))
 
     if args.command == "login":

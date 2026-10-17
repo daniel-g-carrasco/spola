@@ -20,7 +20,7 @@ from spola import jobs
 from spola.config import Config, Pair
 from spola.paths import Paths
 from spola.preflight import root_identity
-from spola.rclone import Mode, Result, bisync_args, clean_env
+from spola.rclone import Kind, Mode, Result, bisync_args, clean_env
 from spola.runner import BisyncRun, PairBusy
 
 RCLONE = rclone_binary()
@@ -309,6 +309,16 @@ class BisyncScenarios(unittest.TestCase):
             first.cancel()
             first.cancel()
             first.wait(60)
+
+    def test_a_long_run_keeps_one_stats_line_at_a_time(self):
+        self.write(self.local, "big.bin", "x" * 1_500_000)
+        run = self.start(Mode.RESYNC, extra=["--bwlimit", "300k"])
+        out = run.wait(60)
+        self.assertIs(out.result, Result.OK)
+        stats = [e for e in run.events if e.kind is Kind.STATS]
+        self.assertGreater(len(run.events), 0)
+        self.assertLessEqual(len(stats), 3)               # one a second, folded into the latest
+        self.assertIsNotNone(out.stats)
 
     def test_interrupted_run_recovers(self):
         self.write(self.local, "small.txt", "s", age=600)

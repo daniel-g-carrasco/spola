@@ -24,7 +24,7 @@ from pathlib import Path
 
 from . import WINDOWS
 from .log import complain
-from .rclone import Event, Outcome, Result, parse_line, summarize
+from .rclone import Event, Kind, Outcome, Result, parse_line, summarize
 
 if WINDOWS:
     from . import win32
@@ -178,7 +178,10 @@ class BisyncRun:
                 ev = parse_line(line)
                 if ev is None:
                     continue
-                self.events.append(ev)
+                if ev.kind is Kind.STATS and self.events and self.events[-1].kind is Kind.STATS:
+                    self.events[-1] = ev        # one a second for hours: only the latest matters
+                else:
+                    self.events.append(ev)
                 if self.on_event:
                     try:
                         self.on_event(ev)

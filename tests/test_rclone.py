@@ -10,7 +10,7 @@ from _setup import fixture_lines
 from spola.rclone import (
     DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
     bisync_args, clean_env, confirmed_max_delete, conflict_suffix, default_excluded, describe, effective_max_delete,
-    fold_case_renames,
+    exclude_lines, excluded_by, fold_case_renames,
     koofr_env, parse_line, relative_path, remote_spec, summarize,
 )
 
@@ -219,6 +219,45 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(confirmed_max_delete(plan, (3, 3)), 100)          # more than all: capped
         self.assertEqual(confirmed_max_delete(Plan(), (20, 20)), 2)         # nothing to delete: next to none
         self.assertEqual(confirmed_max_delete(plan, None), 100)            # no listing to bound against
+
+    def test_names_bisync_quotes(self):
+        # a quote, a backslash or a control character in a name: bisync
+        # writes the path the Go way, in quotes; the preview must show the name
+        lines = [json.dumps({"level": "notice", "msg": m}) for m in (
+            '- Path2             Queue delete                                - "local{HK82T}:/h/b/quote \\"q\\".txt"',
+            '- Path2             Queue delete                                - "local{HK82T}:/h/b/back\\\\slash.txt"',
+            '- Path2             Queue delete                                - local{HK82T}:/h/b/plain.txt',
+            '- Path1             File was deleted                            - "quote \\"q\\".txt"')]
+        out = summarize(0, [parse_line(l) for l in lines], "/h/a/", "/h/b")
+        self.assertEqual(out.plan.delete_remote, ["back\\slash.txt", "plain.txt", 'quote "q".txt'])
+
+    def test_a_control_character_in_a_left_out_name_cannot_split_the_rules(self):
+        from spola.preflight import Refused
+        self.assertEqual(exclude_lines([Refused("new\nline.txt", False, "emoji"), Refused("tab\there", True, "emoji")]),
+                         "/new?line.txt\n/tab?here/**\n")
+
+    def test_a_preview_rclone_counted_but_the_lines_did_not_say_is_refused(self):
+        stats_only = [ev for ev in events("koofr-sync-dry-run.jsonl") if ev.kind is Kind.STATS]
+        out = summarize(0, stats_only, "/home/user/x/", "koofr:x")
+        self.assertIsNot(out.result, Result.OK)
+        self.assertIn("could not be read", out.message)
+        self.assertTrue(out.plan.empty)
+
+    def test_forbidden_values_are_refused_too(self):
+        for extra in (["--conflict-loser", "delete"], ["--conflict-resolve=newer"], ["--size-only"], ["--immutable"]):
+            with self.assertRaises(ValueError, msg=extra):
+                bisync_args("rclone", request(extra_test_flags=extra))
+        bisync_args("rclone", request(extra_test_flags=["--conflict-loser", "num"]))     # the one Spola uses
+
+    def test_a_pairs_own_exclusions(self):
+        from spola.jobs import exclusion_patterns
+        patterns = exclusion_patterns("# mine\n- *.tmp\n+ keep.tmp\n- build/**\n-  /Trash/**\n")
+        self.assertEqual(patterns, ["*.tmp", "build/**", "/Trash/**"])
+        self.assertTrue(excluded_by("a/b.tmp", patterns))
+        self.assertTrue(excluded_by("src/build/x.o", patterns))
+        self.assertTrue(excluded_by("Trash/x", patterns))
+        self.assertFalse(excluded_by("a/Trash/x", patterns))
+        self.assertFalse(excluded_by("a/b.txt", patterns))
 
     def test_a_side_with_nothing_left(self):
         # recorded with rclone 1.75: a side emptied or gone stops bisync; a

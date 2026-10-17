@@ -91,7 +91,7 @@ def _post_json(user: str, password: str, path: str, body: dict) -> dict:
         "Authorization": f"Basic {token}", "Content-Type": "application/json", "Accept": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        with urllib.request.urlopen(request, timeout=120, context=_ssl_context()) as response:
             text = response.read()
             return json.loads(text) if text else {}
     except urllib.error.HTTPError as e:
