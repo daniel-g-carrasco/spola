@@ -1,0 +1,63 @@
+name: Test
+
+# The tests, called by every workflow that publishes something (Build,
+# Flatpak repository): nothing reaches users without them. The GTK dialogs
+# run on a display of their own (xvfb), on the Ubuntu that has libadwaita
+# 1.6 or later, which they need.
+
+on:
+  workflow_call:
+
+env:
+  RCLONE_VERSION: "1.75.2"
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install PyGObject, gettext, rclone and the validators
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream
+          pipx install ruff
+          curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -q rclone.zip
+          echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - run: ruff check --select F,E9,B .
+      - run: python3 tools/compile_po.py
+      - run: python3 -m unittest discover -s tests -v
+      - name: Validate desktop entry and AppStream metadata
+        run: |
+          desktop-file-validate data/io.github.daniel_g_carrasco.spola.desktop
+          appstreamcli validate --no-net data/io.github.daniel_g_carrasco.spola.metainfo.xml
+      - name: Check that the Flatpak manifest pins the same rclone
+        run: grep -q "rclone-v${RCLONE_VERSION}.tar.gz" build-aux/flatpak/io.github.daniel_g_carrasco.spola.yaml
+      - name: Check that the tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v="$(python3 -c 'import sys; sys.path.insert(0, "src"); import spola as p; print(p.__version__)')"
+          if [ "v$v" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match __version__ = $v"; exit 1
+          fi
+
+  gtk:
+    # the dialogs: skipped silently wherever GTK 4 and libadwaita are missing,
+    # so they run here on purpose, on a display of their own
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install GTK 4, libadwaita, a display and rclone
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xvfb gettext
+          curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          unzip -q rclone.zip
+          echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
+      - run: python3 tools/compile_po.py
+      - name: The dialog tests, and that they really ran
+        run: |
+          cd tests
+          xvfb-run -a python3 -m unittest -v test_add_folder test_import_dialog test_update_dialog 2>&1 | tee ../gtk-tests.log
+          test "${PIPESTATUS[0]}" -eq 0
+          if grep -q "skipped=" ../gtk-tests.log; then echo "the GTK tests were skipped"; exit 1; fi

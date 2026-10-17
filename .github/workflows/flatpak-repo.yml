@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write     # the gh-pages branch; the tests need read only
 
 concurrency:
   group: flatpak-repo
@@ -23,7 +23,13 @@ env:
   MANIFEST: build-aux/flatpak/io.github.daniel_g_carrasco.spola.yaml
 
 jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
   publish:
+    # only a tag that passed the tests reaches the users' remote
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
