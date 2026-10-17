@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.23" date="2026-10-17" type="development">
+      <description>
+        <p>Verify both sides: a folder's page compares every file here and on Koofr by size and checksum, changing nothing, and shows what is only here, only on Koofr, different or could not be compared, each as a tree; every confirmed alignment is followed by a verification of its own, with a word only if the sides differ. On the command line: spola verify.</p>
+        <p>Local backups, seen and used: the folder's page lists the backups of past syncs with their size, opens each as a tree, puts a file back in its place (the one there now kept first), deletes a backup or all of them. After every successful sync Spola keeps a copy of the synced state it reached: a repair can go back to that state and sync normally from there, with every safety check, instead of a new alignment. A damaged record of the last synced state now asks for a repair instead of retrying for ever.</p>
+      </description>
+    </release>
     <release version="0.3.22" date="2026-10-17" type="development">
       <description>
         <p>Settings that survive accidents: every save keeps the previous file next to it, a damaged settings file is set aside and the previous save used (Spola says so at start), a file written by a newer Spola is read for what this version knows and written back whole, and a save that fails is said instead of swallowed.</p>
