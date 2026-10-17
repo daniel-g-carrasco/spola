@@ -92,6 +92,7 @@ jobs:
             gui/
 
   package:
+    needs: probe        # nothing packaged from a build whose tests failed
     runs-on: windows-latest
     defaults:
       run:
