@@ -10,7 +10,7 @@ from pathlib import Path
 import _setup  # noqa: F401
 from _setup import rclone_binary
 from spola import verify
-from spola.rclone import DEFAULT_FILTERS, BisyncRequest, Event, Kind, Mode, Result, parse_line
+from spola.rclone import DEFAULT_FILTERS, BisyncRequest, Event, Kind, Mode, Result, clean_env, parse_line
 
 RCLONE = rclone_binary()
 
@@ -75,7 +75,9 @@ class RealCheckTest(unittest.TestCase):
             os.utime(b / "differs.txt", ns=(os.stat(a / "differs.txt").st_mtime_ns,) * 2)
             report = tmp / "verify.txt"
             argv = verify.check_args(RCLONE, request(tmp, str(a), str(b)), report)
-            done = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+            # the environment as the engine gives it: no RCLONE_* variable of the
+            # shell's (the CI's RCLONE_VERSION would be read as rclone's --version)
+            done = subprocess.run(argv, env=clean_env(dict(os.environ)), capture_output=True, text=True, timeout=60)
             events = [e for e in (parse_line(line) for line in done.stderr.splitlines()) if e]
             out = verify.summarize_check(done.returncode, events, report)
             self.assertIs(out.result, Result.OK, done.stderr)
