@@ -855,8 +855,16 @@ class Engine(GObject.Object):
         preview.seen = bool(listeners)
         for callback in listeners:
             callback(outcome, error)
+        pair = self.cfg.pair(pair_id)
         if outcome is None:
             rt.preview = None
+        elif (preview.reason == "ahead" and preview.mode is Mode.RESYNC and not preview.force and pair is not None
+              and not pair.initialized and outcome.result is Result.OK and outcome.plan.empty
+              and not outcome.plan.refused and not outcome.plan.errors and not preview.stale
+              and not pair.paused and not self.cfg.paused_all and not self.blocked_reason()):
+            # a first alignment with nothing to align (the two folders already
+            # match): nothing for the user to decide, so it goes on its own
+            self.confirm(pair_id, Mode.RESYNC, False)
         elif preview.mode is Mode.CHECK:
             plan = outcome.plan
             differences = len(plan.upload) + len(plan.download) + len(plan.conflicts) + len(plan.error_paths)
