@@ -50,7 +50,7 @@ jobs:
       - name: Install GTK 4, libadwaita, a display and rclone
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 xvfb gettext
+          sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 xvfb gettext
           curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
           unzip -q rclone.zip
           echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
