@@ -246,6 +246,7 @@ class PairRuntime:
     last_failure: str = ""          # a run that could not start, until one does
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
     tried_listings: set = field(default_factory=set)    # kept copies a repair went back to, this session
+    listing_serial: int = 0         # readings of the last listing asked for: only the latest applies
     ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
@@ -465,7 +466,7 @@ class Engine(GObject.Object):
     def _setup_pair(self, pair: Pair) -> None:
         rt = self.runtime.setdefault(pair.id, PairRuntime())
         rt.status = self._idle_status(pair, rt)
-        self._update_conflicts(pair, rt)
+        self._refresh_listing(pair, rt)
         self._start_watcher(pair, rt)
         self._want_preview_ahead(pair, rt)
 
@@ -1766,15 +1767,17 @@ class Engine(GObject.Object):
                 self.refresh_space(min_age=60)          # what Koofr holds just changed
             self.recent.record(pair.id, pair.local, plan.upload + [new for _old, new in plan.moved_remote],
                                plan.download + plan.replace_local + [new for _old, new in plan.moved_local])
-            listed = self._update_conflicts(pair, rt)
             foreign = self._follow_up(pair, rt, outcome)
             touched = set(plan.upload) | set(plan.download) | set(plan.delete_local) \
                 | set(plan.replace_local) | set(plan.conflicts) \
                 | {p for move in plan.moved_remote + plan.moved_local for p in move}
-            rt.states.run_finished(listed, touched, plan.error_paths, rt.conflicts, foreign)
-            self.emit("root-changed", pair.id)
-            if plan.conflicts:
-                self._new_conflicts(pair, rt, plan.conflicts)
+
+            def listed(paths: list[str]) -> None:
+                rt.states.run_finished(paths, touched, plan.error_paths, rt.conflicts, foreign)
+                self.emit("root-changed", pair.id)
+                if plan.conflicts:
+                    self._new_conflicts(pair, rt, plan.conflicts)
+            self._refresh_listing(pair, rt, listed)
             if rt.filters_changed:
                 rt.filters_changed = False
                 self._set_status(pair, rt, Status.NEEDS_REPAIR, _("The exclusions changed"))
@@ -1833,16 +1836,43 @@ class Engine(GObject.Object):
         self.request_sync(pair_id, "retry")
         return False
 
-    def _update_conflicts(self, pair: Pair, rt: PairRuntime) -> list[str]:
-        """Reload the last listing: the conflicts, and the synced paths for
-        the file manager. Returns the listed paths."""
-        entries = listings.load(self.paths.workdir(pair.id), 1) if pair.initialized else None
-        paths = [e.path for e in entries or []]
-        rt.conflicts = [e.path for e in entries or [] if not e.is_dir and self._conflict_name.search(e.path)]
-        rt.states.load_listing(paths)
-        rt.states.conflicts = set(rt.conflicts)
-        rt.states.refused = {r.path for r in rt.refused}
-        return paths
+    def _refresh_listing(self, pair: Pair, rt: PairRuntime, then: Callable[[list[str]], None] | None = None) -> None:
+        """The last listing read again, off the main loop (close to a second
+        for 40,000 entries, at every start and after every run): then, back
+        on it, the conflicts and the synced paths for the file manager are
+        set and `then(paths)` runs. A newer reading supersedes an older one
+        still under way; a damaged listing counts as empty (the next run
+        asks for the repair) rather than a crash at start."""
+        rt.listing_serial += 1
+        serial = rt.listing_serial
+        workdir, initialized, name = self.paths.workdir(pair.id), pair.initialized, pair.name
+        pattern = self._conflict_name
+
+        def work():
+            try:
+                entries = listings.load(workdir, 1) if initialized else None
+            except ValueError as e:
+                complain(f"reading the listing of {name}", e)
+                entries = None
+            except Exception as e:      # said, never a state left half set
+                complain(f"reading the listing of {name}", e)
+                entries = None
+            paths = [e.path for e in entries or []]
+            conflicts = [e.path for e in entries or [] if not e.is_dir and pattern.search(e.path)]
+            GLib.idle_add(apply, paths, conflicts)
+
+        def apply(paths: list[str], conflicts: list[str]) -> bool:
+            if rt.listing_serial != serial or self.cfg.pair(pair.id) is None:
+                return False
+            rt.conflicts = conflicts
+            rt.states.load_listing(paths)
+            rt.states.conflicts = set(conflicts)
+            rt.states.refused = {r.path for r in rt.refused}
+            if then is not None:
+                then(paths)
+            return False
+
+        threading.Thread(target=work, name=f"listing-{pair.id}", daemon=True).start()
 
     def _follow_up(self, pair: Pair, rt: PairRuntime, outcome: Outcome) -> set[str]:
         """Changes seen while rclone ran: ignore the ones rclone made itself.

@@ -835,16 +835,16 @@ class EngineTest(unittest.TestCase):
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
 
-        def broken(pair, rt):
+        def broken(pair, rt, then=None):
             raise RuntimeError("listing exploded")
-        self.engine._update_conflicts = broken
+        self.engine._refresh_listing = broken
         (self.local / "new.txt").write_text("x")
         self.engine.request_sync("p1", "manual")
         self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30))
         self.assertIn("listing exploded", self.engine.runtime["p1"].message)
         self.assertIsNone(self.engine.active)
         self.assertIn("new.txt", self.remote_files())             # the run itself was done
-        del self.engine._update_conflicts
+        del self.engine._refresh_listing
         other = self.other_pair()
         _kept, got = self.preview_of(other.id)
         self.assertTrue(spin_until(lambda: got, 60))              # the pump still runs
