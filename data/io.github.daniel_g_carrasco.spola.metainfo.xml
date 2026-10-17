@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.20" date="2026-10-17" type="development">
+      <description>
+        <p>Reliability, from the audit: a sync asked for while one ran (a change on Koofr, a retry) no longer waits for the hourly check; a sync interrupted by a crash says so ("a previous sync was interrupted: trying again in 3 min") instead of an rclone message in red; a run that could not start stays an error until one does, and is tried again; pausing a folder cancels a sync still being prepared; stopping a confirmed sync while it is prepared leaves the folder waiting for its confirmation, not "up to date"; exclusions changed during a sync lead to a repair in Spola's words; a lost Koofr activity feed falls back to the periodic check whatever failed.</p>
+        <p>Previews: a file name with a quote or a backslash shows as its name, not as a quoted full path; a preview rclone counted but whose lines could not be read is refused rather than shown as "nothing to do"; a preview prepared ahead is prepared once, not again at every change of conditions. A restore from Koofr's trash puts back the dates only of files still the same here, by date and by Koofr's checksum. The folder monitor leaves the folder's own exclusions alone, and a folder too large to watch entirely says so. Lowering the backup retention asks first, saying how many backups and how much would go. Long syncs keep one line of statistics at a time instead of one a second.</p>
+      </description>
+    </release>
     <release version="0.3.19" date="2026-10-17" type="development">
       <description>
         <p>A confirmation is worth what its preview showed, no more: a confirmed sync may delete the share of files the preview listed, with a small margin, instead of going past every limit; if more would go, it stops and asks again. A preview overtaken by a change (here, or on Koofr) can no longer be confirmed: the dialog says so and prepares it again.</p>
