@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.21" date="2026-10-17" type="development">
+      <description>
+        <p>Two more safety thresholds, from the audit. Deletions: the share of a folder a sync may delete unasked (10 percent by default) now also has a cap of about 500 files, so a folder of 40,000 files no longer allows 4,000 deletions without a word; a confirmed sync still deletes what its preview showed. Overwrites: a sync that would upload many files changed on this computer at once (a snapshot put back, a program rewriting a whole library, a restore from a backup) stops before it starts, says "N of T files changed on this computer at once" and waits for a look at the preview; the threshold is the folder's percentage, between 50 and 500 files. A confirmed sync may upload what its preview showed and little more: if more files change meanwhile, it asks again. The command line refuses such a sync the same way and says how to confirm it.</p>
+      </description>
+    </release>
     <release version="0.3.20" date="2026-10-17" type="development">
       <description>
         <p>Reliability, from the audit: a sync asked for while one ran (a change on Koofr, a retry) no longer waits for the hourly check; a sync interrupted by a crash says so ("a previous sync was interrupted: trying again in 3 min") instead of an rclone message in red; a run that could not start stays an error until one does, and is tried again; pausing a folder cancels a sync still being prepared; stopping a confirmed sync while it is prepared leaves the folder waiting for its confirmation, not "up to date"; exclusions changed during a sync lead to a repair in Spola's words; a lost Koofr activity feed falls back to the periodic check whatever failed.</p>
