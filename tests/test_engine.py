@@ -34,6 +34,14 @@ from spola.rclone import Mode, Result
 RCLONE = rclone_binary()
 
 
+def text_of(path) -> str | None:
+    """The file's text, None while it is not there."""
+    try:
+        return Path(path).read_text()
+    except FileNotFoundError:
+        return None
+
+
 def spin_until(cond, timeout=60.0) -> bool:
     ctx = GLib.MainContext.default()
     end = time.monotonic() + timeout
@@ -1000,7 +1008,8 @@ class EngineTest(unittest.TestCase):
         (self.remote / "f01.txt").write_text("from another computer")
         (self.remote / "f02.txt").unlink()
         self.engine.request_sync("p1", "manual")
-        self.assertTrue(spin_until(lambda: (self.local / "f01.txt").read_text() == "from another computer"
+        # (while the run replaces it the file is briefly away: moved among the copies, then written)
+        self.assertTrue(spin_until(lambda: text_of(self.local / "f01.txt") == "from another computer"
                                    and not (self.local / "f02.txt").exists() and self.status() is Status.OK, 60))
         idx = lambda: self.engine.versions_index("p1")      # noqa: E731
         self.assertTrue(spin_until(lambda: idx().of("f01.txt") and idx().of("f02.txt"), 30), changed)
@@ -1021,7 +1030,7 @@ class EngineTest(unittest.TestCase):
         self.engine.restore_version("p1", old.id, "replace")
         self.assertEqual((self.local / "f01.txt").read_text(), "1")
         self.assertTrue(spin_until(lambda: any(v.reason == "restored" for v in idx().of("f01.txt")), 30))
-        self.assertTrue(spin_until(lambda: (self.remote / "f01.txt").read_text() == "1" and self.status() is Status.OK, 60))
+        self.assertTrue(spin_until(lambda: text_of(self.remote / "f01.txt") == "1" and self.status() is Status.OK, 60))
         self.assertTrue(all(versions_mod.copy_path(self.engine.paths, v).exists() for v in idx().versions))
 
     def test_the_copy_not_kept_of_a_conflict_is_kept_among_the_copies(self):
