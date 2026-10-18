@@ -1,87 +1,16 @@
-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
-<!-- Created with Inkscape (http://www.inkscape.org/) -->
-
-<svg
-   width="512"
-   height="512"
-   viewBox="0 0 512 512"
-   version="1.1"
-   id="svg1"
-   inkscape:version="1.4.4 (dcaf3e7d9e, 2026-05-05)"
-   sodipodi:docname="spola-dark.svg"
-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
-   xmlns="http://www.w3.org/2000/svg"
-   xmlns:svg="http://www.w3.org/2000/svg">
-  <sodipodi:namedview
-     id="namedview1"
-     pagecolor="#ffffff"
-     bordercolor="#000000"
-     borderopacity="0.25"
-     inkscape:showpageshadow="2"
-     inkscape:pageopacity="0.0"
-     inkscape:pagecheckerboard="0"
-     inkscape:deskcolor="#d1d1d1"
-     inkscape:document-units="px"
-     inkscape:lockguides="false"
-     inkscape:zoom="0.84208656"
-     inkscape:cx="306.97557"
-     inkscape:cy="327.75728"
-     inkscape:window-width="1440"
-     inkscape:window-height="835"
-     inkscape:window-x="0"
-     inkscape:window-y="0"
-     inkscape:window-maximized="1"
-     inkscape:current-layer="layer1" />
-  <defs
-     id="defs1" />
-  <g
-     inkscape:label="Layer 1"
-     inkscape:groupmode="layer"
-     id="layer1">
-    <circle
-       style="fill:#f3f1ea;stroke-width:7.55906;stroke-opacity:0.45;fill-opacity:1"
-       id="path1"
-       cx="256"
-       cy="256"
-       r="240" />
-    <circle
-       style="fill:#1a1a1a;stroke-width:7.55906;stroke-opacity:1;fill-opacity:1;stroke:none"
-       id="path2-3"
-       cx="404"
-       cy="256"
-       r="48" />
-    <circle
-       style="fill:#1a1a1a;stroke-width:7.55906;stroke-opacity:0.45;fill-opacity:1"
-       id="path2"
-       cx="108"
-       cy="256"
-       r="48" />
-    <path
-       style="fill:none;fill-opacity:1;stroke:#1a1a1a;stroke-width:30;stroke-dasharray:none;stroke-opacity:1"
-       id="path9"
-       sodipodi:type="arc"
-       sodipodi:cx="256"
-       sodipodi:cy="256"
-       sodipodi:rx="148"
-       sodipodi:ry="148"
-       sodipodi:start="0.6981317"
-       sodipodi:end="3.1415927"
-       sodipodi:arc-type="arc"
-       d="M 369.37458,351.13257 A 148,148 0 0 1 205.38102,395.07451 148,148 0 0 1 108,256"
-       sodipodi:open="true" />
-    <path
-       style="fill:none;fill-opacity:1;stroke:#1a1a1a;stroke-width:30;stroke-dasharray:none;stroke-opacity:1"
-       id="path10"
-       sodipodi:type="arc"
-       sodipodi:cx="256"
-       sodipodi:cy="256"
-       sodipodi:rx="148"
-       sodipodi:ry="148"
-       sodipodi:start="3.8397244"
-       sodipodi:end="0"
-       sodipodi:arc-type="arc"
-       d="M 142.62543,160.86743 A 148,148 0 0 1 306.61898,116.92549 148,148 0 0 1 404,256"
-       sodipodi:open="true" />
-  </g>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sfumatura-cerchio-avorio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#e0ddd4;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-corpo-scuro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="240" style="fill:url(#sfumatura-cerchio-avorio)" />
+  <path style="fill:url(#sfumatura-corpo-scuro);fill-opacity:0.9" d="M 108 208 A 48 48 0 0 0 60 256 A 48 48 0 0 0 100.02539 303.33203 C 114.67731 351.53957 151.24676 391.3342 200.25 409.16992 C 264.59393 432.5892 336.8514 413.22709 380.86523 360.77344 L 357.88477 341.49023 C 321.91145 384.36156 263.10119 400.11952 210.51172 380.97852 C 171.82713 366.89847 142.7029 336.18879 130.00586 298.6582 A 48 48 0 0 0 156 256 A 48 48 0 0 0 108 208 z " />
+  <path style="fill:url(#sfumatura-corpo-scuro);fill-opacity:0.9" d="M 250.21289 93.111328 C 205.00385 94.742354 161.39428 115.16468 131.13477 151.22656 L 154.11523 170.50977 C 190.08855 127.63844 248.89881 111.88049 301.48828 131.02148 C 340.17287 145.10153 369.2971 175.81121 381.99414 213.3418 A 48 48 0 0 0 356 256 A 48 48 0 0 0 404 304 A 48 48 0 0 0 452 256 A 48 48 0 0 0 411.97461 208.66797 C 397.32269 160.46043 360.75324 120.6658 311.75 102.83008 C 291.64252 95.511554 270.76246 92.369953 250.21289 93.111328 z " />
 </svg>

@@ -17,9 +17,24 @@
 
 The masters of the app icon are the Inkscape files in data/icons/source/
 (spola-darkbg.svg for dark backgrounds, spola-lightbg.svg for light ones):
-edit those, never the generated copy. The installed icon is the dark
-background version, because the hicolor theme has no light/dark variants
-and docks, the GNOME overview and Noctalia are dark.
+edit those, never the generated copy. They follow the common style of my
+logos (the Lucciola one): a 512 px canvas, a disk of r=240 with no outline
+and a vertical two-stop gradient lit from above (ivory #f3f1ea -> #e0ddd4
+for dark backgrounds, dark #333333 -> #1a1a1a for light ones), the subject
+in the complementary gradient at fill-opacity 0.9 (the stops stay opaque),
+gradients named sfumatura-* in bounding-box units, layers "Sfondo" and
+"Soggetto", every shape filled (the trails are filled outlines joined to the
+balls, no strokes). The installed icon is the dark background version,
+because the hicolor theme has no light/dark variants and docks, the GNOME
+overview and Noctalia are dark.
+
+The status icons in colour follow the same style: the disk (or the warning
+triangle) in a vertical gradient from the GNOME colour lightened by 24 per
+channel down to the colour itself, the glyph plain ivory (#f3f1ea) at
+fill-opacity 0.9 (graded, it turned grey on the colour). The glyphs: outer shapes rounded (the triangle's corners
+have radius 1.4), inner symbols with sharp corners and thin (check, bars
+and exclamation mark 1.7 px, arrows 1.6, 1.3 on the emblems), each one
+outline without overlaps.
 
 Symbolic icons use filled shapes only, holes cut with fill-rule="evenodd":
 GTK and the tray hosts recolour them by filling every path, so a stroke-only
@@ -29,6 +44,7 @@ outline would turn into a solid blob.
 """
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -72,47 +88,6 @@ def symbolic(*paths: str, cls: str = "", fill: str = FG) -> str:
             f"{body}</svg>\n")
 
 
-def ring_arrow(cx, cy, r_out, r_in, start, end, tip_deg=32, head=0.9) -> str:
-    """A ring segment from `start` to `end` degrees (clockwise, 0 = east)
-    with an arrow head at `end`, its tip `tip_deg` further on; the head is
-    wider than the ring by `head` times the ring's width on each side."""
-    def pt(r, a):
-        return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
-    large = 1 if (end - start) % 360 > 180 else 0
-    o1, o2 = pt(r_out, start), pt(r_out, end)
-    i1, i2 = pt(r_in, start), pt(r_in, end)
-    mid = (r_out + r_in) / 2
-    width = r_out - r_in
-    tip = pt(mid, end + tip_deg)
-    head_out, head_in = pt(r_out + width * head, end), pt(r_in - width * head, end)
-    return (f"M{fmt(o1[0])},{fmt(o1[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large} 1 {fmt(o2[0])},{fmt(o2[1])} "
-            f"L{fmt(head_out[0])},{fmt(head_out[1])} L{fmt(tip[0])},{fmt(tip[1])} "
-            f"L{fmt(head_in[0])},{fmt(head_in[1])} L{fmt(i2[0])},{fmt(i2[1])} "
-            f"A{fmt(r_in)},{fmt(r_in)} 0 {large} 0 {fmt(i1[0])},{fmt(i1[1])} Z")
-
-
-def circular_arrow(cx, cy, mid, width, start, end, head_width, head_length) -> str:
-    """A ring segment `width` wide on the circle of radius `mid`, from `start`
-    to `end` degrees (clockwise, 0 = east, y down), ending in an isosceles
-    arrow head: its base is radial, centred on the ring, `head_width` long;
-    its tip lies on the tangent at the end, `head_length` from the base, so
-    both sides are equal (a tip on the ring's own circle would lean inwards)."""
-    def pt(r, a):
-        return cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))
-    r_out, r_in = mid + width / 2, mid - width / 2
-    large = 1 if (end - start) % 360 > 180 else 0
-    o1, o2 = pt(r_out, start), pt(r_out, end)
-    i1, i2 = pt(r_in, start), pt(r_in, end)
-    base_out, base_in = pt(mid + head_width / 2, end), pt(mid - head_width / 2, end)
-    a = math.radians(end)
-    mx, my = pt(mid, end)
-    tip = (mx - head_length * math.sin(a), my + head_length * math.cos(a))     # clockwise tangent
-    return (f"M{fmt(o1[0])},{fmt(o1[1])} A{fmt(r_out)},{fmt(r_out)} 0 {large} 1 {fmt(o2[0])},{fmt(o2[1])} "
-            f"L{fmt(base_out[0])},{fmt(base_out[1])} L{fmt(tip[0])},{fmt(tip[1])} "
-            f"L{fmt(base_in[0])},{fmt(base_in[1])} L{fmt(i2[0])},{fmt(i2[1])} "
-            f"A{fmt(r_in)},{fmt(r_in)} 0 {large} 0 {fmt(i1[0])},{fmt(i1[1])} Z")
-
-
 def trail_and_ball(cx, cy, orbit, width, ball, start, end) -> str:
     """One closed outline for the symbolic motif: a ring sector of `width` on
     the circle of radius `orbit`, from `start` to `end` degrees (clockwise,
@@ -143,51 +118,68 @@ def app_symbolic() -> str:
     return symbolic(circle(8, 8, 7.5) + " " + motif)
 
 
-def sync_arrows() -> str:
-    """The two arrows of "syncing", for the tray and the window: the app's
-    trails with arrow heads instead of its balls. Heads large enough to read
-    at 16 px (the first ones were lost in the tray): the ring sits closer to
-    the centre to leave them room inside the disk."""
-    return " ".join(circular_arrow(8, 8, 4.0, 1.9, start, end, head_width=4.7, head_length=3.3)
-                    for start, end in ((30, 138), (210, 318)))
-
-
-def emblem_sync_arrows() -> str:
-    """The same arrows for the Files emblem, thinner: Files draws it small."""
-    return " ".join(circular_arrow(8, 8, 4.25, 1.5, start, end, head_width=4.1, head_length=2.9)
-                    for start, end in ((36, 146), (216, 326)))
-
-
+# The glyphs at 16 px, drawn once (by hand, in Inkscape terms): outer shapes
+# rounded, inner symbols sharp and thin; no glyph overlaps itself, so each
+# works with fill-rule="evenodd" cut out of a disk as much as filled on top.
 GLYPHS = {
-    "check": poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
-    "pause": rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7),
-    "bang": rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15),
-    "triangle_bang": rect(7.1, 5.2, 1.8, 5) + " " + circle(8, 12.2, 1.05),
+    "check": "M3.5,8.9 L6.93,12.34 L12.53,6.07 L11.27,4.93 L6.87,9.86 L4.7,7.7 Z",
+    "pause": "M5.4,4.5 L7.1,4.5 L7.1,11.5 L5.4,11.5 Z M8.9,4.5 L10.6,4.5 L10.6,11.5 L8.9,11.5 Z",
+    "bang": "M7.15,3.6 L8.85,3.6 L8.85,9.2 L7.15,9.2 Z M6.95,11.4 A1.05,1.05 0 1 1 9.05,11.4 A1.05,1.05 0 1 1 6.95,11.4 Z",
+    "triangle_bang": "M7.2,5.3 L8.8,5.3 L8.8,10.1 L7.2,10.1 Z M7.05,12.2 A0.95,0.95 0 1 1 8.95,12.2 "
+                     "A0.95,0.95 0 1 1 7.05,12.2 Z",
 }
-TRIANGLE = poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)])
+# the warning triangle, corners of radius 1.4
+TRIANGLE = ("M9.23,3.12 L14.25,12.22 A1.4,1.4 0 0 1 13.03,14.3 L2.97,14.3 A1.4,1.4 0 0 1 1.75,12.22 "
+            "L6.77,3.12 A1.4,1.4 0 0 1 9.23,3.12 Z")
+# "syncing": the app's trails with arrow heads instead of its balls, 1.6 px
+SYNC_ARROWS = ("M12.16,10.4 A4.8,4.8 0 0 1 4.43,11.21 L3.47,12.08 L3.02,8.45 L6.59,9.27 L5.62,10.14 "
+               "A3.2,3.2 0 0 0 10.77,9.6 Z M3.84,5.6 A4.8,4.8 0 0 1 11.57,4.79 L12.53,3.92 L12.98,7.55 "
+               "L9.41,6.73 L10.38,5.86 A3.2,3.2 0 0 0 5.23,6.4 Z")
+# the same for the Files emblem, 1.3 px: Files draws it small
+EMBLEM_SYNC_ARROWS = ("M11.96,10.88 A4.9,4.9 0 0 1 3.94,10.74 L2.9,11.44 L2.97,8.14 L6.05,9.31 L5.02,10.01 "
+                      "A3.6,3.6 0 0 0 10.91,10.12 Z M4.04,5.12 A4.9,4.9 0 0 1 12.06,5.26 L13.1,4.56 "
+                      "L13.03,7.86 L9.95,6.69 L10.98,5.99 A3.6,3.6 0 0 0 5.09,5.88 Z")
 
 # GNOME palette: colour only for the states that are news
 COLORS = {"synced": "#26a269", "syncing": "#3584e4", "paused": "#77767b", "error": "#c01c28",
           "attention": "#e66100"}
 
 
-def color_icon(shape: str, color: str, glyph: str) -> str:
-    """A full-colour status badge: the coloured shape with a white glyph on
-    top, readable on light and dark panels alike (no recolouring: the name
-    has no -symbolic suffix)."""
+GLYPH = "#f3f1ea"       # the ivory of the logos, plain: graded, it turned grey on the colour
+
+
+def lighter(color: str, step: int = 24) -> str:
+    """`color` lightened by `step` on each channel: the top of its gradient."""
+    r, g, b = (min(255, int(color[i:i + 2], 16) + step) for i in (1, 3, 5))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def gradient(gid: str, top: str, bottom: str) -> str:
+    return (f'<linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{top}"/>'
+            f'<stop offset="1" stop-color="{bottom}"/></linearGradient>')
+
+
+def color_icon(state: str, shape: str, glyph: str) -> str:
+    """A full-colour status badge in the style of the logos: the shape in a
+    vertical gradient of its GNOME colour, the glyph plain ivory at 0.9 on top,
+    readable on light and dark panels alike (no recolouring: the name has
+    no -symbolic suffix)."""
+    color = COLORS[state]
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">'
-            f'<path fill="{color}" d="{shape}"/><path fill="#ffffff" fill-rule="evenodd" d="{glyph}"/></svg>\n')
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><defs>'
+            f'{gradient(f"s-{state}", lighter(color), color)}</defs>'
+            f'<path fill="url(#s-{state})" d="{shape}"/>'
+            f'<path fill="{GLYPH}" fill-opacity="0.9" fill-rule="evenodd" d="{glyph}"/></svg>\n')
 
 
 def color_icons() -> dict[str, str]:
     disk = circle(8, 8, 7.5)
     return {
-        "synced": color_icon(disk, COLORS["synced"], GLYPHS["check"]),
-        "syncing": color_icon(disk, COLORS["syncing"], sync_arrows()),
-        "paused": color_icon(disk, COLORS["paused"], GLYPHS["pause"]),
-        "error": color_icon(disk, COLORS["error"], GLYPHS["bang"]),
-        "attention": color_icon(TRIANGLE, COLORS["attention"], GLYPHS["triangle_bang"]),
+        "synced": color_icon("synced", disk, GLYPHS["check"]),
+        "syncing": color_icon("syncing", disk, SYNC_ARROWS),
+        "paused": color_icon("paused", disk, GLYPHS["pause"]),
+        "error": color_icon("error", disk, GLYPHS["bang"]),
+        "attention": color_icon("attention", TRIANGLE, GLYPHS["triangle_bang"]),
     }
 
 
@@ -195,39 +187,40 @@ def symbolic_icons() -> dict[str, str]:
     disk = circle(8, 8, 7.5)
     icons = {
         "": app_symbolic(),
-        "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)])),
+        "synced": symbolic(disk + " " + GLYPHS["check"]),
         # the app's motif in motion: its two trails, arrow heads instead of the balls,
-        # cut out of the same disk as the other states; arcs shortened so a tip
-        # never touches the start of the other trail
-        "syncing": symbolic(disk + " " + sync_arrows()),
-        "paused": symbolic(disk + " " + rect(5.2, 4.5, 2, 7) + " " + rect(8.8, 4.5, 2, 7)),
-        "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15)),
-        "attention": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
-                              + " " + circle(8, 12.2, 1.05)),
+        # cut out of the same disk as the other states
+        "syncing": symbolic(disk + " " + SYNC_ARROWS),
+        "paused": symbolic(disk + " " + GLYPHS["pause"]),
+        "error": symbolic(disk + " " + GLYPHS["bang"]),
+        "attention": symbolic(TRIANGLE + " " + GLYPHS["triangle_bang"]),
     }
     return icons
 
 
 def clean_app_icon(source: Path) -> str:
     """The Inkscape master as a plain SVG: no editor namespaces, attributes,
-    namedview, comments or ids, empty <defs> and attribute-less <g> layers
-    unwrapped. The drawing itself (elements, styles, path data) is copied
-    untouched, so it renders exactly like the master."""
+    namedview or comments, no ids but those of what <defs> holds (the
+    gradients the shapes point to with url(#sfumatura-...): without them the
+    icon would come out black), empty <defs> dropped and attribute-less <g>
+    layers unwrapped. The drawing itself (elements, styles, path data) is
+    copied untouched, so it renders exactly like the master."""
     ET.register_namespace("", SVG_NS)
     root = ET.parse(source).getroot()     # the parser drops XML comments
     if root.get("viewBox") != APP_ICON_VIEWBOX:
         raise SystemExit(f"{source}: expected viewBox {APP_ICON_VIEWBOX!r}, found {root.get('viewBox')!r}")
 
-    def clean(element: ET.Element) -> None:
+    def clean(element: ET.Element, in_defs: bool = False) -> None:
         for name in list(element.attrib):
-            if name == "id" or (name.startswith("{") and not name.startswith("{" + SVG_NS + "}")):
+            if (name == "id" and not in_defs) or (name.startswith("{") and not name.startswith("{" + SVG_NS + "}")):
                 del element.attrib[name]
         children = []
         for child in element:
             if not isinstance(child.tag, str) or not child.tag.startswith("{" + SVG_NS + "}"):
                 continue                       # sodipodi:namedview, inkscape metadata...
-            clean(child)
             local = child.tag.split("}")[1]
+            # the <defs> element's own id goes; the ids of what it holds stay
+            clean(child, in_defs=in_defs or element.tag == "{" + SVG_NS + "}defs")
             if local == "defs" and len(child) == 0:
                 continue
             if local == "g" and not child.attrib:
@@ -237,6 +230,10 @@ def clean_app_icon(source: Path) -> str:
         element[:] = children
 
     clean(root)
+    text = ET.tostring(root, encoding="unicode")
+    kept = set(re.findall(r'id="([^"]+)"', text))
+    if (orphans := set(re.findall(r"url\(#([^)]+)\)", text)) - kept):
+        raise SystemExit(f"{source}: references without a definition: {sorted(orphans)}")
     attrs = {"width": str(APP_ICON_SIZE), "height": str(APP_ICON_SIZE), "viewBox": APP_ICON_VIEWBOX}
     for name in list(root.attrib):
         del root.attrib[name]
@@ -257,88 +254,21 @@ def emblem_icons() -> dict[str, str]:
     """Emblems fill the whole 16 px canvas: Files draws them small and dim."""
     disk = circle(8, 8, 7.5)
     ring = disk + " " + circle(8, 8, 5)
-    slash = poly([(3.4, 11.2), (11.2, 3.4), (12.6, 4.8), (4.8, 12.6)])
+    # the bar about as thick as the ring (2.4 across, the ring 2.5): thinner, it looked frail
+    slash = poly([(3.25, 11.05), (11.05, 3.25), (12.75, 4.95), (4.95, 12.75)])
     # the literal colours, for Dolphin: readable on light and dark views
     grey = "#77767b"
     return {
-        "synced": symbolic(disk + " " + poly([(3.9, 8.3), (5.3, 6.9), (7, 8.6), (10.7, 4.9), (12.1, 6.3), (7, 11.4)]),
-                           cls="success", fill=COLORS["synced"]),
-        "syncing": symbolic(disk + " " + emblem_sync_arrows(), fill=COLORS["syncing"]),
-        "pending": symbolic(ring + " " + clock_hands(7.3, 4.2, 1.4, 7.3, 11.1), fill=grey),
-        "error": symbolic(disk + " " + rect(7, 3.6, 2, 5.6) + " " + circle(8, 11.4, 1.15), cls="error",
-                          fill=COLORS["error"]),
-        "conflict": symbolic(poly([(8, 0.6), (15.6, 14.6), (0.4, 14.6)]) + " " + rect(7.1, 5.2, 1.8, 5)
-                             + " " + circle(8, 12.2, 1.05), cls="warning", fill=COLORS["attention"]),
+        "synced": symbolic(disk + " " + GLYPHS["check"], cls="success", fill=COLORS["synced"]),
+        "syncing": symbolic(disk + " " + EMBLEM_SYNC_ARROWS, fill=COLORS["syncing"]),
+        # a full disk like the other states, the hands cut out (1.7, as the other glyphs)
+        "pending": symbolic(disk + " " + clock_hands(7.15, 3.8, 1.7, 7.15, 11.6), fill=grey),
+        "error": symbolic(disk + " " + GLYPHS["bang"], cls="error", fill=COLORS["error"]),
+        "conflict": symbolic(TRIANGLE + " " + GLYPHS["triangle_bang"], cls="warning", fill=COLORS["attention"]),
         # two paths, not one: the bar's ends go into the ring, and with evenodd
         # in a single path the overlap would turn into a gap
         "excluded": symbolic(ring, slash, fill=grey),
     }
-
-
-def rounded_rect(x, y, w, h, r) -> str:
-    return (f"M{fmt(x + r)},{fmt(y)} L{fmt(x + w - r)},{fmt(y)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w)},{fmt(y + r)} "
-            f"L{fmt(x + w)},{fmt(y + h - r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + w - r)},{fmt(y + h)} "
-            f"L{fmt(x + r)},{fmt(y + h)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x)},{fmt(y + h - r)} "
-            f"L{fmt(x)},{fmt(y + r)} A{fmt(r)},{fmt(r)} 0 0 1 {fmt(x + r)},{fmt(y)} Z")
-
-
-def thick_polyline(points, width) -> str:
-    """The outline of a polyline drawn `width` wide, with mitred joins and
-    flat ends (symbolic icons cannot use strokes)."""
-    half = width / 2
-
-    def normal(a, b):
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        length = math.hypot(dx, dy)
-        return -dy / length, dx / length
-
-    def side(sign):
-        out = []
-        for i, p in enumerate(points):
-            if i == 0 or i == len(points) - 1:
-                n = normal(points[0], points[1]) if i == 0 else normal(points[-2], points[-1])
-                out.append((p[0] + sign * half * n[0], p[1] + sign * half * n[1]))
-                continue
-            n1, n2 = normal(points[i - 1], p), normal(p, points[i + 1])
-            mx, my = n1[0] + n2[0], n1[1] + n2[1]
-            scale = half / ((mx * n1[0] + my * n1[1]) or 1e-9)
-            out.append((p[0] + sign * mx * scale, p[1] + sign * my * scale))
-        return out
-    return poly(side(1) + list(reversed(side(-1))))
-
-
-def emblem_variants() -> dict[str, dict[str, str]]:
-    """Heavier emblems to compare with the current ones in Files' grid,
-    where the emblem box is dimmed (dim-label) and drawn at 16 px:
-      bold:   no disk, the glyphs themselves thick and as large as the canvas;
-      square: the current glyphs cut out of a rounded square, about a third
-              more colour than the disk."""
-    check_bold = thick_polyline([(1.6, 8.4), (5.9, 12.7), (14.4, 4.2)], 3.0)
-    ring_bold = circle(8, 8, 7.6) + " " + circle(8, 8, 5.5)
-    bold = {
-        "synced": symbolic(check_bold, cls="success"),
-        "syncing": symbolic(" ".join(ring_arrow(8, 8, 5.9, 3.7, start, end, tip_deg=28)
-                                     for start, end in ((40, 160), (220, 340)))),
-        "pending": symbolic(ring_bold + " " + clock_hands(7, 3.9, 2, 6.8, 11.3)),
-        "error": symbolic(ring_bold + " " + rect(6.9, 3.8, 2.2, 5) + " " + circle(8, 11.2, 1.3), cls="error"),
-        "conflict": symbolic(poly([(8, 0.4), (15.8, 15), (0.2, 15)]) + " " + rect(6.95, 5, 2.1, 5.2)
-                             + " " + circle(8, 12.3, 1.2), cls="warning"),
-        "excluded": symbolic(ring_bold + " " + poly([(3.6, 11), (11, 3.6), (12.4, 5), (5, 12.4)])),
-    }
-    square = rounded_rect(0.5, 0.5, 15, 15, 3.5)
-    cut_ring = circle(8, 8, 5.4) + " " + circle(8, 8, 4)
-    squares = {
-        "synced": symbolic(square + " " + poly([(3.6, 8.3), (5.1, 6.8), (7, 8.7), (10.9, 4.8), (12.4, 6.3), (7, 11.7)]),
-                           cls="success"),
-        "syncing": symbolic(square + " " + " ".join(ring_arrow(8, 8, 5.2, 3.6, start, end, tip_deg=26)
-                                                    for start, end in ((40, 160), (220, 340)))),
-        "pending": symbolic(square + " " + cut_ring + " " + clock_hands(7.35, 5.2, 1.3, 7.4, 10.35)),
-        "error": symbolic(square + " " + rect(6.9, 3.4, 2.2, 5.8) + " " + circle(8, 11.6, 1.25), cls="error"),
-        "conflict": symbolic(poly([(8, 0.4), (15.8, 15), (0.2, 15)]) + " " + rect(6.95, 5, 2.1, 5.2)
-                             + " " + circle(8, 12.3, 1.2), cls="warning"),
-        "excluded": symbolic(square + " " + cut_ring + " " + poly([(4.4, 10.6), (10.6, 4.4), (11.6, 5.4), (5.4, 11.6)])),
-    }
-    return {"bold": bold, "square": squares}
 
 
 def write_pngs(svg: Path, sizes=(64, 128, 256)) -> None:
@@ -373,13 +303,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) == 3 and sys.argv[1] == "--emblem-variants":
-        for variant, icons in emblem_variants().items():
-            out = Path(sys.argv[2]) / variant
-            out.mkdir(parents=True, exist_ok=True)
-            for state, svg in icons.items():
-                (out / f"emblem-spola-{state}-symbolic.svg").write_text(svg, encoding="utf-8")
-            print(out)
-    else:
-        main()
+    main()
