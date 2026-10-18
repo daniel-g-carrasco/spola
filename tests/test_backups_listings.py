@@ -1,67 +1,13 @@
-"""The local backups seen and used, and the listings kept after a run."""
+"""The listings kept after a run (the kept copies of files: test_versions.py)."""
 
 import os
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 import _setup  # noqa: F401
 from spola import jobs
-from spola.config import Pair
 from spola.paths import Paths
-
-
-class BackupsTest(unittest.TestCase):
-    def setUp(self):
-        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.paths = Paths(self.tmp / "config", self.tmp / "state", self.tmp / "data")
-        self.local = self.tmp / "local"
-        (self.local / "docs").mkdir(parents=True)
-        self.pair = Pair("p1", str(self.local), "/d")
-        root = self.paths.backup_dir("p1")
-        for run, files in (("20261013-175420", {"docs/a.txt": "old a", "b.txt": "old b"}),
-                           ("20261015-090000", {"docs/a.txt": "older a"})):
-            for rel, text in files.items():
-                (root / run / rel).parent.mkdir(parents=True, exist_ok=True)
-                (root / run / rel).write_text(text)
-        (root / "not-ours").mkdir()
-        (root / "not-ours" / "x").write_text("x")
-
-    def test_runs_and_their_files(self):
-        runs = jobs.backup_runs(self.paths, "p1")
-        self.assertEqual([r.name for r in runs], ["20261015-090000", "20261013-175420"])
-        self.assertEqual((runs[1].files, runs[1].size), (2, 10))
-        self.assertEqual(time.strftime("%Y-%m-%d %H:%M", time.localtime(runs[0].time)), "2026-10-15 09:00")
-        self.assertEqual(jobs.backup_files(self.paths, "p1", "20261013-175420"), [("b.txt", 5), ("docs/a.txt", 5)])
-        self.assertEqual(jobs.backup_runs(self.paths, "none"), [])
-        with self.assertRaises(ValueError):
-            jobs.backup_files(self.paths, "p1", "not-ours")
-        with self.assertRaises(ValueError):
-            jobs.backup_files(self.paths, "p1", "../p2")
-
-    def test_restore_keeps_the_current_file_first(self):
-        (self.local / "docs" / "a.txt").write_text("current a")
-        kept = jobs.restore_backup(self.paths, self.pair, "20261013-175420", "docs/a.txt", now=1_800_000_000)
-        self.assertEqual((self.local / "docs" / "a.txt").read_text(), "old a")
-        self.assertEqual(kept, time.strftime("%Y%m%d-%H%M%S", time.localtime(1_800_000_000)))
-        self.assertEqual((self.paths.backup_dir("p1") / kept / "docs" / "a.txt").read_text(), "current a")
-        # the backup itself stays; a file with nothing in its place needs no run of its own
-        self.assertTrue((self.paths.backup_dir("p1") / "20261013-175420" / "docs" / "a.txt").exists())
-        self.assertEqual(jobs.restore_backup(self.paths, self.pair, "20261013-175420", "b.txt"), "")
-        self.assertEqual((self.local / "b.txt").read_text(), "old b")
-        for bad in ("../b.txt", "/b.txt", "", "docs/../../b.txt"):
-            with self.assertRaises(ValueError):
-                jobs.restore_backup(self.paths, self.pair, "20261013-175420", bad)
-        with self.assertRaises(FileNotFoundError):
-            jobs.restore_backup(self.paths, self.pair, "20261013-175420", "missing.txt")
-
-    def test_delete_a_run(self):
-        jobs.delete_backup_run(self.paths, "p1", "20261015-090000")
-        self.assertEqual([r.name for r in jobs.backup_runs(self.paths, "p1")], ["20261013-175420"])
-        with self.assertRaises(ValueError):
-            jobs.delete_backup_run(self.paths, "p1", "not-ours")
-        self.assertTrue((self.paths.backup_dir("p1") / "not-ours").exists())
 
 
 class KeptListingsTest(unittest.TestCase):

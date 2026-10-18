@@ -848,9 +848,6 @@ class PairPage(Adw.NavigationPage):
         self.trash_row = self._link_row(group, _("Restore from Koofr's Trash"),
                                         lambda: TrashDialog(self.window, self.pair_id).present(self.window),
                                         _("Files of this folder deleted on Koofr in the last 30 days"))
-        self.backups_row = self._link_row(group, _("Local Backups"),
-                                          lambda: BackupsDialog(self.window, self.pair_id).present(self.window),
-                                          _("Files replaced or deleted here by past syncs, kept for a while"))
         self.log_row = self._link_row(group, _("Last Sync Log"), self._open_log,
                                       _("What rclone reported during the last sync, for troubleshooting"))
         if windows_reserved_names_matter():
@@ -858,6 +855,16 @@ class PairPage(Adw.NavigationPage):
                 "Files and folders named CON, PRN, AUX, NUL, COM1 to COM9 or LPT1 to LPT9, with any extension, "
                 "stay on Koofr only: Windows 10 takes these names for devices."))))
         page.add(group)
+
+        # what Spola kept of the files a sync replaced or deleted here (versions.py)
+        self.copies_group = Adw.PreferencesGroup(title=_("Kept Copies"))
+        self.copies_row = self._link_row(self.copies_group, _("Kept Copies"),
+                                         lambda: KeptCopiesDialog(self.window, self.pair_id).present(self.window))
+        self.deleted_row = self._link_row(self.copies_group, _("Recently Deleted Files"),
+                                          lambda: VersionsDialog(self.window, self.pair_id, "", "deleted")
+                                          .present(self.window),
+                                          _("Kept here, or in Koofr's trash"))
+        page.add(self.copies_group)
 
         group = Adw.PreferencesGroup()
         remove = Adw.ButtonRow(title=_("Stop Syncing This Folder…"))
@@ -870,7 +877,8 @@ class PairPage(Adw.NavigationPage):
         self.set_child(view)
         self._handlers = [
             self.engine.connect("pair-changed", lambda _e, pid: self.update() if pid == pair_id else None),
-            self.engine.connect("status-changed", lambda _e: self.update())]
+            self.engine.connect("status-changed", lambda _e: self.update()),
+            self.engine.connect("versions-changed", lambda _e, pid: self.update() if pid == pair_id else None)]
         self.update()
 
     def detach(self) -> None:
@@ -939,7 +947,7 @@ class PairPage(Adw.NavigationPage):
         self.verify_row.set_subtitle(escape(verification_summary(rt.preview)
                                             or _("Compare sizes and checksums here and on Koofr. Nothing is changed.")))
         self.log_row.set_visible(newest_log(self.engine.paths.log_dir(self.pair_id)) is not None)
-        self.backups_row.set_visible(self.engine.paths.backup_dir(self.pair_id).is_dir())
+        self._update_copies(pair)
         patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
                     if line.strip() and not line.lstrip().startswith("#")]
         self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
@@ -969,6 +977,23 @@ class PairPage(Adw.NavigationPage):
         pair = self.engine.cfg.pair(self.pair_id)
         url = koofr_api.web_url(self.engine.cfg.mount_id, pair.remote)
         Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
+
+    def _update_copies(self, pair) -> None:
+        summary = self.engine.versions_index(self.pair_id).summary()
+        days = self.engine.cfg.backup_days
+        self.copies_group.set_visible(pair.initialized)
+        self.copies_group.set_description(escape(ngettext(
+            "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} day (Preferences), then "
+            "deletes it; Koofr keeps no older versions.",
+            "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} days (Preferences), then "
+            "deletes it; Koofr keeps no older versions.", days).format(n=count(days))))
+        if summary.files:
+            self.copies_row.set_subtitle(escape(ngettext("{n} copy", "{n} copies", summary.files)
+                                                .format(n=count(summary.files)) + " · " + GLib.format_size(summary.size)
+                                                + " · " + _("since {date}").format(date=when_until(summary.oldest))))
+        else:
+            self.copies_row.set_subtitle(escape(_("None at the moment")))
+        self.copies_row.set_sensitive(bool(summary.files))
 
     def _open_log(self) -> None:
         log = newest_log(self.engine.paths.log_dir(self.pair_id))
@@ -1289,133 +1314,296 @@ def moment(timestamp: float) -> str:
     return GLib.DateTime.new_from_unix_local(int(timestamp)).format("%-d %b %H:%M")
 
 
-class BackupsDialog(Adw.Dialog):
-    """This pair's local backups, one row per sync that replaced or deleted
-    files here: open a run as a tree, put a file back (the one in its place
-    now kept in a new backup first), delete a run or all of them."""
+def N_(text: str) -> str:
+    """Marks a string for translation; translated where it is shown."""
+    return text
 
-    def __init__(self, window: MainWindow, pair_id: str):
-        super().__init__(title=_("Local Backups"), content_width=560, content_height=560)
-        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+
+REASON_TEXT = {
+    # what the sync or Spola did with the file, in a few words
+    "replaced": N_("replaced by a sync"),
+    "deleted": N_("deleted here by a sync (deleted on Koofr)"),
+    "realigned": N_("replaced by an alignment"),
+    "conflict": N_("version not kept of a conflict"),
+    "restored": N_("set aside when a version was restored"),
+}
+
+
+def when_until(timestamp: float) -> str:
+    """'24 Nov 2026': the day a copy expires or leaves Koofr's trash."""
+    return GLib.DateTime.new_from_unix_local(int(timestamp)).format("%-d %b %Y")
+
+
+def version_subtitle(version, days: int) -> str:
+    return " · ".join((_(REASON_TEXT.get(version.reason, version.reason)), GLib.format_size(version.size),
+                       _("local copy, kept until {date}").format(date=when_until(version.expires(days)))))
+
+
+def open_version(window, engine: Engine, version) -> None:
+    """A read-only copy in the cache, opened with the default app: nothing
+    the app does can change the kept copy. Copies a day old are cleared."""
+    from . import versions as versions_mod
+    folder = os.path.join(GLib.get_user_cache_dir(), "spola", "open")
+    try:
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            if time.time() - os.path.getmtime(path) > 86400:
+                import shutil
+                shutil.rmtree(path, ignore_errors=True)
+    except OSError:
+        pass
+    try:
+        path = versions_mod.open_copy(engine.paths, version, folder)
+    except OSError as e:
+        window.toast(str(e))
+        return
+    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(window, None, None, None)
+
+
+class VersionsDialog(Adw.Dialog):
+    """The kept copies of one file ("file"), or the files deleted under a
+    folder ("deleted": the copies kept here, then Koofr's trash). Every
+    action that writes asks first and says that the next sync uploads it;
+    nothing here deletes a copy."""
+
+    def __init__(self, window: MainWindow, pair_id: str, rel: str, kind: str):
+        pair = window.engine.cfg.pair(pair_id)
+        name = os.path.basename(rel) or pair.name
+        title = _("Previous Versions") if kind == "file" else _("Recently Deleted Files")
+        super().__init__(title=title, content_width=600, content_height=620)
+        self.window, self.engine, self.pair_id, self.rel, self.kind = window, window.engine, pair_id, rel, kind
+        self.trash_found: list | None = None
+        self.trash_error = ""
+        self.query = ""
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        self.delete_all = Gtk.Button(label=_("Delete All…"), sensitive=False)
-        self.delete_all.connect("clicked", lambda *_: self._delete_all())
-        header.pack_start(self.delete_all)
+        header.set_title_widget(Adw.WindowTitle(title=title, subtitle=name))
         view.add_top_bar(header)
+        if kind == "deleted":
+            self.search = Gtk.SearchEntry(placeholder_text=_("Search by name"), hexpand=True,
+                                          margin_start=12, margin_end=12, margin_top=6, margin_bottom=6)
+            self.search.connect("search-changed", lambda e: self._search(e.get_text()))
+            view.add_top_bar(self.search)
         self.page = Adw.PreferencesPage()
-        self.group: Adw.PreferencesGroup | None = None
-        self.runs: list = []
+        self.groups: list = []
         self.toasts = Adw.ToastOverlay(child=self.page)
         view.set_content(self.toasts)
         self.nav = Adw.NavigationView()
-        self.nav.add(Adw.NavigationPage(title=_("Local Backups"), child=view))
+        self.nav.add(Adw.NavigationPage(title=title, child=view))
         self.set_child(self.nav)
+        self._handler = self.engine.connect("versions-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self._fill()
+        if kind == "deleted":
+            self.engine.trash_deletions(pair_id, self._trash_listed)
+
+    def _search(self, text: str) -> None:
+        self.query = text.strip().casefold()
+        self._fill()
+
+    def _matches(self, rel: str) -> bool:
+        return not self.query or self.query in rel.casefold()
+
+    def _fill(self) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        for group in self.groups:
+            self.page.remove(group)
+        self.groups = []
+        days = self.engine.cfg.backup_days
+        index = self.engine.versions_index(self.pair_id)
+        if self.kind == "file":
+            found = index.of(self.rel)
+            group = Adw.PreferencesGroup(description=escape(_(
+                "Copies Spola kept of this file when a sync replaced it, or when a conflict or a restore set it "
+                "aside; each stays {n} days. What you restore is a change in the synced folder: the next sync "
+                "uploads it to Koofr.").format(n=count(days))))
+            if not found:
+                group.add(Adw.ActionRow(title=_("No copy of this file is kept."), subtitle_lines=0, subtitle=escape(_(
+                    "Spola keeps a copy when a sync replaces or deletes a file here. Older versions of your own "
+                    "edits are not kept: for those, a backup program such as Déjà Dup."))))
+            for version in found:
+                group.add(self._row(version, moment(version.time), days))
+            self._add(group)
+            return
+        prefix = self.rel.rstrip("/") + "/" if self.rel else ""
+        local = [v for v in index.deleted_under(self.rel) if self._matches(v.rel)]
+        group = Adw.PreferencesGroup(title=_("Kept on This Computer"), description=escape(_(
+            "Files a sync deleted here because they were deleted on Koofr; each copy stays {n} days. "
+            "A restored file goes back in its place, and the next sync uploads it to Koofr.").format(n=count(days))))
+        if not local:
+            group.add(Adw.ActionRow(title=_("No copy of a deleted file is kept here.")))
+        for version in local:
+            group.add(self._row(version, version.rel[len(prefix):], days, show_when=True))
+        self._add(group)
+        trash = Adw.PreferencesGroup(title=_("In Koofr's Trash"), description=escape(_(
+            "Files deleted on any computer or on the web, kept by Koofr for 30 days. A file you deleted here "
+            "is first in this computer's wastebasket, and reaches Koofr's trash with the next sync. "
+            "A restored file comes back here with the sync after the restore.")))
+        if self.trash_found is None and not self.trash_error:
+            row = Adw.ActionRow(title=_("Reading Koofr's trash…"))
+            row.add_prefix(Adw.Spinner())
+            trash.add(row)
+        elif self.trash_error:
+            trash.add(Adw.ActionRow(title=_("Koofr's trash could not be read"), subtitle=escape(self.trash_error)))
+        else:
+            remote = pair.remote.rstrip("/") + ("/" + self.rel.strip("/") if self.rel else "")
+            entries = [e for d in self.trash_found for e in d.entries
+                       if (e.path == remote or e.path.startswith(remote.rstrip("/") + "/"))
+                       and not os.path.lexists(os.path.join(pair.local, e.path[len(pair.remote.rstrip("/")) + 1:]))]
+            entries = [e for e in entries if self._matches(e.path)]
+            if not entries:
+                trash.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
+            for entry in entries[:500]:
+                shown = entry.path[len(remote.rstrip("/")) + 1:] or os.path.basename(entry.path)
+                subtitle = " · ".join((
+                    _("deleted {date}").format(date=moment(entry.deleted / 1000)), GLib.format_size(entry.size),
+                    _("in Koofr's trash until {date}").format(date=when_until(entry.deleted / 1000 + 30 * 86400))))
+                row = Adw.ActionRow(title=escape(shown), subtitle=escape(subtitle), title_lines=2, activatable=True)
+                row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+                row.connect("activated", lambda _r, e=entry: self._restore_from_trash(e))
+                trash.add(row)
+        self._add(trash)
+
+    def _add(self, group) -> None:
+        self.groups.append(group)
+        self.page.add(group)
+
+    def _row(self, version, title: str, days: int, show_when: bool = False) -> Adw.ActionRow:
+        subtitle = version_subtitle(version, days)
+        if show_when:
+            subtitle = moment(version.time) + " · " + subtitle
+        row = Adw.ActionRow(title=escape(title), subtitle=escape(subtitle), title_lines=2, activatable=True)
+        opener = Gtk.Button(icon_name="document-open-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                            tooltip_text=_("Open a Copy"))
+        opener.connect("clicked", lambda *_: open_version(self.window, self.engine, version))
+        row.add_suffix(opener)
+        row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+        row.connect("activated", lambda *_: self._ask_restore(version))
+        return row
+
+    def _ask_restore(self, version) -> None:
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        name = os.path.basename(version.rel)
+        there = os.path.lexists(os.path.join(pair.local, version.rel))
+        dialog = Adw.AlertDialog(heading=_("Restore the version of {time}?").format(time=moment(version.time)))
+        if there:
+            dialog.set_body(_("As a copy, it goes next to “{name}”, which stays as it is. Replacing it, the current "
+                              "“{name}” is kept among the copies first, so this can be undone from this list. "
+                              "Either way, the next sync uploads the change to Koofr.").format(name=name))
+            dialog.add_response("cancel", _("Cancel"))
+            dialog.add_response("replace", _("Replace the Current File"))
+            dialog.add_response("copy", _("Restore as a Copy"))
+            dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("copy")
+        else:
+            dialog.set_body(_("“{name}” goes back in its place; the next sync uploads it to Koofr.").format(name=name))
+            dialog.add_response("cancel", _("Cancel"))
+            dialog.add_response("copy", _("Restore"))
+            dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("copy")
+
+        def chosen(_d, response):
+            if response not in ("copy", "replace"):
+                return
+            try:
+                rel = self.engine.restore_version(self.pair_id, version.id, response)
+            except (OSError, ValueError) as e:
+                tell(self.toasts, "", [str(e)])
+                return
+            tell(self.toasts, _("Restored: {path}. The next sync uploads it to Koofr.").format(path=rel), [])
+        dialog.connect("response", chosen)
+        dialog.present(self)
+
+    def _trash_listed(self, found: list, error: str) -> None:
+        self.trash_found, self.trash_error = found, error
+        self._fill()
+
+    def _restore_from_trash(self, entry) -> None:
+        dialog = Adw.AlertDialog(
+            heading=_("Restore “{name}” from Koofr's trash?").format(name=os.path.basename(entry.path)),
+            body=_("The file goes back in its folder on Koofr, and the next sync brings it here."))
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("restore", _("Restore"))
+        dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("restore")
+
+        def chosen(_d, response):
+            if response != "restore":
+                return
+            started = self.engine.restore_from_trash(self.pair_id, [entry], lambda done, total: None, done)
+            if not started:
+                tell(self.toasts, _("Wait for the sync of this folder to finish, then try again."), [])
+
+        def done(result, _reuploads, error):
+            if error:
+                tell(self.toasts, "", [error])
+                return
+            tell(self.toasts, _("Restored from Koofr's trash: the next sync brings it here."), [])
+            self.trash_found = None
+            self._fill()
+            self.engine.trash_deletions(self.pair_id, self._trash_listed)
+        dialog.connect("response", chosen)
+        dialog.present(self)
+
+
+class KeptCopiesDialog(Adw.Dialog):
+    """Every file of the folder with kept copies, searchable by name; a file
+    opens its versions."""
+
+    def __init__(self, window: MainWindow, pair_id: str):
+        super().__init__(title=_("Kept Copies"), content_width=600, content_height=620)
+        self.window, self.engine, self.pair_id = window, window.engine, pair_id
+        self.query = ""
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        search = Gtk.SearchEntry(placeholder_text=_("Search by name"), hexpand=True,
+                                 margin_start=12, margin_end=12, margin_top=6, margin_bottom=6)
+        search.connect("search-changed", lambda e: self._search(e.get_text()))
+        view.add_top_bar(search)
+        self.page = Adw.PreferencesPage()
+        self.group = None
+        view.set_content(self.page)
+        self.set_child(view)
+        self._handler = self.engine.connect("versions-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
+        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self._fill()
+
+    def _search(self, text: str) -> None:
+        self.query = text.strip().casefold()
         self._fill()
 
     def _fill(self) -> None:
         if self.group is not None:
             self.page.remove(self.group)
-        self.group = Adw.PreferencesGroup()
-        row = Adw.ActionRow(title=_("Looking at the backups…"))
-        row.add_prefix(Adw.Spinner())
-        self.group.add(row)
-        self.page.add(self.group)
-        paths, pair_id = self.engine.paths, self.pair_id
-        run_in_thread(lambda: jobs.backup_runs(paths, pair_id), self._listed)
-
-    def _listed(self, runs, error) -> None:
-        if self.group is not None:
-            self.page.remove(self.group)
-        self.runs = runs or []
         days = self.engine.cfg.backup_days
+        index = self.engine.versions_index(self.pair_id)
+        files: dict[str, list] = {}
+        for version in index.versions:
+            if not self.query or self.query in version.rel.casefold():
+                files.setdefault(version.rel, []).append(version)
         self.group = Adw.PreferencesGroup(description=escape(ngettext(
-            "A sync that replaces or deletes a file here keeps the old copy for {n} day, in a folder of its own "
-            "for each sync. Nothing on Koofr is touched from here.",
-            "A sync that replaces or deletes a file here keeps the old copy for {n} days, in a folder of its own "
-            "for each sync. Nothing on Koofr is touched from here.", days).format(n=count(days))))
-        if error is not None:
-            self.group.add(Adw.ActionRow(title=escape(str(error)), title_lines=3))
-        elif not self.runs:
-            self.group.add(Adw.ActionRow(title=_("No backup at the moment.")))
-        for run in self.runs:
-            row = Adw.ActionRow(title=escape(moment(run.time)), subtitle=escape(plan_tree.amount(run.files, run.size)),
-                                activatable=True)
-            delete = Gtk.Button(icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
-                                tooltip_text=_("Delete This Backup"))
-            delete.connect("clicked", lambda _b, r=run: self._delete(r))
-            row.add_suffix(delete)
+            "Each copy stays {n} day, then the retention deletes it; Koofr keeps no older versions.",
+            "Each copy stays {n} days, then the retention deletes it; Koofr keeps no older versions.", days)
+            .format(n=count(days))))
+        if not files:
+            self.group.add(Adw.ActionRow(title=_("No copy matches.") if self.query else _("No copy is kept.")))
+        for rel, found in list(files.items())[:1000]:
+            newest = found[0]
+            gone = not os.path.lexists(os.path.join(index.pair.local, rel))
+            subtitle = ngettext("{n} copy", "{n} copies", len(found)).format(n=count(len(found)))
+            subtitle += " · " + _("newest {time}").format(time=moment(newest.time))
+            if gone:
+                subtitle += " · " + _("no longer in the folder")
+            row = Adw.ActionRow(title=escape(rel), subtitle=escape(subtitle), title_lines=2, activatable=True)
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
-            row.connect("activated", lambda _r, r=run: self._open(r))
+            row.connect("activated", lambda _r, rel=rel: VersionsDialog(self.window, self.pair_id, rel, "file")
+                        .present(self.window))
             self.group.add(row)
-        self.delete_all.set_sensitive(bool(self.runs))
         self.page.add(self.group)
-
-    def _open(self, run) -> None:
-        files = jobs.backup_files(self.engine.paths, self.pair_id, run.name)
-        nodes = filetree.build([(path, "", path) for path, _size in files], dict(files))
-        self.nav.push(plan_tree.PlanTreePage(moment(run.time), nodes, lambda node, r=run: self._restore(r, node.path),
-                                             _("Put it back in its place")))
-
-    def _restore(self, run, rel: str) -> None:
-        pair = self.engine.cfg.pair(self.pair_id)
-        if pair is None:
-            return
-        there = os.path.exists(os.path.join(pair.local, rel))
-        dialog = Adw.AlertDialog(
-            heading=_("Put “{name}” back?").format(name=os.path.basename(rel)),
-            body=(_("The copy of {time} goes back to its place in the folder. The file there now is kept in a new "
-                    "backup first. The next sync uploads it to Koofr.") if there else
-                  _("The copy of {time} goes back to its place in the folder. The next sync uploads it to Koofr."))
-            .format(time=moment(run.time)))
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("restore", _("Put It Back"))
-        dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
-
-        def chosen(_d, response):
-            if response != "restore":
-                return
-            try:
-                jobs.restore_backup(self.engine.paths, pair, run.name, rel)
-            except (OSError, ValueError) as e:
-                tell(self.toasts, "", [str(e)])
-                return
-            self.engine.invalidate_preview(self.pair_id)
-            tell(self.toasts, _("Put back: {path}").format(path=rel), [])
-        dialog.connect("response", chosen)
-        dialog.present(self)
-
-    def _delete(self, run) -> None:
-        dialog = Adw.AlertDialog(
-            heading=_("Delete the backup of {time}?").format(time=moment(run.time)),
-            body=_("{amount} of files replaced or deleted by that sync. Nothing else is touched.").format(
-                amount=plan_tree.amount(run.files, run.size)))
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("delete", _("Delete"))
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        paths, pair_id = self.engine.paths, self.pair_id
-        dialog.connect("response", lambda _d, r: run_in_thread(
-            lambda: jobs.delete_backup_run(paths, pair_id, run.name), lambda _r, _e: self._fill()) if r == "delete"
-            else None)
-        dialog.present(self)
-
-    def _delete_all(self) -> None:
-        files, size = sum(r.files for r in self.runs), sum(r.size for r in self.runs)
-        dialog = Adw.AlertDialog(
-            heading=_("Delete every backup of this folder?"),
-            body=_("{amount} of files replaced or deleted by past syncs. Nothing else is touched.").format(
-                amount=plan_tree.amount(files, size)))
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("delete", _("Delete All"))
-        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
-        paths, pair_id, runs = self.engine.paths, self.pair_id, list(self.runs)
-
-        def wipe():
-            for run in runs:
-                jobs.delete_backup_run(paths, pair_id, run.name)
-        dialog.connect("response", lambda _d, r: run_in_thread(wipe, lambda _r, _e: self._fill()) if r == "delete"
-                       else None)
-        dialog.present(self)
 
 
 def verification_differences(preview) -> int:
@@ -1780,7 +1968,10 @@ class PreferencesDialog(Adw.PreferencesDialog):
             group.add(files)
         page.add(group)
 
-        group = Adw.PreferencesGroup(title=_("Backups"))
+        group = Adw.PreferencesGroup(title=_("Backups"), description=escape(_(
+            "When a sync replaces or deletes a file here, Spola keeps the old copy for these days, then deletes it: "
+            "a folder's page lists the copies, and a file manager restores them. Spola is not a backup program: "
+            "for older versions of your own edits, use one such as Déjà Dup.")))
         days = Adw.SpinRow.new_with_range(1, 365, 1)
         days.set_title(_("Keep replaced and deleted files for"))
         days.set_subtitle(_("Days, in Spola’s local backup"))

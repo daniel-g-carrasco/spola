@@ -81,11 +81,18 @@ class InstallTest(unittest.TestCase):
         self.assertIn(".Sync1.SyncNow %f", text)
         self.assertIn(".Sync1.ShowShareLink %f", text)
         self.assertIn("Name[it]=", text)
-        self.assertEqual(uca_ids(self.env), ["1-1", "spola-sync-now", "spola-open-on-koofr", "spola-share-link"])
+        self.assertEqual(uca_ids(self.env), ["1-1", "spola-sync-now", "spola-open-on-koofr", "spola-share-link", "spola-versions", "spola-deleted"])
         # a newer Spola installs again at start-up: no duplicates
         fm.install(self.env)
-        self.assertEqual(uca_ids(self.env), ["1-1", "spola-sync-now", "spola-open-on-koofr", "spola-share-link"])
+        self.assertEqual(uca_ids(self.env), ["1-1", "spola-sync-now", "spola-open-on-koofr", "spola-share-link", "spola-versions", "spola-deleted"])
+        self.assertIn(".Sync1.ShowVersions %f", text)
+        self.assertIn(".Sync1.ShowDeleted %f", text)
         root = ET.parse(fm._uca_file(self.env)).getroot()
+        kinds = {a.findtext("unique-id"): {c.tag for c in a if c.tag.endswith("files") or c.tag == "directories"}
+                 for a in root.findall("action")}
+        self.assertEqual(kinds["spola-deleted"], {"directories"})                  # on folders only
+        self.assertNotIn("directories", kinds["spola-versions"])                   # on files only
+        self.assertIn("directories", kinds["spola-sync-now"])
         names = [n for a in root.findall("action") for n in a.findall("name")]
         self.assertIn("it", [n.get(fm.XML_LANG) for n in names])
         fm.uninstall(self.env)

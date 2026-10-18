@@ -14,6 +14,14 @@ asks rclone in a thread and answers when it is done.
 OpenOnKoofr and ShowShareLink do the whole job in Spola (open the browser,
 show the link with a Copy button): a command run from a menu cannot read an
 answer, and on Wayland an app in the background cannot set the clipboard.
+
+Version 2 adds the previous versions (versions.py), answered from the index
+in memory: GetFolderVersions (the names of a folder with kept copies, for
+the menus), ListVersions and ListDeleted (a{sv} per copy: id, path, time,
+size, reason, expires), RestoreVersion (mode "copy" or "replace"; returns
+the URI written), ShowVersions and ShowDeleted (the window), and the
+VersionsChanged signal (the root of a pair whose copies were read again).
+The methods of version 1 are unchanged: an older extension keeps working.
 """
 
 from __future__ import annotations
@@ -34,7 +42,7 @@ from .states import State, ancestors_and_self
 
 OBJECT_PATH = "/io/github/daniel_g_carrasco/spola/Sync"
 INTERFACE = f"{APP_ID}.Sync1"
-VERSION = 1
+VERSION = 2
 BATCH_MS = 300
 
 XML = f"""
@@ -54,7 +62,19 @@ XML = f"""
     <method name="ShowWindow"><arg type="s" name="what" direction="in"/></method>
     <method name="OpenOnKoofr"><arg type="s" name="uri" direction="in"/></method>
     <method name="ShowShareLink"><arg type="s" name="uri" direction="in"/></method>
+    <method name="GetFolderVersions">
+      <arg type="s" name="folder" direction="in"/><arg type="as" name="names" direction="out"/>
+    </method>
+    <method name="ListVersions"><arg type="s" name="uri" direction="in"/><arg type="aa{{sv}}" name="versions" direction="out"/></method>
+    <method name="ListDeleted"><arg type="s" name="folder" direction="in"/><arg type="aa{{sv}}" name="versions" direction="out"/></method>
+    <method name="RestoreVersion">
+      <arg type="s" name="uri" direction="in"/><arg type="s" name="id" direction="in"/>
+      <arg type="s" name="mode" direction="in"/><arg type="s" name="restored" direction="out"/>
+    </method>
+    <method name="ShowVersions"><arg type="s" name="uri" direction="in"/></method>
+    <method name="ShowDeleted"><arg type="s" name="uri" direction="in"/></method>
     <signal name="StatesChanged"><arg type="a{{su}}" name="states"/></signal>
+    <signal name="VersionsChanged"><arg type="s" name="root"/></signal>
     <signal name="RootChanged"><arg type="s" name="root"/></signal>
   </interface>
 </node>
@@ -83,12 +103,14 @@ class SyncService:
     def __init__(self, engine: Engine, show_window: Callable[[str], None],
                  open_url: Callable[[str], None] = lambda url: None,
                  show_link: Callable[[str, str], None] = lambda name, url: None,
-                 tell: Callable[[str], None] = lambda message: None):
+                 tell: Callable[[str], None] = lambda message: None,
+                 show_versions: Callable[[str, str, str], None] = lambda pair_id, rel, kind: None):
         self.engine = engine
         self.show_window = show_window
         self.open_url = open_url          # the browser, from Spola
         self.show_link = show_link        # (file name, link): a window with a Copy button
         self.tell = tell                  # a notification: what went wrong
+        self.show_versions = show_versions   # (pair id, relative path, "file" or "deleted"): the window
         self.connection: Gio.DBusConnection | None = None
         self._reg = 0
         self._pending: dict[str, int] = {}
@@ -97,6 +119,7 @@ class SyncService:
             engine.connect("paths-changed", self._on_paths_changed),
             engine.connect("root-changed", self._on_root_changed),
             engine.connect("pairs-changed", lambda _e: self._emit("RootChanged", GLib.Variant("(s)", ("",)))),
+            engine.connect("versions-changed", self._on_versions_changed),
         ]
 
     def start(self, connection: Gio.DBusConnection) -> None:
@@ -204,6 +227,42 @@ class SyncService:
                     self._share_link(uri, None, lambda url, error: self.show_link(name, url) if url
                                      else self.tell(error))
                 invocation.return_value(None)
+            elif method == "GetFolderVersions":
+                (uri,) = params.unpack()
+                invocation.return_value(GLib.Variant("(as)", (self.folder_versions(uri),)))
+            elif method == "ListVersions":
+                (uri,) = params.unpack()
+                found = self.locate(uri)
+                listed = self._as_dicts(found[0], self._index(found[0]).of(found[1])) if found and found[1] else []
+                invocation.return_value(GLib.Variant("(aa{sv})", (listed,)))
+            elif method == "ListDeleted":
+                (uri,) = params.unpack()
+                found = self.locate(uri)
+                listed = self._as_dicts(found[0], self._index(found[0]).deleted_under(found[1])) if found else []
+                invocation.return_value(GLib.Variant("(aa{sv})", (listed,)))
+            elif method == "RestoreVersion":
+                uri, vid, mode = params.unpack()
+                found = self.locate(uri)
+                if not found:
+                    invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder")
+                    return
+                rel = self.engine.restore_version(found[0].id, vid, mode)
+                invocation.return_value(GLib.Variant("(s)", (uri_for(os.path.join(found[0].local, rel)),)))
+            elif method in ("ShowVersions", "ShowDeleted"):
+                (uri,) = params.unpack()
+                found = self.locate(uri)
+                if not found:
+                    self._not_synced(uri)
+                else:
+                    pair, rel = found
+                    folder = not rel or os.path.isdir(os.path.join(pair.local, rel))
+                    if method == "ShowDeleted" or folder:
+                        # a file given to ShowDeleted: the folder it is in
+                        rel = rel if folder else os.path.dirname(rel)
+                        self.show_versions(pair.id, rel, "deleted")
+                    else:
+                        self.show_versions(pair.id, rel, "file")
+                invocation.return_value(None)
             elif method == "ShowWindow":
                 (what,) = params.unpack()
                 self.show_window(what)
@@ -212,6 +271,31 @@ class SyncService:
                 invocation.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
         except Exception as e:  # never let the file manager hang on us
             invocation.return_dbus_error(f"{INTERFACE}.Failed", str(e))
+
+    # -- previous versions ---------------------------------------------------------
+
+    def _index(self, pair):
+        return self.engine.versions_index(pair.id)
+
+    def folder_versions(self, uri: str) -> list[str]:
+        """The names in this folder with at least one kept copy (the file
+        managers show "Previous Versions…" on those only)."""
+        found = self.locate(uri)
+        if not found:
+            return []
+        return sorted(self._index(found[0]).names_in(found[1]))
+
+    def _as_dicts(self, pair, found) -> list[dict]:
+        days = self.engine.cfg.backup_days
+        return [{"id": GLib.Variant("s", v.id), "path": GLib.Variant("s", uri_for(os.path.join(pair.local, v.rel))),
+                 "time": GLib.Variant("x", int(v.time)), "size": GLib.Variant("t", v.size),
+                 "reason": GLib.Variant("s", v.reason), "expires": GLib.Variant("x", int(v.expires(days)))}
+                for v in found]
+
+    def _on_versions_changed(self, _engine, pair_id: str) -> None:
+        pair = self.engine.cfg.pair(pair_id)
+        if pair is not None:
+            self._emit("VersionsChanged", GLib.Variant("(s)", (uri_for(pair.local),)))
 
     def web_url(self, uri: str) -> str:
         """Koofr's web page of the item: the folder itself, or the folder

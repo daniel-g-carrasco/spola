@@ -52,12 +52,20 @@ def N_(text: str) -> str:
     return text
 
 
-# the entries of the menu-only file managers: (id, D-Bus method, English label)
+# the entries of the menu-only file managers: (id, D-Bus method, English label).
+# These menus cannot ask Spola anything before they show: the previous
+# versions are always there, and Spola's window says so when there is none
+# (ShowVersions on a folder opens what was deleted in it).
 ACTIONS = (
     ("sync-now", "SyncNow", N_("Sync Now with Koofr")),
     ("open-on-koofr", "OpenOnKoofr", N_("Open on Koofr")),
     ("share-link", "ShowShareLink", N_("Koofr Share Link…")),
+    ("versions", "ShowVersions", N_("Previous Versions…")),
+    ("deleted", "ShowDeleted", N_("Recently Deleted Files…")),
 )
+# Thunar can tell files from folders: what each entry applies to
+FILE_KINDS = ("audio-files", "image-files", "other-files", "text-files", "video-files")
+UCA_KINDS = {"versions": FILE_KINDS, "deleted": ("directories",)}
 
 
 def source_dir() -> Path:
@@ -202,7 +210,7 @@ def _uca_action(action: str, method: str, label: str) -> ET.Element:
     ET.SubElement(el, "description").text = label
     ET.SubElement(el, "range")
     ET.SubElement(el, "patterns").text = "*"
-    for kind in ("directories", "audio-files", "image-files", "other-files", "text-files", "video-files"):
+    for kind in UCA_KINDS.get(action, ("directories", *FILE_KINDS)):
         ET.SubElement(el, kind)
     return el
 

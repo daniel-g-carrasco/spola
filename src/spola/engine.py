@@ -39,6 +39,7 @@ from . import conflicts as conflicts_mod
 from . import WINDOWS, jobs, koofr_api, listings
 from . import trash as trash_mod
 from . import verify
+from . import versions as versions_mod
 from .recent import Recent
 from . import activity as activity_mod
 from . import account as account_mod
@@ -247,6 +248,7 @@ class PairRuntime:
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
     tried_listings: set = field(default_factory=set)    # kept copies a repair went back to, this session
     listing_serial: int = 0         # readings of the last listing asked for: only the latest applies
+    backup_run: str = ""            # the run folder of the real run in progress (versions.py)
     ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
     states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
@@ -271,6 +273,8 @@ class Engine(GObject.Object):
         "paths-changed": (GObject.SignalFlags.RUN_FIRST, None, (str, object)),
         # (pair id): a run ended, every state below the root may have changed
         "root-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
+        # (pair id): the copies kept for that pair (versions.py) were read again
+        "versions-changed": (GObject.SignalFlags.RUN_FIRST, None, (str,)),
         # (pair id, relative path): a real run copied a file, which is now the
         # same on both sides
         "path-copied": (GObject.SignalFlags.RUN_FIRST, None, (str, str)),
@@ -288,7 +292,11 @@ class Engine(GObject.Object):
         # of the app can be tried without an account. Never set in the Flatpak.
         self.dev_remote = os.environ.get("SPOLA_DEV_REMOTE") or None
         self._conflict_name = conflict_name_pattern()
-        self.trash = conflicts_mod.move_to_trash      # where a version not kept goes (tests replace it)
+        # where the version not kept goes when a conflict is resolved: None
+        # keeps it among the copies of the folder (versions.py), with its
+        # reason, until the retention; tests put a function of their own
+        self.trash: Callable[[str], None] | None = None
+        self.versions: dict[str, versions_mod.Index] = {}     # the kept copies, read in a thread
         # Koofr's trash, for restore_from_trash (tests give their own)
         self.koofr_trash = lambda creds: trash_mod.KoofrTrash(creds.user, creds.password)
         # Koofr's activity feed as a doorbell: None = not tried yet
@@ -383,6 +391,79 @@ class Engine(GObject.Object):
         """The retention just shortened: apply it, in a thread (rmtree of gigabytes)."""
         threading.Thread(target=self._prune_backups, name="prune-backups", daemon=True).start()
 
+    # -- previous versions (the copies kept here) ---------------------------------
+
+    def refresh_versions(self, pair_id: str, then: Callable[[], None] | None = None) -> None:
+        """Read the pair's kept copies again, in a thread (a stat walk of
+        its backups); `versions-changed` when they are in."""
+        pair = self.cfg.pair(pair_id)
+        if pair is None:
+            return
+        paths = self.paths
+
+        def work():
+            try:
+                found = versions_mod.scan(paths, pair)
+            except Exception as e:      # said; the old index stays
+                complain(f"reading the kept copies of {pair.name}", e)
+                return
+            GLib.idle_add(done, found)
+
+        def done(found) -> bool:
+            if self.cfg.pair(pair_id) is pair:
+                self.versions[pair_id] = versions_mod.Index(pair, found)
+                self.emit("versions-changed", pair_id)
+            if then is not None:
+                then()
+            return False
+        threading.Thread(target=work, name=f"versions-{pair_id}", daemon=True).start()
+
+    def versions_index(self, pair_id: str) -> versions_mod.Index:
+        """The pair's kept copies as last read (empty before the first
+        reading, or for a pair that is gone)."""
+        pair = self.cfg.pair(pair_id) or Pair("", "", "")
+        return self.versions.get(pair_id) or versions_mod.Index(pair)
+
+    def restore_version(self, pair_id: str, version_id: str, mode: str) -> str:
+        """Put a kept copy back ("copy": next to the file under a readable
+        name; "replace": in its place, the file there now kept aside first).
+        Returns the relative path written; OSError or ValueError with the
+        reason. The next sync uploads it: asked for at once."""
+        pair = self.cfg.pair(pair_id)
+        if pair is None:
+            raise ValueError("no such folder")
+        version = self.versions_index(pair_id).by_id(version_id)
+        if version is None:
+            raise ValueError("no such version")
+        rel = versions_mod.restore(self.paths, pair, version, mode, self.cfg.conflict_language)
+        self.refresh_versions(pair_id)
+        self.invalidate_preview(pair_id)
+        self.request_sync(pair_id, "restored")
+        return rel
+
+    def _keep_discarded(self, pair: Pair, original: str) -> Callable[[str], None]:
+        """Where the copy not kept of a resolved conflict goes: among the
+        folder's kept copies, under the file's own name, reason "conflict"."""
+        if self.trash is not None:
+            return self.trash
+
+        def keep(path: str) -> None:
+            versions_mod.keep_aside(self.paths, pair, original, "conflict", source=path)
+        return keep
+
+    def _record_run(self, pair: Pair, run: str, deleted: list[str], realigned: bool) -> None:
+        """After a real run: the manifest of what it kept (in a thread), then
+        the index again."""
+        paths = self.paths
+
+        def work():
+            try:
+                versions_mod.record_run(paths, pair, run, deleted, realigned)
+            except Exception as e:
+                complain(f"writing the manifest of {pair.name}", e)
+            GLib.idle_add(lambda: self.refresh_versions(pair.id) and False)
+        threading.Thread(target=work, name=f"manifest-{pair.id}", daemon=True).start()
+
     def _prune_backups(self) -> bool:
         # also those of pairs removed since: kept as long as any other backup,
         # then gone with their folder
@@ -393,7 +474,8 @@ class Engine(GObject.Object):
             pass
         for pair_id in ids:
             try:
-                jobs.prune_backups(self.paths, pair_id, self.cfg.backup_days)
+                if jobs.prune_backups(self.paths, pair_id, self.cfg.backup_days) and self.cfg.pair(pair_id):
+                    GLib.idle_add(lambda pid=pair_id: self.refresh_versions(pid) and False)
                 if self.cfg.pair(pair_id) is None:
                     self.paths.backup_dir(pair_id).rmdir()      # only once empty
             except (OSError, ValueError):
@@ -467,6 +549,7 @@ class Engine(GObject.Object):
         rt = self.runtime.setdefault(pair.id, PairRuntime())
         rt.status = self._idle_status(pair, rt)
         self._refresh_listing(pair, rt)
+        self.refresh_versions(pair.id)
         self._start_watcher(pair, rt)
         self._want_preview_ahead(pair, rt)
 
@@ -1199,8 +1282,9 @@ class Engine(GObject.Object):
         if pair is None or rt is None:
             return
         self._check_not_syncing(rt)
-        conflicts_mod.resolve(pair.local, conflict, choice, trash=self.trash)
+        conflicts_mod.resolve(pair.local, conflict, choice, trash=self._keep_discarded(pair, conflict.original))
         self._forget_conflicts(pair, rt, {c.path for c in conflict.copies})
+        self.refresh_versions(pair.id)
         self.request_sync(pair_id, "conflict-resolved")
 
     def resolve_conflicts(self, pair_id: str, decisions: list[conflicts_mod.Decision]) -> tuple[int, list[str]]:
@@ -1265,7 +1349,8 @@ class Engine(GObject.Object):
             if decision.choice is None:
                 continue
             try:
-                conflicts_mod.resolve(pair.local, decision.conflict, decision.choice, trash=self.trash)
+                conflicts_mod.resolve(pair.local, decision.conflict, decision.choice,
+                                      trash=self._keep_discarded(pair, decision.conflict.original))
             except (conflicts_mod.ResolveError, OSError) as e:
                 errors.append(f"{decision.conflict.original}: {e}")
                 continue
@@ -1273,6 +1358,7 @@ class Engine(GObject.Object):
             gone |= {c.path for c in decision.conflict.copies}
         if gone:
             self._forget_conflicts(pair, rt, gone)
+            self.refresh_versions(pair.id)
         return done, errors
 
     def _forget_conflicts(self, pair: Pair, rt: PairRuntime, gone: set[str]) -> None:
@@ -1571,6 +1657,7 @@ class Engine(GObject.Object):
         rt.run, rt.task = run, task
         rt.last_failure = ""
         rt.ran_resync = job.request.mode is Mode.RESYNC
+        rt.backup_run = job.request.backup_dir1.name if not task.dry_run else ""
         rt.pending_refused = job.refused
         if not task.dry_run:
             rt.busy_since, rt.pending_busy = 0.0, list(job.busy)
@@ -1726,6 +1813,11 @@ class Engine(GObject.Object):
     def _handle_outcome(self, pair: Pair, rt: PairRuntime, task: Task, outcome: Outcome) -> None:
         if task.mode is Mode.CHECK:
             return          # a verification changes nothing and decides nothing (its dialog has the outcome)
+        if not task.dry_run and rt.backup_run:
+            # whatever the result: a run stopped half way may have kept copies too
+            self._record_run(pair, rt.backup_run, list(outcome.plan.delete_local),
+                             task.mode is Mode.RESYNC or rt.ran_resync)
+            rt.backup_run = ""
         outcome.plan.refused = [r.path for r in rt.pending_refused]
         if rt.states.syncing or outcome.plan.error_paths:
             rt.states.syncing = set()

@@ -17,7 +17,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import listings
+from . import listings, versions
 from .config import Config, Pair
 from .paths import Paths
 from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
@@ -434,116 +434,34 @@ def backups_older_than(paths: Paths, pair_id: str, days: int, now: float | None 
 
 
 def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = None) -> int:
-    """Delete this pair's run backups older than `days`; return how many."""
+    """Delete this pair's run backups older than `days`, each with its
+    manifest (versions.py: no run left in the index without its copies);
+    return how many. The only place where Spola deletes a kept copy."""
     root = paths.backup_dir(pair_id)
     now = time.time() if now is None else now
     removed = 0
     if not root.is_dir():
         return 0
     for run in root.iterdir():
-        try:
-            stamp = time.mktime(time.strptime(run.name, "%Y%m%d-%H%M%S"))
-        except ValueError:
-            continue    # not ours: never touch it
+        stamp = versions.run_time(run.name)
+        if stamp is None:
+            continue    # not ours: never touch it (a manifest is handled with its run)
         if now - stamp > days * 86400 and run.is_dir() and not run.is_symlink():
             shutil.rmtree(run)
             removed += 1
+    # manifests whose run is gone (the retention above, or a run removed by
+    # hand), and temporary files of a manifest write cut short
+    for item in root.iterdir():
+        name = item.name
+        orphan = (name.endswith(versions.MANIFEST) and versions.run_time(name[:-len(versions.MANIFEST)]) is not None
+                  and not (root / name[:-len(versions.MANIFEST)]).is_dir())
+        if orphan or (name.startswith(".manifest-") and name.endswith(".tmp")):
+            item.unlink(missing_ok=True)
     return removed
 
 
-# -- the local backups, seen and used ------------------------------------------
-
-RUN_NAME = "%Y%m%d-%H%M%S"
-
-
-@dataclass(frozen=True)
-class BackupRun:
-    """One run's backup folder: the files that run replaced or deleted here."""
-    name: str           # "20261013-175420"
-    time: float         # when the run started, seconds since the epoch
-    files: int
-    size: int
-
-
-def _run_time(name: str) -> float | None:
-    try:
-        return time.mktime(time.strptime(name, RUN_NAME))
-    except ValueError:
-        return None     # not a run folder of ours: never touched
-
-
-def backup_runs(paths: Paths, pair_id: str) -> list[BackupRun]:
-    """This pair's backups, the newest first, each with its files and bytes
-    (a stat walk: a moment for thousands of files, off the main loop)."""
-    root = paths.backup_dir(pair_id)
-    runs = []
-    if not root.is_dir():
-        return runs
-    for run in root.iterdir():
-        stamp = _run_time(run.name)
-        if stamp is None or not run.is_dir() or run.is_symlink():
-            continue
-        files = size = 0
-        for folder, _dirs, names in os.walk(run):
-            for name in names:
-                try:
-                    size += os.lstat(os.path.join(folder, name)).st_size
-                    files += 1
-                except OSError:
-                    pass
-        runs.append(BackupRun(run.name, stamp, files, size))
-    return sorted(runs, key=lambda r: r.time, reverse=True)
-
-
-def _run_dir(paths: Paths, pair_id: str, run: str) -> Path:
-    if _run_time(run) is None:
-        raise ValueError(f"not a backup run: {run!r}")
-    return paths.backup_dir(pair_id) / run
-
-
-def backup_files(paths: Paths, pair_id: str, run: str) -> list[tuple[str, int]]:
-    """(relative path, size) of every file in that run's backup."""
-    root = _run_dir(paths, pair_id, run)
-    found = []
-    for folder, _dirs, names in os.walk(root):
-        for name in names:
-            full = os.path.join(folder, name)
-            try:
-                found.append((os.path.relpath(full, root).replace("\\", "/"), os.lstat(full).st_size))
-            except OSError:
-                pass
-    return sorted(found)
-
-
-def restore_backup(paths: Paths, pair: Pair, run: str, rel: str, now: float | None = None) -> str:
-    """The backed-up file put back in its place in the synced folder; the
-    file there now, if any, goes into a backup run of its own first, so
-    nothing is lost. Returns the name of that run, or "". The next sync
-    uploads what was put back."""
-    if ".." in rel.split("/") or rel.startswith("/") or not rel:
-        raise ValueError(f"not a path inside the folder: {rel!r}")
-    source = _run_dir(paths, pair.id, run) / rel
-    if not source.is_file() or source.is_symlink():
-        raise FileNotFoundError(str(source))
-    target = Path(pair.local) / rel
-    kept = ""
-    if target.exists() or target.is_symlink():
-        stamp = time.strftime(RUN_NAME, time.localtime(time.time() if now is None else now))
-        aside = paths.backup_dir(pair.id) / stamp / rel
-        aside.parent.mkdir(parents=True, exist_ok=True)
-        if aside.exists():
-            aside = aside.with_name(aside.name + f".{int(time.time() * 1000) % 100000}")
-        os.replace(target, aside)
-        kept = stamp
-    target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, target)        # the backup stays: a restore is not a move
-    return kept
-
-
-def delete_backup_run(paths: Paths, pair_id: str, run: str) -> None:
-    folder = _run_dir(paths, pair_id, run)
-    if folder.is_dir() and not folder.is_symlink():
-        shutil.rmtree(folder)
+RUN_NAME = versions.RUN_NAME
+_run_time = versions.run_time
 
 
 # -- the listings kept after a successful run ----------------------------------

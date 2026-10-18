@@ -202,6 +202,39 @@ class ProviderTest(unittest.TestCase):
             two = self.provider._menu_items([FakeFile("/h/data/work/a"), FakeFile("/h/data/work/b")], False)
             self.assertEqual([i.props.name for i in two], ["Spola::SyncNow"])
 
+    def test_versions_asked_with_the_folder_only_from_a_newer_spola(self):
+        f = FakeFile("/h/data/work/a/doc.odt")
+        self.provider.proxy.replies["GetFolderStates"] = GLib.Variant("(a{su})", ({"doc.odt": 1},))
+        self.provider.proxy.replies["GetFolderVersions"] = GLib.Variant("(as)", (["doc.odt"],))
+        self.provider.update_file_info(f)
+        spin()
+        self.assertNotIn("GetFolderVersions", [c[0] for c in self.provider.proxy.calls])   # version 1: not asked
+        self.assertFalse(self.provider.cache.has_versions("/h/data/work/a/doc.odt"))
+        self.provider.spola_version = 2
+        self.provider.cache.drop_folder("/h/data/work/a")
+        self.provider.update_file_info(f)
+        spin()
+        self.assertIn(("GetFolderVersions", (ext.uri_of("/h/data/work/a"),)), self.provider.proxy.calls)
+        self.assertTrue(self.provider.cache.has_versions("/h/data/work/a/doc.odt"))
+        self.assertFalse(self.provider.cache.has_versions("/h/data/work/a/other.odt"))
+        # copies read again by Spola: asked again
+        self.provider.proxy.replies["GetFolderVersions"] = GLib.Variant("(as)", ([],))
+        self.provider._on_signal(None, None, "VersionsChanged", GLib.Variant("(s)", (ext.uri_of("/h/data/work"),)))
+        self.assertFalse(self.provider.cache.has_versions("/h/data/work/a/doc.odt"))
+
+    def test_version_menus(self):
+        if not ext.FM:
+            self.skipTest("no file manager bindings here")
+        self.provider.spola_version = 2
+        self.provider.cache.versioned["/h/data/work/a"] = {"doc.odt"}
+        names = lambda items: [i.props.name for i in items]      # noqa: E731
+        self.assertIn("Spola::Versions", names(self.provider._menu_items([FakeFile("/h/data/work/a/doc.odt")], False)))
+        self.assertNotIn("Spola::Versions", names(self.provider._menu_items([FakeFile("/h/data/work/a/new.odt")], False)))
+        self.assertIn("SpolaBackground::Deleted",
+                      names(self.provider._menu_items([FakeFile("/h/data/work/a")], True)))
+        self.provider.spola_version = 1                           # an older Spola: nothing new
+        self.assertNotIn("Spola::Versions", names(self.provider._menu_items([FakeFile("/h/data/work/a/doc.odt")], False)))
+
     def test_menu_signatures_of_every_file_manager(self):
         # Nautilus 4 passes (files) and (folder); Nemo and Caja (window, files) and (window, folder)
         if not ext.FM:
