@@ -8,6 +8,22 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.28] - 2026-10-18
+
+### Fixed
+- "Recently Deleted Files" waited for the whole of Koofr's trash before
+  showing anything (Koofr gives the trash of the whole account, not of one
+  folder: 87 pages, close to 80 seconds for 87,000 files), and a single
+  page that timed out made the whole reading fail. The files of the folder
+  now show page by page, the newest deletions first, with how much of the
+  trash has been read; a page that times out is asked again; what was read
+  stays if one keeps failing.
+
+### Changed
+- Koofr's trash, once read, serves every window for five minutes (opening
+  the dialog again, another folder, Restore from Koofr's Trash), and is read
+  again after a restore or a sync that deleted on Koofr.
+
 ## [0.3.27] - 2026-10-18
 
 ### Added
@@ -405,7 +421,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.27...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.28...main
+[0.3.28]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.28
 [0.3.27]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.27
 [0.3.26]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.26
 [0.3.25]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.25

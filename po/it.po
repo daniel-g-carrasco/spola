@@ -3030,3 +3030,14 @@ msgid "{n} copy"
 msgid_plural "{n} copies"
 msgstr[0] "{n} copia"
 msgstr[1] "{n} copie"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} file of the account read so far"
+msgid_plural "{n} files of the account read so far"
+msgstr[0] "{n} file dell'account letto finora"
+msgstr[1] "{n} file dell'account letti finora"
+
+#: src/spola/window.py
+msgid "Koofr's trash could not be read entirely"
+msgstr "Impossibile leggere tutto il cestino di Koofr"

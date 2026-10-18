@@ -1372,8 +1372,12 @@ class VersionsDialog(Adw.Dialog):
         title = _("Previous Versions") if kind == "file" else _("Recently Deleted Files")
         super().__init__(title=title, content_width=600, content_height=620)
         self.window, self.engine, self.pair_id, self.rel, self.kind = window, window.engine, pair_id, rel, kind
-        self.trash_found: list | None = None
+        self.trash_entries: list = []          # Koofr's trash as read so far (the whole account's)
+        self.trash_done = False
         self.trash_error = ""
+        self._trash_shown = None                # what the trash group shows: refilled only when it changes
+        self._reading_row = None
+        self._stop_trash = lambda: None
         self.query = ""
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -1392,10 +1396,10 @@ class VersionsDialog(Adw.Dialog):
         self.nav.add(Adw.NavigationPage(title=title, child=view))
         self.set_child(self.nav)
         self._handler = self.engine.connect("versions-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
-        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self.connect("closed", lambda *_: (self.engine.disconnect(self._handler), self._stop_trash()))
         self._fill()
         if kind == "deleted":
-            self.engine.trash_deletions(pair_id, self._trash_listed)
+            self._stop_trash = self.engine.trash_entries(self._trash_update)
 
     def _search(self, text: str) -> None:
         self.query = text.strip().casefold()
@@ -1441,30 +1445,44 @@ class VersionsDialog(Adw.Dialog):
             "Files deleted on any computer or on the web, kept by Koofr for 30 days. A file you deleted here "
             "is first in this computer's wastebasket, and reaches Koofr's trash with the next sync. "
             "A restored file comes back here with the sync after the restore.")))
-        if self.trash_found is None and not self.trash_error:
-            row = Adw.ActionRow(title=_("Reading Koofr's trash…"))
+        entries = self._trash_here(pair)
+        self._trash_shown = (len(entries), self.trash_done, self.trash_error)
+        self._reading_row = None
+        remote = pair.remote.rstrip("/") + ("/" + self.rel.strip("/") if self.rel else "")
+        if self.trash_done and not entries and not self.trash_error:
+            trash.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
+        for entry in entries[:500]:
+            shown = entry.path[len(remote.rstrip("/")) + 1:] or os.path.basename(entry.path)
+            subtitle = " · ".join((
+                _("deleted {date}").format(date=moment(entry.deleted / 1000)), GLib.format_size(entry.size),
+                _("in Koofr's trash until {date}").format(date=when_until(entry.deleted / 1000 + 30 * 86400))))
+            row = Adw.ActionRow(title=escape(shown), subtitle=escape(subtitle), title_lines=2, activatable=True)
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
+            row.connect("activated", lambda _r, e=entry: self._restore_from_trash(e))
+            trash.add(row)
+        if not self.trash_done:
+            # Koofr gives the whole account's trash, a page at a time: what
+            # belongs here shows as it comes, the newest deletions first
+            row = Adw.ActionRow(title=_("Reading Koofr's trash…"), subtitle=escape(self._read_so_far()))
             row.add_prefix(Adw.Spinner())
             trash.add(row)
+            self._reading_row = row
         elif self.trash_error:
-            trash.add(Adw.ActionRow(title=_("Koofr's trash could not be read"), subtitle=escape(self.trash_error)))
-        else:
-            remote = pair.remote.rstrip("/") + ("/" + self.rel.strip("/") if self.rel else "")
-            entries = [e for d in self.trash_found for e in d.entries
-                       if (e.path == remote or e.path.startswith(remote.rstrip("/") + "/"))
-                       and not os.path.lexists(os.path.join(pair.local, e.path[len(pair.remote.rstrip("/")) + 1:]))]
-            entries = [e for e in entries if self._matches(e.path)]
-            if not entries:
-                trash.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
-            for entry in entries[:500]:
-                shown = entry.path[len(remote.rstrip("/")) + 1:] or os.path.basename(entry.path)
-                subtitle = " · ".join((
-                    _("deleted {date}").format(date=moment(entry.deleted / 1000)), GLib.format_size(entry.size),
-                    _("in Koofr's trash until {date}").format(date=when_until(entry.deleted / 1000 + 30 * 86400))))
-                row = Adw.ActionRow(title=escape(shown), subtitle=escape(subtitle), title_lines=2, activatable=True)
-                row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
-                row.connect("activated", lambda _r, e=entry: self._restore_from_trash(e))
-                trash.add(row)
+            trash.add(Adw.ActionRow(title=_("Koofr's trash could not be read entirely"), subtitle_lines=0,
+                                    subtitle=escape(self.trash_error)))
         self._add(trash)
+
+    def _trash_here(self, pair) -> list:
+        """The trash entries of this folder (the account's main storage),
+        not back in their place already, matching the search."""
+        mount_id = self.engine.cfg.mount_id
+        root = pair.remote.rstrip("/")
+        remote = root + ("/" + self.rel.strip("/") if self.rel else "")
+        return [e for e in self.trash_entries
+                if (not mount_id or e.mount_id == mount_id)
+                and (e.path == remote or e.path.startswith(remote.rstrip("/") + "/"))
+                and not os.path.lexists(os.path.join(pair.local, e.path[len(root) + 1:]))
+                and self._matches(e.path)]
 
     def _add(self, group) -> None:
         self.groups.append(group)
@@ -1518,9 +1536,21 @@ class VersionsDialog(Adw.Dialog):
         dialog.connect("response", chosen)
         dialog.present(self)
 
-    def _trash_listed(self, found: list, error: str) -> None:
-        self.trash_found, self.trash_error = found, error
+    def _trash_update(self, entries: list, done: bool, error: str) -> None:
+        self.trash_entries, self.trash_done, self.trash_error = entries, done, error
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        # a page that adds nothing for this folder only updates the count
+        if (len(self._trash_here(pair)), done, error) == self._trash_shown and self._reading_row is not None:
+            self._reading_row.set_subtitle(escape(self._read_so_far()))
+            return
         self._fill()
+
+    def _read_so_far(self) -> str:
+        n = len(self.trash_entries)
+        return ngettext("{n} file of the account read so far", "{n} files of the account read so far",
+                        n).format(n=count(n))
 
     def _restore_from_trash(self, entry) -> None:
         dialog = Adw.AlertDialog(
@@ -1543,9 +1573,9 @@ class VersionsDialog(Adw.Dialog):
                 tell(self.toasts, "", [error])
                 return
             tell(self.toasts, _("Restored from Koofr's trash: the next sync brings it here."), [])
-            self.trash_found = None
+            self.trash_entries, self.trash_done, self.trash_error = [], False, ""
             self._fill()
-            self.engine.trash_deletions(self.pair_id, self._trash_listed)
+            self._stop_trash = self.engine.trash_entries(self._trash_update)
         dialog.connect("response", chosen)
         dialog.present(self)
 

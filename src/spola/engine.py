@@ -64,6 +64,9 @@ BUSY_WAIT_MAX_S = 300
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
 RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
 ACTIVITY_INTERVAL_S = 60
+TRASH_TTL_S = 5 * 60            # Koofr's trash read once serves this long (it is read whole: 87 pages took 78 s)
+TRASH_TRIES = 3                 # a page that times out is asked again, this many times in all
+TRASH_RETRY_S = 2
 PREVIEW_TTL_S = 30 * 60         # a ready preview opens at once for this long (with its age shown)
 PREVIEW_AHEAD_DELAY_S = 60      # quiet time before preparing the preview of a pair that waits for the user
 EVENT_SLICE_S = 0.008           # the main loop handles rclone's lines in slices this long, then draws
@@ -190,6 +193,18 @@ class Preview:
 
 
 @dataclass
+class TrashRead:
+    """Koofr's trash as last read, shared by every dialog: Koofr cannot
+    give the trash of one folder, only the whole account's, page by page."""
+    entries: list = field(default_factory=list)
+    read_at: float = 0.0            # time.time() of the last complete reading
+    loading: bool = False
+    error: str = ""
+    generation: int = 0             # a reading superseded (signed out, invalidated) is ignored
+    listeners: list = field(default_factory=list)   # listener(entries, done, error)
+
+
+@dataclass
 class Task:
     pair_id: str
     mode: Mode = Mode.SYNC
@@ -299,6 +314,7 @@ class Engine(GObject.Object):
         self.versions: dict[str, versions_mod.Index] = {}     # the kept copies, read in a thread
         # Koofr's trash, for restore_from_trash (tests give their own)
         self.koofr_trash = lambda creds: trash_mod.KoofrTrash(creds.user, creds.password)
+        self.trash_read = TrashRead()
         # Koofr's activity feed as a doorbell: None = not tried yet
         self.feed_ok: bool | None = None
         self.feed_enabled = self.dev_remote is None
@@ -666,6 +682,10 @@ class Engine(GObject.Object):
 
     def set_credentials(self, creds: Credentials | None) -> None:
         self.creds = creds
+        listeners = self.trash_read.listeners
+        self.trash_read = TrashRead(generation=self.trash_read.generation + 1)    # another account, or none
+        for listener in listeners:
+            GLib.idle_add(lambda f=listener: f([], True, _("Sign in to Koofr first.")) and False)
         if creds:
             self.sync_all("login")
             self.refresh_space(min_age=0)
@@ -1042,23 +1062,99 @@ class Engine(GObject.Object):
 
     # -- Koofr's trash ---------------------------------------------------------------------
 
+    def trash_entries(self, listener: Callable[[list, bool, str], None]) -> Callable[[], None]:
+        """Koofr's trash (trash.Entry, newest first), for `listener(entries,
+        done, error)` on the main loop: at once with a reading less than
+        TRASH_TTL_S old, else page by page as it is read (done=False) and
+        once more at the end. A page that times out is asked again. Returns
+        a function that stops the calls (a dialog closed)."""
+        state = self.trash_read
+        if self.creds is None:
+            GLib.idle_add(lambda: listener([], True, _("Sign in to Koofr first.")) and False)
+            return lambda: None
+        fresh = not state.loading and not state.error and time.time() - state.read_at < TRASH_TTL_S
+        if fresh:
+            GLib.idle_add(lambda: listener(list(state.entries), True, "") and False)
+            return lambda: None
+        state.listeners.append(listener)
+        if state.loading:
+            entries = list(state.entries)
+            GLib.idle_add(lambda: listener(entries, False, "") and False if listener in state.listeners else False)
+        else:
+            self._read_trash()
+        return lambda: state.listeners.remove(listener) if listener in state.listeners else None
+
+    def invalidate_trash(self) -> None:
+        """The trash changed (a restore, a sync that deleted on Koofr): the
+        next look reads it again."""
+        self.trash_read.read_at = 0.0
+
+    def _read_trash(self) -> None:
+        state = self.trash_read
+        state.generation += 1
+        generation = state.generation
+        state.loading, state.error, state.entries = True, "", []
+        api = self.koofr_trash(self.creds)
+
+        def tell(entries, done, error):
+            for listener in list(state.listeners):
+                try:
+                    listener(entries, done, error)
+                except Exception as e:      # one dialog's trouble must not stop the others
+                    complain("showing Koofr's trash", e)
+
+        def page(found: list) -> bool:
+            if state.generation == generation:
+                state.entries.extend(found)
+                tell(list(state.entries), False, "")
+            return False
+
+        def finished(error: str) -> bool:
+            if state.generation != generation:
+                return False
+            state.loading, state.error = False, error
+            if not error:
+                state.read_at = time.time()
+            tell(list(state.entries), True, error)
+            state.listeners.clear()
+            return False
+
+        def work():
+            cursor = None
+            try:
+                for _page in range(trash_mod.MAX_PAGES):
+                    for attempt in range(TRASH_TRIES):
+                        try:
+                            entries, cursor_next = api.page(cursor)
+                            break
+                        except Exception:
+                            if attempt == TRASH_TRIES - 1:
+                                raise
+                            time.sleep(TRASH_RETRY_S)
+                    GLib.idle_add(page, entries)
+                    if not entries or not cursor_next or cursor_next == cursor or state.generation != generation:
+                        break
+                    cursor = cursor_next
+                error = ""
+            except Exception as e:          # shown to the user, with what was read so far
+                error = str(e)
+            GLib.idle_add(finished, error)
+        threading.Thread(target=work, name="koofr-trash", daemon=True).start()
+
     def trash_deletions(self, pair_id: str, done: Callable[[list, str], None]) -> None:
         """What was deleted on Koofr in this folder and is in the trash, as
-        deletions (trash.Deletion, newest first); read in a thread."""
+        deletions (trash.Deletion, newest first), once the trash is read."""
         pair = self.cfg.pair(pair_id)
         if pair is None or self.creds is None:
             GLib.idle_add(lambda: done([], _("Sign in to Koofr first.")) and False)
             return
-        api, mount_id, root = self.koofr_trash(self.creds), self.cfg.mount_id, pair.remote
+        mount_id, root = self.cfg.mount_id, pair.remote
 
-        def work():
-            try:
-                found = trash_mod.deletions(trash_mod.read(api, mount_id, root))
-                result = (found, "")
-            except Exception as e:      # shown to the user
-                result = ([], str(e))
-            GLib.idle_add(lambda: done(*result) and False)
-        threading.Thread(target=work, name=f"trash-{pair_id}", daemon=True).start()
+        def listener(entries, finished, error):
+            if finished:
+                mine = [e for e in entries if e.mount_id == mount_id and trash_mod.under(e.path, root)]
+                done(trash_mod.deletions(mine), error if not mine else "")
+        self.trash_entries(listener)
 
     def restore_from_trash(self, pair_id: str, entries: list, progress: Callable[[int, int], None],
                            done: Callable[[trash_mod.Result | None, int, str], None]) -> bool:
@@ -1168,6 +1264,7 @@ class Engine(GObject.Object):
         return len(times)
 
     def _restore_done(self, pair_id: str, result, reuploads: int, error: str, done) -> None:
+        self.invalidate_trash()             # what came back left the trash
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
         if rt is not None:
             rt.restoring = False
@@ -1865,6 +1962,8 @@ class Engine(GObject.Object):
                 complain("keeping the listings", e)
             if plan.upload or plan.delete_remote:
                 self.refresh_space(min_age=60)          # what Koofr holds just changed
+            if plan.delete_remote or plan.moved_remote:
+                self.invalidate_trash()                 # files went to Koofr's trash
             self.recent.record(pair.id, pair.local, plan.upload + [new for _old, new in plan.moved_remote],
                                plan.download + plan.replace_local + [new for _old, new in plan.moved_local])
             foreign = self._follow_up(pair, rt, outcome)
