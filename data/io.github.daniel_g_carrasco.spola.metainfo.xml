@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.28" date="2026-10-18" type="development">
+      <description>
+        <p>Recently deleted files no longer wait for the whole of Koofr's trash: the files of the folder show as the trash is read, the newest deletions first, a page that times out is asked again instead of failing the whole reading, and the trash once read serves every window for a few minutes.</p>
+      </description>
+    </release>
     <release version="0.3.27" date="2026-10-18" type="development">
       <description>
         <p>Previous versions, from the copies Spola keeps of what a sync replaces or deletes here: "Previous Versions…" on a file and "Recently Deleted Files…" on a folder in the file manager, and a Kept Copies section on each folder's page. A copy opens read-only, comes back as a copy next to the file or replaces it (the current file kept first, so it can be undone); recently deleted files also lists Koofr's trash. The next sync uploads what you restore. The copy not kept of a resolved conflict is kept there too. A kept copy is deleted only when it expires: the buttons that deleted backups by hand are gone.</p>
