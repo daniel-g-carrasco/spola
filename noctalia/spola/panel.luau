@@ -9,7 +9,10 @@ local function header(s)
   local overall = common.overall(s)
   local d = s.data
   local title, detail
-  if not s.running or not d then
+  if not s.installed then
+    title = noctalia.tr("tooltip.not_installed")
+    detail = noctalia.tr("panel.not_installed_detail")
+  elseif not s.running or not d then
     title = noctalia.tr("tooltip.not_running")
     detail = noctalia.tr("panel.not_running_detail")
   elseif d.blocked == "not-signed-in" then
@@ -27,7 +30,11 @@ local function header(s)
     end
   end
   local buttons = {}
-  if not s.running or not d then
+  if not s.installed then
+    table.insert(buttons, ui.button({ text = noctalia.tr("panel.website"), variant = "outline", controlSize = "sm", onClick = function()
+      noctalia.runAsync({ "xdg-open", "https://spola.neistar.com" })
+    end }))
+  elseif not s.running or not d then
     table.insert(buttons, ui.button({ text = noctalia.tr("panel.start"), variant = "primary", controlSize = "sm", onClick = function()
       common.send("launch")
     end }))

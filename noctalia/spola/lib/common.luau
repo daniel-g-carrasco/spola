@@ -44,6 +44,7 @@ function M.snapshot()
   end
   local ok = type(data) == "table"
   return {
+    installed = noctalia.state.get("spola.installed") ~= false,     -- unknown counts as installed
     running = ok and noctalia.state.get("spola.running") == true,   -- never "running" without data
     data = ok and data or nil,
   }
@@ -171,7 +172,7 @@ function M.send(...)
 end
 
 function M.watch(fn)
-  for _, key in { "spola.running", "spola.data" } do
+  for _, key in { "spola.running", "spola.data", "spola.installed" } do
     noctalia.state.watch(key, fn)
   end
 end

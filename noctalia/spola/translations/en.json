@@ -33,6 +33,10 @@
   "detail.refused_plural": "{n} names Koofr does not accept",
   "detail.last_sync": "last sync {time}",
 
+  "tooltip.not_installed": "Spola is not installed",
+  "panel.not_installed_detail": "Spola keeps your folders in sync with Koofr. Get it from spola.neistar.com.",
+  "panel.website": "Website",
+  "tile.not_installed": "Spola not installed",
   "tooltip.not_running": "Spola is not running",
   "tooltip.not_signed_in": "Not signed in to Koofr",
 

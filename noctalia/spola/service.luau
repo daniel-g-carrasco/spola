@@ -42,6 +42,20 @@ local function fresh(data)
   return data ~= nil and type(data.updated) == "number" and (os.time() - data.updated) < STALE_S
 end
 
+-- Lucciola ships this plugin to everyone: without Spola installed the bar
+-- shows nothing and the other entries say so. Looked up once a minute.
+local installedAt = 0
+local function checkInstalled()
+  if os.time() - installedAt < 60 then
+    return
+  end
+  installedAt = os.time()
+  local found = noctalia.flatpakAppInstalled(APP) or noctalia.commandExists("spola")
+  if noctalia.state.get("spola.installed") ~= found then
+    noctalia.state.set("spola.installed", found)
+  end
+end
+
 local function publish(data)
   last = data
   -- the data first: whoever watches "running" then finds them in place
@@ -79,6 +93,7 @@ local function refresh(force)
 end
 
 function update()
+  checkInstalled()
   refresh(false)
 end
 
@@ -123,7 +138,8 @@ noctalia.state.watch("spola.cmd", function(raw)
     if r.exitCode ~= 0 then
       noctalia.notifyError(noctalia.tr("error.title"), noctalia.string.trim(r.stderr or ""))
     end
-    refresh(true)
+    checkInstalled()
+refresh(true)
   end)
 end)
 
