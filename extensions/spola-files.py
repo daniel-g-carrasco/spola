@@ -84,6 +84,9 @@ class StateCache:
         self.states = {}                # path -> state
         self.folders = {}               # folder path -> True, insertion order = age
         self.in_flight = set()          # folders being asked about
+        # Spola 0.3.27 (D-Bus version 2): per folder, the names with kept
+        # copies, for "Previous Versions…"; a folder not asked yet is absent
+        self.versioned = {}
         # Files keeps the answer it got for a file until told otherwise: what
         # it asked while Spola was away (no roots, no emblem) must be asked
         # again when Spola comes back, or those files stay bare until Files
@@ -123,8 +126,13 @@ class StateCache:
             old = next(iter(self.folders))
             self.drop_folder(old)
 
+    def has_versions(self, path):
+        names = self.versioned.get(os.path.dirname(path))
+        return names is not None and os.path.basename(path) in names
+
     def drop_folder(self, folder):
         self.folders.pop(folder, None)
+        self.versioned.pop(folder, None)
         prefix = folder + "/"
         for path in [p for p in self.states if p.startswith(prefix) and "/" not in p[len(prefix):]]:
             del self.states[path]
@@ -145,12 +153,15 @@ class StateCache:
             del self.states[p]
         for folder in [f for f in self.folders if f == root or f.startswith(root + "/")]:
             del self.folders[folder]
+        for folder in [f for f in self.versioned if f == root or f.startswith(root + "/")]:
+            del self.versioned[folder]
         return gone
 
     def clear(self):
         gone = list(self.states)
         self.states.clear()
         self.folders.clear()
+        self.versioned.clear()
         self.in_flight.clear()
         return gone
 
@@ -165,6 +176,8 @@ def _providers():
 
 
 class SpolaProvider(GObject.GObject, *_providers()):
+    spola_version = 0           # until Spola answers GetVersion (and for an older Spola)
+
     def __init__(self):
         super().__init__()
         self.cache = StateCache()
@@ -172,6 +185,7 @@ class SpolaProvider(GObject.GObject, *_providers()):
         self._pending_folders = set()
         self._schedule = 0
         self._roots_retry = 0
+        self.spola_version = 0      # Sync1's version: 2 brings the previous versions
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION,
                                   Gio.DBusProxyFlags.DO_NOT_AUTO_START | Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES,
                                   None, APP_ID, OBJECT_PATH, INTERFACE, None, self._proxy_ready)
@@ -189,11 +203,17 @@ class SpolaProvider(GObject.GObject, *_providers()):
 
     def _owner_changed(self):
         self._roots_retry = 0
+        self.spola_version = 0
         if self.proxy and self.proxy.get_name_owner():
+            self._call("GetVersion", None, self._version_ready)
             self._call("GetRoots", None, self._roots_ready)
         else:
             self._refresh(self.cache.clear())
             self.cache.set_roots([])
+
+    def _version_ready(self, reply):
+        if reply is not None:
+            (self.spola_version,) = reply.unpack()
 
     def _roots_ready(self, reply):
         if reply is None:
@@ -247,6 +267,11 @@ class SpolaProvider(GObject.GObject, *_providers()):
             (states,) = params.unpack()
             changed = self.cache.apply({path_of(u) or "": s for u, s in states.items()})
             self._refresh(changed)
+        elif name == "VersionsChanged":
+            (uri,) = params.unpack()
+            root = path_of(uri) if uri else None
+            for folder in [f for f in self.cache.versioned if root is None or f == root or f.startswith(root + "/")]:
+                self._fetch_versions(folder)
         elif name == "RootChanged":
             (uri,) = params.unpack()
             if uri:
@@ -295,7 +320,21 @@ class SpolaProvider(GObject.GObject, *_providers()):
             self.cache.in_flight.add(folder)
             self._call("GetFolderStates", GLib.Variant("(s)", (uri_of(folder),)),
                        lambda reply, folder=folder: self._folder_ready(folder, reply))
+            self._fetch_versions(folder)
         return False
+
+    def _fetch_versions(self, folder):
+        """The names of `folder` with kept copies (Spola 0.3.27 on): the menu
+        then knows at once whether "Previous Versions…" has anything."""
+        if self.spola_version < 2:
+            return
+
+        def ready(reply):
+            if reply is not None:
+                (names,) = reply.unpack()
+                self.cache.versioned[folder] = set(names)
+                log(f"versions {folder}: {sorted(names)}")
+        self._call("GetFolderVersions", GLib.Variant("(s)", (uri_of(folder),)), ready)
 
     def _folder_ready(self, folder, reply):
         self.cache.in_flight.discard(folder)
@@ -337,7 +376,25 @@ class SpolaProvider(GObject.GObject, *_providers()):
             link.connect("activate", lambda *_: self._call("CreateShareLink", GLib.Variant("(s)", (uri_of(target),)),
                                                            self._copy_url))
             items.append(link)
+            if self.spola_version >= 2:
+                items += self._version_items(prefix, target, background or os.path.isdir(target))
         return items
+
+    def _version_items(self, prefix, target, folder):
+        """"Previous Versions…" on a file with kept copies; "Recently Deleted
+        Files…" on a folder (a deleted file has no icon to click on): Spola
+        also looks in Koofr's trash there, which cannot be known beforehand."""
+        if folder:
+            item = FM.MenuItem(name=f"{prefix}::Deleted", label=_("Recently Deleted Files…"))
+            item.connect("activate", lambda *_: self._call("ShowDeleted", GLib.Variant("(s)", (uri_of(target),)),
+                                                           lambda r: None))
+            return [item]
+        if not self.cache.has_versions(target):
+            return []
+        item = FM.MenuItem(name=f"{prefix}::Versions", label=_("Previous Versions…"))
+        item.connect("activate", lambda *_: self._call("ShowVersions", GLib.Variant("(s)", (uri_of(target),)),
+                                                       lambda r: None))
+        return [item]
 
     # Nautilus 4: (files) and (folder); Nemo and Caja put the window first
     def get_file_items(self, *args):

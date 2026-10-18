@@ -2831,3 +2831,202 @@ msgstr "Icona nell'area di notifica"
 #: src/spola/window.py
 msgid "Off when a widget of the desktop shows Spola's status instead, like the Noctalia plugin"
 msgstr "Da spegnere quando lo stato di Spola lo mostra un widget del desktop, come il plugin per Noctalia"
+
+#. TRANSLATORS: a restored version next to the file, e.g. "report (version of 2026-10-17 12.30).odt"
+#: src/spola/versions.py
+#, python-brace-format
+msgid "{stem} (version of {date}){ext}"
+msgstr "{stem} (versione del {date}){ext}"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "As a copy, it goes next to “{name}”, which stays as it is. Replacing it, the current “{name}” is kept among the copies first, so this can be undone from this list. Either way, the next sync uploads the change to Koofr."
+msgstr "Come copia, va accanto a “{name}”, che resta com'è. Sostituendolo, l'attuale “{name}” viene prima messo tra le copie conservate, così si può tornare indietro da questo elenco. In entrambi i casi, la prossima sincronizzazione porta la modifica su Koofr."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Copies Spola kept of this file when a sync replaced it, or when a conflict or a restore set it aside; each stays {n} days. What you restore is a change in the synced folder: the next sync uploads it to Koofr."
+msgstr "Copie di questo file conservate da Spola quando una sincronizzazione lo ha sostituito, o quando un conflitto o un ripristino lo ha messo da parte; ognuna resta {n} giorni. Ciò che ripristini è una modifica nella cartella sincronizzata: la prossima sincronizzazione la porta su Koofr."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Files a sync deleted here because they were deleted on Koofr; each copy stays {n} days. A restored file goes back in its place, and the next sync uploads it to Koofr."
+msgstr "File eliminati qui da una sincronizzazione perché eliminati su Koofr; ogni copia resta {n} giorni. Un file ripristinato torna al suo posto, e la prossima sincronizzazione lo porta su Koofr."
+
+#: src/spola/window.py
+msgid "Files deleted on any computer or on the web, kept by Koofr for 30 days. A file you deleted here is first in this computer's wastebasket, and reaches Koofr's trash with the next sync. A restored file comes back here with the sync after the restore."
+msgstr "File eliminati da qualunque computer o dal web, conservati da Koofr per 30 giorni. Un file che hai eliminato qui è prima nel cestino di questo computer, e arriva nel cestino di Koofr con la prossima sincronizzazione. Un file ripristinato torna qui con la sincronizzazione successiva al ripristino."
+
+#: src/spola/window.py
+msgid "In Koofr's Trash"
+msgstr "Nel cestino di Koofr"
+
+#: src/spola/window.py
+msgid "Kept Copies"
+msgstr "Copie conservate"
+
+#: src/spola/window.py
+msgid "Kept here, or in Koofr's trash"
+msgstr "Conservati qui, o nel cestino di Koofr"
+
+#: src/spola/window.py
+msgid "Kept on This Computer"
+msgstr "Conservati su questo computer"
+
+#: src/spola/window.py
+msgid "No copy is kept."
+msgstr "Nessuna copia conservata."
+
+#: src/spola/window.py
+msgid "No copy matches."
+msgstr "Nessuna copia corrisponde."
+
+#: src/spola/window.py
+msgid "No copy of a deleted file is kept here."
+msgstr "Qui non è conservata nessuna copia di file eliminati."
+
+#: src/spola/window.py
+msgid "No copy of this file is kept."
+msgstr "Nessuna copia conservata di questo file."
+
+#: src/spola/window.py
+msgid "None at the moment"
+msgstr "Nessuna al momento"
+
+#: src/spola/window.py
+msgid "Open a Copy"
+msgstr "Apri una copia"
+
+#: src/spola/window.py
+msgid "Previous Versions"
+msgstr "Versioni precedenti"
+
+#: src/spola/window.py
+msgid "Previous Versions…"
+msgstr "Versioni precedenti…"
+
+#: src/spola/window.py
+msgid "Recently Deleted Files"
+msgstr "File eliminati di recente"
+
+#: src/spola/window.py
+msgid "Recently Deleted Files…"
+msgstr "File eliminati di recente…"
+
+#: src/spola/window.py
+msgid "Replace the Current File"
+msgstr "Sostituisci il file attuale"
+
+#: src/spola/window.py
+msgid "Restore as a Copy"
+msgstr "Ripristina come copia"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Restore the version of {time}?"
+msgstr "Ripristinare la versione del {time}?"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Restore “{name}” from Koofr's trash?"
+msgstr "Ripristinare “{name}” dal cestino di Koofr?"
+
+#: src/spola/window.py
+msgid "Restored from Koofr's trash: the next sync brings it here."
+msgstr "Ripristinato dal cestino di Koofr: la prossima sincronizzazione lo porta qui."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Restored: {path}. The next sync uploads it to Koofr."
+msgstr "Ripristinato: {path}. La prossima sincronizzazione lo porta su Koofr."
+
+#: src/spola/window.py
+msgid "Search by name"
+msgstr "Cerca per nome"
+
+#: src/spola/window.py
+msgid "Spola keeps a copy when a sync replaces or deletes a file here. Older versions of your own edits are not kept: for those, a backup program such as Déjà Dup."
+msgstr "Spola conserva una copia quando una sincronizzazione sostituisce o elimina un file qui. Le versioni precedenti delle tue modifiche non vengono conservate: per quelle serve un programma di backup come Déjà Dup."
+
+#: src/spola/window.py
+msgid "The file goes back in its folder on Koofr, and the next sync brings it here."
+msgstr "Il file torna nella sua cartella su Koofr, e la prossima sincronizzazione lo porta qui."
+
+#: src/spola/window.py
+msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for these days, then deletes it: a folder's page lists the copies, and a file manager restores them. Spola is not a backup program: for older versions of your own edits, use one such as Déjà Dup."
+msgstr "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per questi giorni, poi la elimina: la pagina di una cartella elenca le copie, e il gestore di file le ripristina. Spola non è un programma di backup: per le versioni precedenti delle tue modifiche usane uno come Déjà Dup."
+
+#: src/spola/window.py
+msgid "deleted here by a sync (deleted on Koofr)"
+msgstr "eliminato qui da una sincronizzazione (eliminato su Koofr)"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "deleted {date}"
+msgstr "eliminato il {date}"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "in Koofr's trash until {date}"
+msgstr "nel cestino di Koofr fino al {date}"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "local copy, kept until {date}"
+msgstr "copia locale, conservata fino al {date}"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "newest {time}"
+msgstr "la più recente del {time}"
+
+#: src/spola/window.py
+msgid "no longer in the folder"
+msgstr "non più nella cartella"
+
+#: src/spola/window.py
+msgid "replaced by a sync"
+msgstr "sostituito da una sincronizzazione"
+
+#: src/spola/window.py
+msgid "replaced by an alignment"
+msgstr "sostituito da un allineamento"
+
+#: src/spola/window.py
+msgid "set aside when a version was restored"
+msgstr "messo da parte ripristinando una versione"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "since {date}"
+msgstr "dal {date}"
+
+#: src/spola/window.py
+msgid "version not kept of a conflict"
+msgstr "versione non tenuta di un conflitto"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” goes back in its place; the next sync uploads it to Koofr."
+msgstr "“{name}” torna al suo posto; la prossima sincronizzazione lo porta su Koofr."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "Each copy stays {n} day, then the retention deletes it; Koofr keeps no older versions."
+msgid_plural "Each copy stays {n} days, then the retention deletes it; Koofr keeps no older versions."
+msgstr[0] "Ogni copia resta {n} giorno, poi la pulizia la elimina; Koofr non conserva versioni precedenti."
+msgstr[1] "Ogni copia resta {n} giorni, poi la pulizia la elimina; Koofr non conserva versioni precedenti."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} day (Preferences), then deletes it; Koofr keeps no older versions."
+msgid_plural "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} days (Preferences), then deletes it; Koofr keeps no older versions."
+msgstr[0] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorno (Preferenze), poi la elimina; Koofr non conserva versioni precedenti."
+msgstr[1] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorni (Preferenze), poi la elimina; Koofr non conserva versioni precedenti."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "{n} copy"
+msgid_plural "{n} copies"
+msgstr[0] "{n} copia"
+msgstr[1] "{n} copie"

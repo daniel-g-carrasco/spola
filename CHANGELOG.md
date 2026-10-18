@@ -8,7 +8,34 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+### Added
+- Previous versions, built on the copies Spola already keeps of what a sync
+  replaces or deletes here. In Files, Nemo and Caja, "Previous Versions…"
+  on a file that has kept copies, and "Recently Deleted Files…" on a
+  folder; in Dolphin and Thunar the same entries in the Koofr submenu.
+  Spola's window lists each copy with its date, size, reason and the day
+  it expires; a copy opens read-only, comes back as a copy next to the file
+  ("report (version of 2026-10-17 12.30).odt", in the language of the
+  conflict copies) or replaces the file, which is kept among the copies
+  first, so a replace can be undone. Recently deleted files also lists
+  what is in Koofr's trash for that folder, with the day it leaves it. The
+  window says before every restore that the next sync uploads it.
+- A "Kept Copies" section on each folder's page: how many, how much space,
+  since when, and the full list with a search by name.
+- Each run's copies carry a small manifest with the reason of each file,
+  written whole or not at all and deleted with its run by the retention.
+- D-Bus interface `Sync1` version 2 (GetFolderVersions, ListVersions,
+  ListDeleted, RestoreVersion, ShowVersions, ShowDeleted, VersionsChanged);
+  version 1 methods unchanged, older extensions keep working.
+
 ### Changed
+- The copy not kept when a conflict is resolved goes among the folder's
+  kept copies, with its reason, instead of the system's wastebasket, and
+  expires with the same rule. On Koofr it still goes to Koofr's trash.
+- **Removed: the "Delete This Backup" and "Delete All" buttons of the local
+  backups (0.3.24).** A kept copy is now deleted only by the retention;
+  lowering the days in Preferences frees space at once, after saying how
+  much.
 - The icons follow the common style of my logos: the app icon is a disk with
   a vertical gradient lit from above (ivory on dark backgrounds, dark on
   light ones) and the motif in the complementary gradient; the trails are

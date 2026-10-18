@@ -9,6 +9,7 @@
 set -euo pipefail
 
 OUT="$(realpath -m "${1:?usage: nautilus_smoke.sh OUT_DIR}")"
+export OUT
 export ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rm -rf "$OUT"
 mkdir -p "$OUT"/{config,state,data,xdg-data,remote/Sync,home/Sync/Progetti}
@@ -39,6 +40,7 @@ cp -rp "$OUT/home/Sync/." "$OUT/remote/Sync/"
 # a virtualenv there (uv, venv) breaks every extension, so use the system's
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 unset VIRTUAL_ENV PYTHONPATH PYTHONHOME
+export SPOLA_RCLONE="${SPOLA_RCLONE:-}"
 export HOME="$OUT/home" XDG_CONFIG_HOME="$OUT/config" XDG_STATE_HOME="$OUT/state" XDG_DATA_HOME="$OUT/xdg-data"
 export SPOLA_DEV_REMOTE="$OUT/remote" GDK_BACKEND=broadway BROADWAY_DISPLAY=":$DISPLAY_NUM" GSK_RENDERER=cairo
 export OUT_NAUTILUS_LOG="$OUT/nautilus.log" SPOLA_NAUTILUS_LOG="$OUT/extension.log" LANGUAGE="${LANGUAGE:-it}" LANG="${LANG:-it_IT.UTF-8}"
@@ -67,12 +69,33 @@ dbus-run-session -- bash -c '
     sleep 3
     # with Files open: a change here must turn the folder "pending", then "synced" again
     echo "changed while Files is open" > "$HOME/Sync/Progetti/dopo.txt"
-    sleep 20
+    sleep 12
+    # previous versions: a.txt changed on "Koofr", the sync replaces it here and
+    # keeps the old copy; it is restored as a copy over D-Bus, as the menu
+    # does, and the next sync takes that copy to Koofr
+    sleep 1; echo "from another computer" > "$OUT/remote/Sync/a.txt"
+    gdbus call --session --dest io.github.daniel_g_carrasco.spola --object-path /io/github/daniel_g_carrasco/spola/Sync \
+        --method io.github.daniel_g_carrasco.spola.Sync1.SyncNow "$HOME/Sync/a.txt" >/dev/null
+    for i in $(seq 1 40); do grep -q "from another" "$HOME/Sync/a.txt" 2>/dev/null && break; sleep 0.5; done
+    sleep 4
+    gdbus call --session --dest io.github.daniel_g_carrasco.spola --object-path /io/github/daniel_g_carrasco/spola/Sync \
+        --method io.github.daniel_g_carrasco.spola.Sync1.GetFolderVersions "$HOME/Sync" > "$OUT/versions.txt"
+    gdbus call --session --dest io.github.daniel_g_carrasco.spola --object-path /io/github/daniel_g_carrasco/spola/Sync \
+        --method io.github.daniel_g_carrasco.spola.Sync1.ListVersions "$HOME/Sync/a.txt" >> "$OUT/versions.txt"
+    id="$(grep -o "'"'"'id'"'"': <'"'"'[^'"'"']*'"'"'>" "$OUT/versions.txt" | head -1 | sed -E "s/.*<'"'"'([^'"'"']*)'"'"'>/\1/")"
+    gdbus call --session --dest io.github.daniel_g_carrasco.spola --object-path /io/github/daniel_g_carrasco/spola/Sync \
+        --method io.github.daniel_g_carrasco.spola.Sync1.RestoreVersion "$HOME/Sync/a.txt" "$id" copy >> "$OUT/versions.txt"
+    # (a new file waits to settle, up to 30 s, before an automatic run takes it)
+    for i in $(seq 1 60); do ls "$OUT/remote/Sync" | grep -q "a (" && break; sleep 1; done
+    ls "$OUT/remote/Sync" >> "$OUT/versions.txt"
+    sleep 4
     nautilus -q 2>/dev/null || true
     sleep 1
     gdbus call --session --dest io.github.daniel_g_carrasco.spola --object-path /io/github/daniel_g_carrasco/spola \
         --method org.freedesktop.Application.ActivateAction quit "[]" "{}" >/dev/null 2>&1 || true
     wait $spola 2>/dev/null || true
 ' _
+echo "--- versions (D-Bus answers, then the files on Koofr):"
+cat "$OUT/versions.txt" 2>/dev/null
 echo "--- extension log:"
 cat "$SPOLA_NAUTILUS_LOG" 2>/dev/null || echo "(no log: the extension did not run)"

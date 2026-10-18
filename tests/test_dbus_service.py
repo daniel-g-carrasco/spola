@@ -89,5 +89,73 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(inv.error[0], "io.github.daniel_g_carrasco.spola.Sync1.NotSynced")
 
 
+
+class VersionsServiceTest(unittest.TestCase):
+    """Version 2: the kept copies over D-Bus, from the engine's index."""
+
+    def setUp(self):
+        from spola import versions
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.root = base / "work"
+        (self.root / "docs").mkdir(parents=True)
+        (self.root / "relazione.odt").write_text("today")
+        self.pair = Pair("p1", str(self.root), "/data/work", initialized=True)
+        from spola.paths import Paths
+        self.paths = Paths(base / "c", base / "s", base / "d")
+        for rel, text in (("relazione.odt", "yesterday"), ("docs/via.txt", "gone")):
+            (self.paths.backup_dir("p1") / "20261017-123000" / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.paths.backup_dir("p1") / "20261017-123000" / rel).write_text(text)
+        index = versions.Index(self.pair, versions.scan(self.paths, self.pair))
+        self.restored, self.shown = [], []
+        pair = self.pair
+
+        def restore_version(pid, vid, mode):
+            self.restored.append((pid, vid, mode))
+            return versions.restore(self.paths, pair, index.by_id(vid), mode, "en")
+        engine = SimpleNamespace(
+            cfg=SimpleNamespace(pairs=[pair], mount_id="m", backup_days=30, pair=lambda pid: pair if pid == "p1" else None),
+            runtime={}, creds=None, rclone=None, paths=self.paths, versions_index=lambda pid: index,
+            restore_version=restore_version, request_sync=lambda *a: None, connect=lambda *args: 0)
+        self.service = SyncService(engine, lambda what: None, tell=lambda m: None,
+                                   show_versions=lambda pid, rel, kind: self.shown.append((pid, rel, kind)))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def call(self, method, signature, *args):
+        from gi.repository import GLib
+        inv = FakeInvocation()
+        self.service._call(None, None, None, None, method, GLib.Variant(signature, args), inv)
+        return inv
+
+    def test_version_and_menu_names(self):
+        self.assertEqual(self.call("GetVersion", "()").value.unpack(), (2,))
+        self.assertEqual(self.call("GetFolderVersions", "(s)", uri_for(str(self.root))).value.unpack(), (["relazione.odt"],))
+        self.assertEqual(self.call("GetFolderVersions", "(s)", str(self.root / "docs")).value.unpack(), (["via.txt"],))
+        self.assertEqual(self.call("GetFolderVersions", "(s)", "/elsewhere").value.unpack(), ([],))
+
+    def test_lists(self):
+        (versions,) = self.call("ListVersions", "(s)", str(self.root / "relazione.odt")).value.unpack()
+        self.assertEqual([(v["id"], v["reason"], v["size"]) for v in versions],
+                         [("20261017-123000/relazione.odt", "replaced", 9)])
+        self.assertEqual(versions[0]["expires"] - versions[0]["time"], 30 * 86400)
+        (deleted,) = self.call("ListDeleted", "(s)", uri_for(str(self.root))).value.unpack()
+        self.assertEqual([(v["id"], v["reason"], path_for(v["path"])) for v in deleted],
+                         [("20261017-123000/docs/via.txt", "deleted", str(self.root / "docs" / "via.txt"))])
+        self.assertEqual(self.call("ListVersions", "(s)", str(self.root)).value.unpack(), ([],))    # a folder: none
+
+    def test_restore_and_show(self):
+        inv = self.call("RestoreVersion", "(sss)", str(self.root / "relazione.odt"), "20261017-123000/relazione.odt", "copy")
+        (uri,) = inv.value.unpack()
+        self.assertTrue(path_for(uri).startswith(str(self.root / "relazione (version of ")))
+        self.assertEqual(Path(path_for(uri)).read_text(), "yesterday")
+        self.assertEqual(self.call("RestoreVersion", "(sss)", "/elsewhere", "x", "copy").error[0].split(".")[-1], "NotSynced")
+        self.call("ShowVersions", "(s)", str(self.root / "relazione.odt"))
+        self.call("ShowVersions", "(s)", str(self.root / "docs"))                 # a folder: what was deleted in it
+        self.call("ShowDeleted", "(s)", str(self.root / "relazione.odt"))         # a file: the folder it is in
+        self.assertEqual(self.shown, [("p1", "relazione.odt", "file"), ("p1", "docs", "deleted"), ("p1", "", "deleted")])
+
+
 if __name__ == "__main__":
     unittest.main()

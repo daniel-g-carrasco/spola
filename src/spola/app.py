@@ -120,7 +120,8 @@ class SpolaApp(Adw.Application):
             self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
                                             else self.activate(),
                                             open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
-                                            show_link=self._show_link, tell=self._tell)
+                                            show_link=self._show_link, tell=self._tell,
+                                            show_versions=self._show_versions)
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
@@ -515,6 +516,17 @@ class SpolaApp(Adw.Application):
         note = Gio.Notification.new(APP_NAME)
         note.set_body(message)
         self.send_notification("file-manager", note)
+
+    def _show_versions(self, pair_id: str, rel: str, kind: str) -> None:
+        """From a file manager's menu: the window on the folder, and the
+        versions of the file or what was deleted in the folder."""
+        from .window import VersionsDialog
+        self.activate()
+        window = self._window()
+        if self.engine.cfg.pair(pair_id) is None:
+            return
+        window.show_pair(pair_id)
+        VersionsDialog(window, pair_id, rel, kind).present(window)
 
     def _review(self, pair_id: str) -> None:
         """From a notification: show the window on what needs attention."""

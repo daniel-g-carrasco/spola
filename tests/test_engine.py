@@ -28,6 +28,7 @@ from spola.paths import Paths
 from spola import preflight
 from spola.preflight import rename_plan, root_identity
 from spola import jobs, listings
+from spola import versions as versions_mod
 from spola.rclone import Mode, Result
 
 RCLONE = rclone_binary()
@@ -985,6 +986,56 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.status() is Status.OK and (self.remote / "f05.txt").read_text()
                                    == "changed here", 60), rt.message)
         self.assertNotIn(kept[0][0], [k for k, _t in self.engine.kept_listings("p1")])       # tried: not offered again
+
+    def test_previous_versions_kept_found_and_restored(self):
+        # the acceptance criteria: a file overwritten by a sync is restored
+        # next to the current one and goes up at the next run; a file deleted
+        # (on Koofr, so here by the sync) is found from its folder; nothing
+        # but the retention deletes a copy
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        changed = []
+        self.engine.connect("versions-changed", lambda _e, pid: changed.append(pid))
+        time.sleep(1.1)
+        (self.remote / "f01.txt").write_text("from another computer")
+        (self.remote / "f02.txt").unlink()
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: (self.local / "f01.txt").read_text() == "from another computer"
+                                   and not (self.local / "f02.txt").exists() and self.status() is Status.OK, 60))
+        idx = lambda: self.engine.versions_index("p1")      # noqa: E731
+        self.assertTrue(spin_until(lambda: idx().of("f01.txt") and idx().of("f02.txt"), 30), changed)
+        (old,) = idx().of("f01.txt")
+        self.assertEqual(old.reason, "replaced")
+        self.assertEqual([(v.rel, v.reason) for v in idx().deleted_under("")], [("f02.txt", "deleted")])
+        self.assertEqual(idx().names_in(""), {"f01.txt", "f02.txt"})
+        # restored as a copy next to the file: on Koofr after the next run
+        rel = self.engine.restore_version("p1", old.id, "copy")
+        self.assertEqual((self.local / rel).read_text(), "1")
+        self.assertTrue(spin_until(lambda: (self.remote / rel).exists() and self.status() is Status.OK, 60))
+        self.assertEqual((self.remote / rel).read_text(), "1")
+        self.assertEqual((self.local / "f01.txt").read_text(), "from another computer")
+        # the deleted one goes back in its place, and up again
+        self.engine.restore_version("p1", idx().deleted_under("")[0].id, "copy")
+        self.assertTrue(spin_until(lambda: (self.remote / "f02.txt").exists() and self.status() is Status.OK, 60))
+        # replaced in place: the current file is kept first, so it can be undone
+        self.engine.restore_version("p1", old.id, "replace")
+        self.assertEqual((self.local / "f01.txt").read_text(), "1")
+        self.assertTrue(spin_until(lambda: any(v.reason == "restored" for v in idx().of("f01.txt")), 30))
+        self.assertTrue(spin_until(lambda: (self.remote / "f01.txt").read_text() == "1" and self.status() is Status.OK, 60))
+        self.assertTrue(all(versions_mod.copy_path(self.engine.paths, v).exists() for v in idx().versions))
+
+    def test_the_copy_not_kept_of_a_conflict_is_kept_among_the_copies(self):
+        self.align()
+        self.changed_on_both_sides("f00.txt", "new here", "old on Koofr", here_newer=True)
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: self.engine.conflicts("p1") and self.engine.runtime["p1"].run is None, 60))
+        (conflict,) = self.engine.conflicts("p1")
+        self.engine.resolve_conflict("p1", conflict, "local")
+        self.assertEqual((self.local / "f00.txt").read_text(), "new here")
+        idx = lambda: self.engine.versions_index("p1")      # noqa: E731
+        self.assertTrue(spin_until(lambda: any(v.reason == "conflict" for v in idx().of("f00.txt")), 30))
+        (kept,) = [v for v in idx().of("f00.txt") if v.reason == "conflict"]
+        self.assertEqual(versions_mod.copy_path(self.engine.paths, kept).read_text(), "old on Koofr")
 
     def test_a_verification_compares_both_sides_and_changes_nothing(self):
         rt = self.engine.runtime["p1"]
