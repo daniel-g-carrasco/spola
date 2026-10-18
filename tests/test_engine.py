@@ -1037,6 +1037,54 @@ class EngineTest(unittest.TestCase):
         (kept,) = [v for v in idx().of("f00.txt") if v.reason == "conflict"]
         self.assertEqual(versions_mod.copy_path(self.engine.paths, kept).read_text(), "old on Koofr")
 
+    def test_koofr_trash_read_page_by_page_retried_and_kept_a_while(self):
+        engine_mod.TRASH_RETRY_S = 0
+        self.addCleanup(setattr, engine_mod, "TRASH_RETRY_S", 2)
+        entry = lambda i: trash_mod.Entry("m", f"/test/f{i}.txt", 1, 1_800_000_000_000 - i)      # noqa: E731
+
+        class Api:
+            def __init__(self, fail_times=1, broken=False):
+                self.calls, self.fail_times, self.broken = [], fail_times, broken
+
+            def page(self, cursor):
+                self.calls.append(cursor)
+                if cursor == "2" and (self.broken or self.fail_times > 0):
+                    self.fail_times -= 1
+                    raise koofr_api.ApiError("/api/v2/trash: The read operation timed out")
+                n = int(cursor or 1)
+                return [entry(n * 10 + i) for i in range(3)], (str(n + 1) if n < 3 else None)
+        api = Api()
+        self.engine.koofr_trash = lambda creds: api
+        seen = []
+        self.engine.trash_entries(lambda entries, done, error: seen.append((len(entries), done, error)))
+        self.assertTrue(spin_until(lambda: seen and seen[-1][1], 10), seen)
+        self.assertEqual(seen[-1], (9, True, ""))
+        self.assertIn((3, False, ""), seen)                       # the first page shown before the end
+        self.assertEqual(api.calls, [None, "2", "2", "3"])        # the page that timed out asked again
+        # read again within a few minutes: from memory, no call
+        again = []
+        self.engine.trash_entries(lambda entries, done, error: again.append((len(entries), done)))
+        self.assertTrue(spin_until(lambda: again, 5))
+        self.assertEqual((again, len(api.calls)), ([(9, True)], 4))
+        # a page that keeps failing: what was read stays, with the reason
+        self.engine.invalidate_trash()
+        api2 = Api(broken=True)
+        self.engine.koofr_trash = lambda creds: api2
+        last = []
+        self.engine.trash_entries(lambda entries, done, error: last.append((len(entries), done, error)))
+        self.assertTrue(spin_until(lambda: last and last[-1][1], 10))
+        self.assertEqual(last[-1][:2], (3, True))
+        self.assertIn("timed out", last[-1][2])
+        self.assertEqual(api2.calls.count("2"), engine_mod.TRASH_TRIES)
+        # the deletions of one folder, from the same reading
+        self.engine.invalidate_trash()
+        self.engine.koofr_trash = lambda creds: Api(fail_times=0)
+        self.engine.cfg.mount_id = "m"
+        found = []
+        self.engine.trash_deletions("p1", lambda d, err: found.append((d, err)))
+        self.assertTrue(spin_until(lambda: found, 10))
+        self.assertEqual(sum(len(d.entries) for d in found[0][0]), 9)
+
     def test_a_verification_compares_both_sides_and_changes_nothing(self):
         rt = self.engine.runtime["p1"]
         self.align()
