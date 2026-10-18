@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.27" date="2026-10-18" type="development">
+      <description>
+        <p>Previous versions, from the copies Spola keeps of what a sync replaces or deletes here: "Previous Versions…" on a file and "Recently Deleted Files…" on a folder in the file manager, and a Kept Copies section on each folder's page. A copy opens read-only, comes back as a copy next to the file or replaces it (the current file kept first, so it can be undone); recently deleted files also lists Koofr's trash. The next sync uploads what you restore. The copy not kept of a resolved conflict is kept there too. A kept copy is deleted only when it expires: the buttons that deleted backups by hand are gone.</p>
+        <p>New icons, in the common style of my logos.</p>
+      </description>
+    </release>
     <release version="0.3.26" date="2026-10-17" type="development">
       <description>
         <p>A folder whose two sides already match no longer waits for a confirmation of its first alignment: the preview Spola prepares on its own finds nothing to copy, and the alignment goes on by itself. With anything to copy, the preview still asks.</p>

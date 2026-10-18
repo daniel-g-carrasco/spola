@@ -8,6 +8,8 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.27] - 2026-10-18
+
 ### Added
 - Previous versions, built on the copies Spola already keeps of what a sync
   replaces or deletes here. In Files, Nemo and Caja, "Previous Versions…"
@@ -41,7 +43,9 @@ shorter, are in the app's metainfo, which software centres show.
   light ones) and the motif in the complementary gradient; the trails are
   filled shapes joined to the balls. The status icons in colour have the
   disk in a gradient of its colour, the glyphs plain ivory; all glyphs are thinner, with sharp inner
-  corners, and the warning triangle has rounded corners. Tray, window, Files
+  corners, and the warning triangle has rounded corners. The Files emblem
+  for "pending" is a full disk with the clock hands cut out, like the
+  other states; the bar of "excluded" is as thick as its ring. Tray, window, Files
   emblems and Windows' notification area all use the new glyphs.
 
 ### Added
@@ -401,7 +405,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.26...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.27...main
+[0.3.27]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.27
 [0.3.26]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.26
 [0.3.25]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.25
 [0.3.24]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.24
