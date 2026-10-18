@@ -48,7 +48,7 @@ local function render()
       shown += 1
     end
   end
-  local hide = noctalia.getConfig("hide_when_ok") == true and overall == "ok"
+  local hide = (noctalia.getConfig("hide_when_ok") == true and overall == "ok") or not s.installed
   barWidget.setVisible(not hide)
   barWidget.setGlyph(common.glyph(overall))
   barWidget.setGlyphColor(common.color(overall))

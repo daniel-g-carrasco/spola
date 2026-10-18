@@ -8,6 +8,12 @@ local common = require("./lib/common.luau")
 local function render()
   local s = common.snapshot()
   shortcut.setIcon(common.GLYPHS.ok, common.GLYPHS.off)
+  if not s.installed then
+    shortcut.setActive(false)
+    shortcut.setEnabled(false)
+    shortcut.setLabel(noctalia.tr("tile.not_installed"))
+    return
+  end
   if not s.running or not s.data then
     shortcut.setActive(false)
     shortcut.setEnabled(true)

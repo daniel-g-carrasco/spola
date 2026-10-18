@@ -33,6 +33,10 @@
   "detail.refused_plural": "{n} nomi che Koofr non accetta",
   "detail.last_sync": "ultima sincronizzazione {time}",
 
+  "tooltip.not_installed": "Spola non è installata",
+  "panel.not_installed_detail": "Spola tiene le tue cartelle sincronizzate con Koofr. La trovi su spola.neistar.com.",
+  "panel.website": "Sito",
+  "tile.not_installed": "Spola non installata",
   "tooltip.not_running": "Spola non è in esecuzione",
   "tooltip.not_signed_in": "Accesso a Koofr non effettuato",
 

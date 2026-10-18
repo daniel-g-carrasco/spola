@@ -20,6 +20,13 @@ function onQuery(text)
   local q = noctalia.string.trim(text):lower()
   local s = common.snapshot()
   local rows = {}
+  if not s.installed then
+    if q == "" or hasWord(q) then
+      table.insert(rows, { id = "website", title = noctalia.tr("tooltip.not_installed"), subtitle = noctalia.tr("panel.not_installed_detail"), glyph = common.GLYPHS.off })
+    end
+    launcher.setResults(text, rows)
+    return
+  end
   if not s.running then
     if q == "" or hasWord(q) then
       table.insert(rows, { id = "launch", title = noctalia.tr("launcher.start"), subtitle = noctalia.tr("tooltip.not_running"), glyph = common.GLYPHS.off })
@@ -61,6 +68,8 @@ end
 function onActivate(id)
   if id == "panel" then
     noctalia.togglePanel(common.PANEL)
+  elseif id == "website" then
+    noctalia.runAsync({ "xdg-open", "https://spola.neistar.com" })
   elseif id == "launch" then
     common.send("launch")
   else
