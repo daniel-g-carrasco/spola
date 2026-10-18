@@ -30,6 +30,12 @@ entry = "service.luau"
 id = "indicator"
 entry = "indicator.luau"
 
+  # the bar's own default for the middle click (the widget's settings) gives
+  # way to pause and resume, through the service's IPC events; a user binding
+  # in [widget.<name>.actions] still wins
+  [widget.actions]
+  middle = "plugin daniel-g-carrasco/spola:service all pause"
+
   [[widget.setting]]
   key = "show_text"
   type = "select"

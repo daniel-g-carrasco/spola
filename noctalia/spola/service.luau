@@ -127,9 +127,16 @@ noctalia.state.watch("spola.cmd", function(raw)
   end)
 end)
 
-function onIpc(event, _payload)
+-- noctalia msg plugin daniel-g-carrasco/spola:service all <refresh|pause|sync-all|show>
+function onIpc(event, payload)
   if event == "refresh" then
     refresh(true)
+  elseif event == "pause" then
+    common.send("action", "pause-all")
+  elseif event == "sync-all" then
+    common.send("action", "sync-all")
+  elseif event == "show" then
+    common.send("show", payload or "")
   end
 end
 
