@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Spola's icon for 16 to 32 pixels (title bar, small icons in Explorer):
+     the same ivory disc and two arcs ending in a dot as the app icon, with
+     arcs two pixels thick at 16 px and larger dots, which the full icon's
+     thin arcs are not. make_ico.py uses it for the small sizes. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 512 512">
+  <circle cx="256" cy="256" r="232" fill="#ebe8e0" stroke="#aaa598" stroke-width="16" />
+  <g fill="none" stroke="#262626" stroke-width="60">
+    <path d="M 149 166 A 140 140 0 0 1 396 256" />
+    <path d="M 363 346 A 140 140 0 0 1 116 256" />
+  </g>
+  <circle cx="396" cy="256" r="62" fill="#262626" />
+  <circle cx="116" cy="256" r="62" fill="#262626" />
+</svg>

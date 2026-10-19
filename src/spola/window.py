@@ -82,11 +82,7 @@ class MainWindow(_WindowBase):
         self.nav.add(self._folders_page())
         self.toasts.set_child(self.nav)
         if WINDOWS:
-            self.set_child(self.toasts)
-            from .win32 import dark_title_bars
-            style = Adw.StyleManager.get_default()
-            self.connect("map", lambda *_: dark_title_bars(style.get_dark()))
-            style.connect("notify::dark", lambda *_: dark_title_bars(style.get_dark()))
+            self.set_child(self.toasts)     # the title bar is Windows' own (app.native_windows)
         else:
             self.set_content(self.toasts)
 
