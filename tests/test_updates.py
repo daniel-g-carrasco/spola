@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """A newer Spola from the GitHub releases: versions, the release's files,
-the installer downloaded and checked against GitHub's SHA-256."""
+the installer downloaded and checked against GitHub's SHA-256 and Spola's
+signature."""
 
 import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import _setup  # noqa: F401
+from test_minisign import PAYLOAD, PUBLIC_KEY, SIGNED_V8, SIGNED_V9
 
 from spola import updates
 
+DOWNLOADS = "https://github.com/daniel-g-carrasco/spola/releases/download/v0.4.0/"
 RELEASE = {
     "tag_name": "v0.4.0",
     "html_url": "https://github.com/daniel-g-carrasco/spola/releases/tag/v0.4.0",
@@ -21,12 +25,15 @@ RELEASE = {
         {"name": "spola-v0.4.0-windows-x64-portable.zip", "browser_download_url": "https://example/zip",
          "size": 20},
         {"name": "spola-setup-v0.4.0-windows-x64.exe",
-         "browser_download_url": "https://github.com/daniel-g-carrasco/spola/releases/download/v0.4.0/"
-                                 "spola-setup-v0.4.0-windows-x64.exe",
+         "browser_download_url": DOWNLOADS + "spola-setup-v0.4.0-windows-x64.exe",
          "size": 30, "digest": "sha256:BB"},
+        {"name": "spola-setup-v0.4.0-windows-x64.exe.minisig",
+         "browser_download_url": DOWNLOADS + "spola-setup-v0.4.0-windows-x64.exe.minisig", "size": 300},
     ],
 }
-SETUP = RELEASE["assets"][2]
+SETUP, SIGNATURE = RELEASE["assets"][2], RELEASE["assets"][3]
+NAME = "spola-setup-v9-windows-x64.exe"         # the name the test signatures give
+SPOLA_KEY = updates.PUBLIC_KEY                  # the real one: the tests sign with a key of their own
 
 
 class VersionTest(unittest.TestCase):
@@ -46,48 +53,79 @@ class ReleaseTest(unittest.TestCase):
         installer = updates.installer_of(release)
         self.assertEqual(installer.name, "spola-setup-v0.4.0-windows-x64.exe")
         self.assertEqual(installer.sha256, "BB")
+        self.assertEqual(installer.signature_url, SIGNATURE["browser_download_url"])
         self.assertIsNone(updates.installer_of(updates.parse_release({**RELEASE, "assets": RELEASE["assets"][:2]})))
         with self.assertRaises(updates.UpdateError):
             updates.parse_release({"assets": []})
 
-    def test_only_a_released_installer_of_spola_with_its_checksum(self):
-        def installer(**changes):
-            return updates.installer_of(updates.parse_release({**RELEASE, "assets": [{**SETUP, **changes}]}))
+    def test_only_a_released_installer_of_spola_with_its_checksum_and_signature(self):
+        def installer(signature=SIGNATURE, **changes):
+            assets = [{**SETUP, **changes}] + ([signature] if signature else [])
+            return updates.installer_of(updates.parse_release({**RELEASE, "assets": assets}))
         self.assertIsNotNone(installer())
         self.assertIsNone(installer(digest=None))                                     # nothing to check it with
+        self.assertIsNone(installer(signature=None))                                  # not signed
+        self.assertIsNone(installer(signature={**SIGNATURE, "browser_download_url": "https://example.com/s.minisig"}))
         self.assertIsNone(installer(browser_download_url="https://example.com/spola-setup-v0.4.0-windows-x64.exe"))
         self.assertIsNone(installer(name="spola-setup-vdev-windows-x64.exe"))          # a CI build
         self.assertIsNone(installer(name="spola-setup-v0.4.0-evil-windows-x64.exe"))
 
-    def test_a_download_cut_short_or_without_checksum_is_refused(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "setup.exe"
-            source.write_bytes(b"installer" * 1000)
-            good = hashlib.sha256(source.read_bytes()).hexdigest()
-            longer = updates.Asset("s.exe", source.as_uri(), source.stat().st_size + 10, good)
-            with self.assertRaises(updates.UpdateError):
-                updates.download(longer, Path(tmp) / "short.exe")
-            self.assertFalse((Path(tmp) / "short.exe").exists())
-            unchecked = updates.Asset("s.exe", source.as_uri(), source.stat().st_size, "")
-            with self.assertRaises(updates.UpdateError):
-                updates.download(unchecked, Path(tmp) / "unchecked.exe")
-            self.assertFalse((Path(tmp) / "unchecked.exe").exists())
 
-    def test_download_checked_against_its_sha256(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            source = Path(tmp) / "setup.exe"
-            source.write_bytes(b"installer" * 1000)
-            good = hashlib.sha256(source.read_bytes()).hexdigest()
-            asset = updates.Asset("spola-setup-v9-windows-x64.exe", source.as_uri(), source.stat().st_size, good)
-            seen = []
-            dest = updates.download(asset, Path(tmp) / "got.exe", lambda done, total: seen.append((done, total)))
-            self.assertEqual(dest.read_bytes(), source.read_bytes())
-            self.assertEqual(seen[-1], (9000, 9000))
-            bad = updates.Asset(asset.name, asset.url, asset.size, "0" * 64)
-            with self.assertRaises(updates.UpdateError):
-                updates.download(bad, Path(tmp) / "bad.exe")
-            self.assertFalse((Path(tmp) / "bad.exe").exists())
-            self.assertFalse((Path(tmp) / "bad.exe.part").exists())
+@mock.patch.object(updates, "PUBLIC_KEY", PUBLIC_KEY)
+class DownloadTest(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.source = self.tmp / "setup.exe"
+        self.source.write_bytes(PAYLOAD)
+        self.signature = self.tmp / "setup.exe.minisig"
+        self.signature.write_text(SIGNED_V9)
+
+    def asset(self, **changes) -> updates.Asset:
+        fields = {"name": NAME, "url": self.source.as_uri(), "size": len(PAYLOAD),
+                  "sha256": hashlib.sha256(PAYLOAD).hexdigest(), "signature_url": self.signature.as_uri()}
+        return updates.Asset(**{**fields, **changes})
+
+    def refused(self, asset: updates.Asset) -> None:
+        dest = self.tmp / "got.exe"
+        with self.assertRaises(updates.UpdateError):
+            updates.download(asset, dest)
+        self.assertFalse(dest.exists())
+        self.assertFalse(dest.with_name("got.exe.part").exists())
+
+    def test_download_checked_against_its_sha256_and_signature(self):
+        seen = []
+        dest = updates.download(self.asset(), self.tmp / "got.exe", lambda done, total: seen.append((done, total)))
+        self.assertEqual(dest.read_bytes(), PAYLOAD)
+        self.assertEqual(seen[-1], (9000, 9000))
+
+    def test_a_download_cut_short_or_without_checksum_is_refused(self):
+        self.refused(self.asset(size=len(PAYLOAD) + 10))
+        self.refused(self.asset(sha256=""))
+        self.refused(self.asset(sha256="0" * 64))
+
+    def test_an_installer_not_signed_for_this_release_is_refused(self):
+        self.refused(self.asset(signature_url=""))
+        # signed, with the name of another release's installer
+        self.refused(self.asset(name="spola-setup-v8-windows-x64.exe"))
+        self.signature.write_text(SIGNED_V8)
+        self.refused(self.asset())
+        # signed by a key that is not Spola's
+        self.signature.write_text(SIGNED_V9)
+        with mock.patch.object(updates, "PUBLIC_KEY", SPOLA_KEY):
+            self.refused(self.asset())
+        self.signature.write_text("Not Found")
+        self.refused(self.asset())
+
+
+class KeyTest(unittest.TestCase):
+    def test_the_ci_checks_its_signatures_with_the_key_spola_trusts(self):
+        workflow = (_setup.ROOT / ".github" / "workflows" / "windows.yml").read_text(encoding="utf-8")
+        self.assertIn(f"PUBLIC_KEY: {updates.PUBLIC_KEY}\n", workflow)
+
+
+class InstalledTest(unittest.TestCase):
 
     def test_installed_build_only_when_frozen(self):
         self.assertFalse(updates.installed_build())     # the tests run from the sources
