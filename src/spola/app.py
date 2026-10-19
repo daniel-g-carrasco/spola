@@ -48,6 +48,36 @@ def settings_notice_text(notice: config.Notice) -> str:
     return f"{notice.kind} {notice.detail}"
 
 
+def larger_system_font(factor: float = 7 / 6) -> int:
+    """Windows: the system font a size larger (Segoe UI 9 -> 10.5 points).
+    libadwaita is drawn for an 11-point font, and at 100% the smaller text it
+    derives from the system's 9 points (subtitles, captions) is hard to read.
+    The factor applies to the size Windows gives, so a larger text size
+    chosen in Windows' settings is followed, also when it changes. Returns
+    the id of the handler that follows it (0: no settings)."""
+    from gi.repository import Pango
+    settings = Gtk.Settings.get_default()
+    if settings is None:
+        return 0
+    ours = [""]
+
+    def apply(*_args):
+        name = settings.props.gtk_font_name
+        if not name or name == ours[0]:
+            return
+        font = Pango.FontDescription.from_string(name)
+        size = font.get_size()
+        if size <= 0 or font.get_size_is_absolute():
+            return
+        half_point = Pango.SCALE // 2
+        font.set_size(round(size * factor / half_point) * half_point)
+        ours[0] = font.to_string()
+        settings.props.gtk_font_name = ours[0]
+
+    apply()
+    return settings.connect("notify::gtk-font-name", apply)
+
+
 class SpolaApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -70,6 +100,8 @@ class SpolaApp(Adw.Application):
 
     def do_startup(self):
         Adw.Application.do_startup(self)
+        if WINDOWS:
+            larger_system_font()
         self.hold()     # keep running with no window: released by app.quit
         GLib.set_application_name(APP_NAME)
         if not in_flatpak() and SOURCE_ICONS.is_dir():
