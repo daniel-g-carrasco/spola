@@ -4,11 +4,13 @@ inotify (through Gio.FileMonitor) watches one directory at a time, so the
 tree gets one monitor per folder, added and removed as folders come and go.
 The kernel limit is per user (fs.inotify.max_user_watches); past a budget we
 stop adding monitors and the pair falls back to the periodic check only.
+On Windows the whole tree has one monitor instead (winwatch.py).
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
 
 from gi.repository import Gio
@@ -30,7 +32,7 @@ def watch_budget() -> int:
         return 4096
 
 
-class TreeWatcher:
+class GioTreeWatcher:
     def __init__(self, root: str, on_change: Callable[[str], None],
                  ignore: Callable[[str], bool] = lambda rel: False, budget: int | None = None):
         self.root = root.rstrip("/")
@@ -105,3 +107,9 @@ class TreeWatcher:
         rel = self._rel(path)
         if not self.ignore(rel):
             self.on_change(rel)
+
+
+if sys.platform == "win32":
+    from .winwatch import WinTreeWatcher as TreeWatcher
+else:
+    TreeWatcher = GioTreeWatcher
