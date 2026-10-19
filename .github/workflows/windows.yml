@@ -7,7 +7,8 @@ name: Windows
 
 on:
   push:
-    branches: [windows]
+    # every change to main: the work done on Linux is tried on Windows too
+    branches: [main]
     # a release: the installer and the portable zip join the Flatpak that
     # build.yml publishes (Spola's update check downloads the installer)
     tags: ["v*"]
@@ -70,8 +71,11 @@ jobs:
           env -u MSYSTEM python -c "import subprocess, sys; out = open('logs-detached/run.txt', 'w'); subprocess.run([sys.executable, 'tools/windows_log_sample.py', 'logs-detached'], creationflags=subprocess.DETACHED_PROCESS, stdout=out, stderr=out, timeout=300)"
           cat logs/interrupted.txt logs-detached/interrupted.txt logs-detached/run.txt || true
       - name: Tests
-        continue-on-error: true
-        run: env -u MSYSTEM python -m unittest discover -s tests -v 2>&1 | tee tests.log
+        # blocking: nothing is packaged, let alone released, from a build
+        # whose tests fail on Windows
+        run: |
+          set -o pipefail
+          env -u MSYSTEM python -m unittest discover -s tests -v 2>&1 | tee tests.log
       - name: The window
         continue-on-error: true
         run: |

@@ -149,14 +149,15 @@ class VersionsTest(unittest.TestCase):
         # criterion: no path deletes a kept copy but the retention. The one
         # rmtree on the backups is in jobs.prune_backups; versions.py has none.
         src = Path(_setup.ROOT) / "src" / "spola"
-        text = (src / "versions.py").read_text()
+        text = (src / "versions.py").read_text(encoding="utf-8")
         self.assertNotIn("rmtree", text)
         self.assertFalse(re.search(r"\.unlink\((?!tmp)", text.replace("os.unlink(tmp)", "")))
         for path in src.glob("*.py"):
-            body = path.read_text()
+            body = path.read_text(encoding="utf-8")
             if "backup_dir" in body and re.search(r"rmtree\(", body):
                 self.assertIn(path.name, ("jobs.py", "paths.py"), path)
-        self.assertNotIn("delete_backup_run", (src / "jobs.py").read_text() + (src / "window.py").read_text())
+        self.assertNotIn("delete_backup_run", (src / "jobs.py").read_text(encoding="utf-8")
+                         + (src / "window.py").read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(rclone_binary(), "rclone not found")
