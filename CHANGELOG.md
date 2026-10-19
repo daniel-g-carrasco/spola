@@ -8,7 +8,25 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
-## [0.3.29] - 2026-10-19
+## [0.3.30] - 2026-10-19
+
+### Fixed
+- Windows: Spola could stay "Paused, offline" with the network working: the
+  network monitor it relied on stopped at "no network" after a change of
+  network. Spola now asks Windows itself, as the taskbar's network icon
+  does.
+- Windows: the icon in the title bar was a blurred smudge. Each window now
+  gets Spola's icon at the size the title bar draws, from a version of the
+  icon made for small sizes; the dialogs also get a dark title bar with the
+  dark style.
+- Windows: a folder's status icon in the window was the negative of the one
+  in the notification area with the dark style; the window shows the same
+  coloured badges.
+
+### Changed
+- Windows: the text is a size larger (10.5 points instead of 9, following
+  the text size set in Windows): at 100% the smaller labels were hard to
+  read.
 
 ### Added
 - Windows: "Previous Versions…" on the files and "Recently Deleted Files…"
@@ -449,7 +467,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.29...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.30...main
+[0.3.30]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.30
 [0.3.29]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.29
 [0.3.28]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.28
 [0.3.27]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.27
