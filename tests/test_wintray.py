@@ -58,6 +58,25 @@ class QuitTest(unittest.TestCase):
         self.assertEqual(self.asked, [1])
 
 
+class SleepTest(unittest.TestCase):
+    def test_a_sleep_stops_the_sync_and_the_wake_resumes_it(self):
+        slept, woke = [], []
+        tray = wintray.WinTray("io.example.test", "Test", on_activate=lambda: None,
+                               on_suspend=lambda: slept.append(1), on_resume=lambda: woke.append(1))
+        self.assertEqual(tray._window_proc(None, wintray.WM_POWERBROADCAST, wintray.PBT_APMSUSPEND, 0), 1)
+        self.assertEqual(slept, [1])                    # at once: Windows sleeps soon after the answer
+        self.assertEqual(tray._window_proc(None, wintray.WM_POWERBROADCAST, wintray.PBT_APMRESUMEAUTOMATIC, 0), 1)
+        self.assertEqual(woke, [])                      # from the main loop
+        context = GLib.MainContext.default()
+        deadline = time.monotonic() + 5
+        while not woke and time.monotonic() < deadline:
+            context.iteration(False)
+        self.assertEqual(woke, [1])
+        # the power source or the battery changed: nothing to do
+        self.assertEqual(tray._window_proc(None, wintray.WM_POWERBROADCAST, 0x000A, 0), 1)
+        self.assertEqual((slept, woke), ([1], [1]))
+
+
 class IconTest(unittest.TestCase):
     def test_a_large_png_for_the_toasts(self):
         import tempfile

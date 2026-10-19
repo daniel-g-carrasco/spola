@@ -110,7 +110,8 @@ class SpolaApp(Adw.Application):
             # the notification area; no file manager speaks D-Bus there
             from .wintray import WinTray
             self.tray = WinTray(APP_ID, APP_NAME, on_activate=self.activate, icon_theme_path=icon_path,
-                                on_quit=self._quit, has_quit=lambda: self._quit_done)
+                                on_quit=self._quit, has_quit=lambda: self._quit_done,
+                                on_suspend=self.engine.before_sleep, on_resume=self.engine.after_sleep)
             self.tray.start()
             self.sync_service = None
         else:

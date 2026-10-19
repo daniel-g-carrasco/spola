@@ -38,6 +38,8 @@ WNDPROC = ctypes.WINFUNCTYPE(LRESULT, wintypes.HWND, wintypes.UINT, wintypes.WPA
 
 WM_NULL, WM_DESTROY, WM_CONTEXTMENU, WM_USER = 0x0000, 0x0002, 0x007B, 0x0400
 WM_CLOSE, WM_QUERYENDSESSION, WM_ENDSESSION = 0x0010, 0x0011, 0x0016
+# the computer about to sleep and awake again (sent to every top-level window)
+WM_POWERBROADCAST, PBT_APMSUSPEND, PBT_APMRESUMEAUTOMATIC = 0x0218, 0x0004, 0x0012
 # at sign-out Windows waits a few seconds, then offers to end the apps still
 # running; bisync saves its state in this time when it has nothing to finish
 END_SESSION_WAIT_S = 30
@@ -158,9 +160,11 @@ class WinTray:
 
     def __init__(self, app_id: str, title: str, on_activate: Callable[[], None],
                  icon_theme_path: str = "", cache: Path | None = None,
-                 on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None):
+                 on_quit: Callable[[], None] | None = None, has_quit: Callable[[], bool] | None = None,
+                 on_suspend: Callable[[], None] | None = None, on_resume: Callable[[], None] | None = None):
         self.app_id, self.title, self.on_activate = app_id, title, on_activate
         self.on_quit, self.has_quit = on_quit, has_quit
+        self.on_suspend, self.on_resume = on_suspend, on_resume
         self.icon_theme_path = icon_theme_path
         self.cache = cache or Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "Spola" / "icons"
         self.items: list[MenuItem] = []
@@ -333,6 +337,16 @@ class WinTray:
                 self.on_quit()
                 self._wait_for_quit()
             return 0
+        if message == WM_POWERBROADCAST:
+            # a sleep that comes regardless of the keep-awake request (the
+            # lid closed, the battery low): the sync in progress is told to
+            # stop gracefully at once, Windows sleeps soon after the answer
+            if wparam == PBT_APMSUSPEND and self.on_suspend:
+                self.on_suspend()
+            elif wparam == PBT_APMRESUMEAUTOMATIC and self.on_resume:
+                callback = self.on_resume
+                GLib.idle_add(lambda: callback() and False)
+            return 1
         return user32.DefWindowProcW(hwnd, message, wparam, lparam)
 
     def _wait_for_quit(self) -> None:
