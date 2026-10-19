@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.29" date="2026-10-19" type="development">
+      <description>
+        <p>Windows: much less memory (one change monitor for each synced folder, instead of one of half a megabyte for every folder inside it), and changes deep in a folder now honour the exclusions. A sleep that comes regardless of Spola (the lid closed, the battery low) stops the sync gracefully, and it goes again on waking. "Previous Versions…" and "Recently Deleted Files…" in File Explorer's menu. An update runs only an installer signed with Spola's own key.</p>
+      </description>
+    </release>
     <release version="0.3.28" date="2026-10-18" type="development">
       <description>
         <p>Recently deleted files no longer wait for the whole of Koofr's trash: the files of the folder show as the trash is read, the newest deletions first, a page that times out is asked again instead of failing the whole reading, and the trash once read serves every window for a few minutes.</p>
