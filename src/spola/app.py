@@ -78,6 +78,31 @@ def larger_system_font(factor: float = 7 / 6) -> int:
     return settings.connect("notify::gtk-font-name", apply)
 
 
+def native_windows() -> None:
+    """Windows: each window of Spola, as it shows (the main one and every
+    dialog, a window of its own with the system's title bar), gets the title
+    bar the content has, dark or light, and Spola.exe's icon at the sizes
+    the title bar and Alt+Tab draw (a run from the sources has no icon of
+    its own to give)."""
+    from . import win32
+    style = Adw.StyleManager.get_default()
+    exe = os.path.normpath(sys.executable) if getattr(sys, "frozen", False) else ""
+
+    def native(*_args):
+        win32.dark_title_bars(style.get_dark())
+        if exe:
+            win32.window_icons(exe)
+
+    def added(model, position, _removed, count):
+        for i in range(position, position + count):
+            model.get_item(i).connect("map", native)
+
+    toplevels = Gtk.Window.get_toplevels()
+    added(toplevels, 0, 0, toplevels.get_n_items())
+    toplevels.connect("items-changed", added)
+    style.connect("notify::dark", native)
+
+
 class SpolaApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -102,6 +127,7 @@ class SpolaApp(Adw.Application):
         Adw.Application.do_startup(self)
         if WINDOWS:
             larger_system_font()
+            native_windows()
         self.hold()     # keep running with no window: released by app.quit
         GLib.set_application_name(APP_NAME)
         if not in_flatpak() and SOURCE_ICONS.is_dir():

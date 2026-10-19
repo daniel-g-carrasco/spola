@@ -59,6 +59,48 @@ def dark_title_bars(dark: bool) -> None:
     user32.EnumWindows(visit, 0)
 
 
+SM_CXICON, SM_CXSMICON = 11, 49
+ICON_SMALL, ICON_BIG, WM_SETICON = 0, 1, 0x0080
+_icons: dict[tuple[str, int], int] = {}     # kept for the life of the process: a window does not copy its icon
+
+
+def _exe_icon(exe: str, size: int) -> int:
+    """The exe's own icon at this size (its .ico holds 16, 20, 24 ... 256,
+    the small ones drawn for small sizes); 0 when there is none."""
+    if (exe, size) not in _icons:
+        handles, ids = (wintypes.HICON * 1)(), (wintypes.UINT * 1)()
+        got = ctypes.windll.user32.PrivateExtractIconsW(exe, 0, size, size, handles, ids, 1, 0)
+        _icons[(exe, size)] = (handles[0] or 0) if got == 1 else 0
+    return _icons[(exe, size)]
+
+
+def window_icons(exe: str) -> None:
+    """This process's windows with the exe's icon, at the sizes Windows draws
+    for each window's DPI (the title bar's small one, Alt+Tab's big one).
+    GTK gives Windows a 48-pixel icon, which the title bar shrinks badly to
+    16."""
+    user32 = ctypes.windll.user32
+    user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+    user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
+    user32.SendMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user32.SendMessageW.restype = wintypes.LPARAM
+    pid = os.getpid()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(hwnd, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            dpi = user32.GetDpiForWindow(hwnd) or 96
+            for kind, metric in ((ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)):
+                icon = _exe_icon(exe, user32.GetSystemMetricsForDpi(metric, dpi))
+                if icon:
+                    user32.SendMessageW(hwnd, WM_SETICON, kind, icon)
+        return True
+
+    user32.EnumWindows(visit, 0)
+
+
 # -- the lock on a pair ----------------------------------------------------------
 
 def lock(fd: int) -> bool:
