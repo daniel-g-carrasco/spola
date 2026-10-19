@@ -2295,6 +2295,14 @@ msgstr ""
 "la versione pubblicata non indica l'impronta dell'installer: non è stato "
 "scaricato"
 
+#: src/spola/updates.py
+msgid "the release gives no signature for the installer: not downloaded"
+msgstr "la versione pubblicata non ha la firma dell'installer: non è stato scaricato"
+
+#: src/spola/updates.py
+msgid "the installer is not signed by Spola: not started"
+msgstr "l'installer non è firmato da Spola: non è stato avviato"
+
 #: src/spola/updates.py:135
 #, python-brace-format
 msgid "download failed ({code})"

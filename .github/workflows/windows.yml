@@ -222,15 +222,40 @@ jobs:
         with:
           name: spola-windows
           path: artifact
+      - name: Sign with Spola's key (minisign), checked before anything is uploaded
+        # the installed Spola runs an update only with this signature
+        # (updates.py, the same public key); the comment names the file,
+        # so another release's installer is not taken for this one
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+          PUBLIC_KEY: RWQnErzpJyMPROWGTtWUJRvxMHh8hdPaJU+NhzmlE7SNKlnpn8tGNYH3
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq minisign
+          key="$RUNNER_TEMP/minisign.key"
+          (umask 077
+           case "$MINISIGN_SECRET_KEY" in
+             "untrusted comment:"*) printf '%s\n' "$MINISIGN_SECRET_KEY" ;;
+             *) printf 'untrusted comment: spola releases\n%s\n' "$MINISIGN_SECRET_KEY" ;;
+           esac > "$key")
+          for f in "artifact/dist/spola-setup-${GITHUB_REF_NAME}-windows-x64.exe" \
+                   "artifact/dist/spola-${GITHUB_REF_NAME}-windows-x64-portable.zip"; do
+            test -f "$f"
+            minisign -S -s "$key" -m "$f" -x "$f.minisig" \
+              -t "timestamp:$(date +%s) file:$(basename "$f") hashed" </dev/null
+            minisign -V -P "$PUBLIC_KEY" -m "$f" -x "$f.minisig"
+          done
+          rm -f "$key"
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           setup="artifact/dist/spola-setup-${GITHUB_REF_NAME}-windows-x64.exe"
           zip="artifact/dist/spola-${GITHUB_REF_NAME}-windows-x64-portable.zip"
-          test -f "$setup" && test -f "$zip"
+          test -f "$setup" && test -f "$zip" && test -f "$setup.minisig" && test -f "$zip.minisig"
           for i in $(seq 1 80); do
             gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 && break
             sleep 30
           done
-          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" --repo "${GITHUB_REPOSITORY}" --clobber
+          gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" \
+            --repo "${GITHUB_REPOSITORY}" --clobber
