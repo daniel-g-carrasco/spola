@@ -1222,6 +1222,10 @@ class EngineTest(unittest.TestCase):
         self.assertIn("25 of 30", results[0][1])
         self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)
         self.assertEqual((self.remote / "f03.txt").read_text(), "3")
+        # the watcher has told the 15 writes (Windows tells them some 3 s
+        # later): a change told after the preview would put it out of date
+        written = {f"f{i:02}.txt" for i in range(10, 25)}
+        self.assertTrue(spin_until(lambda: written <= rt.states.pending, 30))
         # seen and confirmed for what it is now: up they go
         kept, got = self.preview_of("p1", Mode.SYNC, True)
         self.assertTrue(spin_until(lambda: got and self.engine.runtime["p1"].preview is kept, 60))
