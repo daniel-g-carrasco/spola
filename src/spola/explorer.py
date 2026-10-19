@@ -1,12 +1,14 @@
 """Spola in File Explorer: "Open on Koofr" and "Copy Koofr Link" on the
-files and folders of the synced folders (Windows; on Linux the file
+files and folders of the synced folders, "Previous Versions…" on the files
+and "Recently Deleted Files…" on the folders (Windows; on Linux the file
 managers' extensions do it, over D-Bus).
 
-The two entries are verbs of the user's registry classes, shown only where
+The entries are verbs of the user's registry classes, shown only where
 they apply: their AppliesTo condition lists the synced folders, and Spola
 writes it again whenever the pairs change. A click starts
-`Spola.exe --open-on-koofr <path>` (or --copy-link), which the running
-Spola receives (one instance). Setup removes them with Spola.
+`Spola.exe --open-on-koofr <path>` (or --copy-link, --versions,
+--deleted), which the running Spola receives (one instance). Setup removes
+them with Spola.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from .config import Pair
 from .i18n import _
 from .koofr_api import web_url
 
-VERBS = ("Spola.OpenOnKoofr", "Spola.CopyKoofrLink")
+VERBS = ("Spola.OpenOnKoofr", "Spola.CopyKoofrLink", "Spola.Versions", "Spola.Deleted")
 CLASSES = r"Software\Classes"
 TARGETS = ("*", "Directory")        # files, folders (not a folder's background: AppliesTo is not read there)
 
@@ -91,11 +93,16 @@ def applies_to(pairs: list[Pair]) -> str:
     return f'({" OR ".join(terms)}) AND NOT System.FileName:~<".spola-"'
 
 
-def verbs(exe: str) -> list[tuple[str, str, str]]:
-    """(verb key, text, command) of the two entries."""
+def verbs(exe: str) -> list[tuple[str, str, str, tuple[str, ...]]]:
+    """(verb key, text, command, targets) of the entries. "Previous
+    Versions…" is on every file: the condition cannot tell which have a
+    kept copy (on Linux it shows on those only), and the window says when
+    there is none."""
     return [
-        (VERBS[0], _("Open on Koofr"), f'"{exe}" --open-on-koofr "%1"'),
-        (VERBS[1], _("Copy Koofr Share Link"), f'"{exe}" --copy-link "%1"'),
+        (VERBS[0], _("Open on Koofr"), f'"{exe}" --open-on-koofr "%1"', TARGETS),
+        (VERBS[1], _("Copy Koofr Share Link"), f'"{exe}" --copy-link "%1"', TARGETS),
+        (VERBS[2], _("Previous Versions…"), f'"{exe}" --versions "%1"', ("*",)),
+        (VERBS[3], _("Recently Deleted Files…"), f'"{exe}" --deleted "%1"', ("Directory",)),
     ]
 
 
@@ -109,8 +116,8 @@ def register(exe: str, pairs: list[Pair]) -> None:
     # how MSYS2's Python, the Windows build's, writes sys.executable
     exe = os.path.normpath(exe).replace("/", "\\")
     condition = applies_to(pairs)
-    for target in TARGETS:
-        for key_name, text, command in verbs(exe):
+    for key_name, text, command, targets in verbs(exe):
+        for target in targets:
             path = f"{CLASSES}\\{target}\\shell\\{key_name}"
             with winreg.CreateKey(winreg.HKEY_CURRENT_USER, path) as key:
                 winreg.SetValueEx(key, "MUIVerb", 0, winreg.REG_SZ, text)

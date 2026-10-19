@@ -2945,16 +2945,20 @@ msgid "Search by name"
 msgstr "Cerca per nome"
 
 #: src/spola/window.py
-msgid "Spola keeps a copy when a sync replaces or deletes a file here. Older versions of your own edits are not kept: for those, a backup program such as Déjà Dup."
-msgstr "Spola conserva una copia quando una sincronizzazione sostituisce o elimina un file qui. Le versioni precedenti delle tue modifiche non vengono conservate: per quelle serve un programma di backup come Déjà Dup."
+msgid "Spola keeps a copy when a sync replaces or deletes a file here. Older versions of your own edits are not kept: for those, a backup program such as {program}."
+msgstr "Spola conserva una copia quando una sincronizzazione sostituisce o elimina un file qui. Le versioni precedenti delle tue modifiche non vengono conservate: per quelle serve un programma di backup come {program}."
+
+#: src/spola/window.py
+msgid "Windows File History"
+msgstr "Cronologia file di Windows"
 
 #: src/spola/window.py
 msgid "The file goes back in its folder on Koofr, and the next sync brings it here."
 msgstr "Il file torna nella sua cartella su Koofr, e la prossima sincronizzazione lo porta qui."
 
 #: src/spola/window.py
-msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for these days, then deletes it: a folder's page lists the copies, and a file manager restores them. Spola is not a backup program: for older versions of your own edits, use one such as Déjà Dup."
-msgstr "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per questi giorni, poi la elimina: la pagina di una cartella elenca le copie, e il gestore di file le ripristina. Spola non è un programma di backup: per le versioni precedenti delle tue modifiche usane uno come Déjà Dup."
+msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for these days, then deletes it: a folder's page lists the copies, and a file manager restores them. Spola is not a backup program: for older versions of your own edits, use one such as {program}."
+msgstr "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per questi giorni, poi la elimina: la pagina di una cartella elenca le copie, e il gestore di file le ripristina. Spola non è un programma di backup: per le versioni precedenti delle tue modifiche usane uno come {program}."
 
 #: src/spola/window.py
 msgid "deleted here by a sync (deleted on Koofr)"
