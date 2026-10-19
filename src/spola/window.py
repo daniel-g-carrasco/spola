@@ -44,8 +44,15 @@ class StatusIcon(Gtk.Stack):
         if status is Status.SYNCING:
             self.set_visible_child(self.spinner)
             return
-        self.image.set_from_icon_name(status_icon(status))
-        self.image.set_css_classes(status_css(status))
+        if WINDOWS:
+            # the badges of the notification area, which Windows does not
+            # recolour: the symbolic icon, in the text's colour, came out as
+            # their negative with the dark style (a light disc, a dark mark)
+            self.image.set_from_icon_name(status_badge(status))
+            self.image.set_css_classes([])
+        else:
+            self.image.set_from_icon_name(status_icon(status))
+            self.image.set_css_classes(status_css(status))
         self.set_visible_child(self.image)
 
 
