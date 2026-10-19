@@ -8,6 +8,34 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.29] - 2026-10-19
+
+### Added
+- Windows: "Previous Versions…" on the files and "Recently Deleted Files…"
+  on the folders of the synced folders, in File Explorer's menu, as in the
+  Linux file managers. On Windows the first is on every file: Explorer
+  cannot tell which have a kept copy, and the window says when there is
+  none.
+- Windows: an update runs the installer only with Spola's own signature
+  (minisign), besides the SHA-256 GitHub gives: an installer replaced in
+  the release is refused. The releases carry a `.minisig` for the installer
+  and for the portable zip.
+
+### Fixed
+- Windows: each folder inside a synced folder had a change monitor of its
+  own, and on Windows each holds half a megabyte: 1.5 GB of memory for a
+  synced folder of 2,700 subfolders. One monitor now watches the whole
+  tree, with no limit on the folders watched; and changes deep in the tree
+  are matched against the exclusions as on Linux (their paths had "\").
+- Windows: a sleep that comes regardless of the keep-awake request (the lid
+  closed, the battery low) now stops the sync in progress gracefully, so
+  that rclone saves its state, and the sync goes again on waking, as on
+  Linux.
+- Windows: for older versions of one's own edits, Spola points to Windows'
+  File History, not to Déjà Dup.
+- Windows: starting at login could not be turned on in a user profile that
+  had never had a program started at login (no Run key yet).
+
 ## [0.3.28] - 2026-10-18
 
 ### Fixed
@@ -421,7 +449,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.28...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.29...main
+[0.3.29]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.29
 [0.3.28]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.28
 [0.3.27]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.27
 [0.3.26]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.26
