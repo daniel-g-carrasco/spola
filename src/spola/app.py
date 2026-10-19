@@ -56,6 +56,8 @@ class SpolaApp(Adw.Application):
         # File Explorer's entries (explorer.py), to the running Spola
         self.add_main_option("open-on-koofr", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.add_main_option("copy-link", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
+        self.add_main_option("versions", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
+        self.add_main_option("deleted", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.engine: Engine | None = None
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None
@@ -227,7 +229,9 @@ class SpolaApp(Adw.Application):
 
     def do_command_line(self, command_line):
         options = command_line.get_options_dict()
-        for name, handler in (("open-on-koofr", self._open_on_koofr), ("copy-link", self._copy_link)):
+        for name, handler in (("open-on-koofr", self._open_on_koofr), ("copy-link", self._copy_link),
+                              ("versions", lambda path: self._versions_of(path, "file")),
+                              ("deleted", lambda path: self._versions_of(path, "deleted"))):
             value = options.lookup_value(name, GLib.VariantType.new("s"))
             if value is not None:
                 handler(value.get_string())
@@ -262,6 +266,19 @@ class SpolaApp(Adw.Application):
             pair, relative = found
             url = explorer.page_url(self.engine.cfg.mount_id, pair, relative, os.path.isdir(path))
             Gio.AppInfo.launch_default_for_uri(url, None)
+
+    def _versions_of(self, path: str, kind: str) -> None:
+        """"Previous Versions…" of a file, "Recently Deleted Files…" in a
+        folder (a file given for the deleted ones: the folder it is in), as
+        the file managers ask over D-Bus."""
+        found = self._in_pair(path)
+        if found is not None:
+            pair, relative = found
+            folder = not relative or os.path.isdir(path)
+            if kind == "deleted" or folder:
+                self._show_versions(pair.id, relative if folder else os.path.dirname(relative), "deleted")
+            else:
+                self._show_versions(pair.id, relative, "file")
 
     def _copy_link(self, path: str) -> None:
         from . import explorer, koofr_api

@@ -1319,6 +1319,12 @@ def N_(text: str) -> str:
     return text
 
 
+def backup_program() -> str:
+    """A backup program of the system, for older versions of one's own
+    edits: Spola is not one."""
+    return _("Windows File History") if WINDOWS else "Déjà Dup"
+
+
 REASON_TEXT = {
     # what the sync or Spola did with the file, in a few words
     "replaced": N_("replaced by a sync"),
@@ -1426,7 +1432,8 @@ class VersionsDialog(Adw.Dialog):
             if not found:
                 group.add(Adw.ActionRow(title=_("No copy of this file is kept."), subtitle_lines=0, subtitle=escape(_(
                     "Spola keeps a copy when a sync replaces or deletes a file here. Older versions of your own "
-                    "edits are not kept: for those, a backup program such as Déjà Dup."))))
+                    "edits are not kept: for those, a backup program such as {program}.").format(
+                        program=backup_program()))))
             for version in found:
                 group.add(self._row(version, moment(version.time), days))
             self._add(group)
@@ -2001,7 +2008,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group = Adw.PreferencesGroup(title=_("Backups"), description=escape(_(
             "When a sync replaces or deletes a file here, Spola keeps the old copy for these days, then deletes it: "
             "a folder's page lists the copies, and a file manager restores them. Spola is not a backup program: "
-            "for older versions of your own edits, use one such as Déjà Dup.")))
+            "for older versions of your own edits, use one such as {program}.").format(program=backup_program())))
         days = Adw.SpinRow.new_with_range(1, 365, 1)
         days.set_title(_("Keep replaced and deleted files for"))
         days.set_subtitle(_("Days, in Spola’s local backup"))

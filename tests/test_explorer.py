@@ -84,6 +84,15 @@ class RegistryTest(unittest.TestCase):
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                     rf"{classes}\*\shell\Spola.CopyKoofrLink\command") as key:
                     self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --copy-link "%1"')
+                # the kept copies: a file's previous versions, a folder's deleted files
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\*\shell\Spola.Versions\command") as key:
+                    self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --versions "%1"')
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                                    rf"{classes}\Directory\shell\Spola.Deleted\command") as key:
+                    self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --deleted "%1"')
+                for missing in (r"Directory\shell\Spola.Versions", r"*\shell\Spola.Deleted"):
+                    with self.assertRaises(OSError):
+                        winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\{missing}")
                 explorer.register(exe, [])                          # no pairs: no entries
                 for target in explorer.TARGETS:
                     for verb in explorer.VERBS:
