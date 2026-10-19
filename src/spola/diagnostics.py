@@ -90,7 +90,10 @@ def summary(engine) -> str:
         lines.append(f"space on Koofr: {human(space.used)} of {human(space.total)}, {human(space.free)} free")
     network = getattr(engine, "network", None)
     if network is not None:
-        lines.append(f"network: available {network.get_network_available()}, metered {network.get_network_metered()}")
+        available = engine.network_available() if hasattr(engine, "network_available") \
+            else network.get_network_available()
+        metered = engine.network_metered() if hasattr(engine, "network_metered") else network.get_network_metered()
+        lines.append(f"network: available {available} (GLib {network.get_network_available()}), metered {metered}")
     power = getattr(engine, "power", None)
     if power is not None:
         lines.append(f"power saver: {power.get_power_saver_enabled()}")

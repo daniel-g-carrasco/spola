@@ -498,6 +498,13 @@ class Engine(GObject.Object):
                 pass
         return True
 
+    def network_available(self) -> bool:
+        """Windows: as the system says (winconditions.py: GLib's monitor
+        there can stay at "no network" after a change of network)."""
+        if self.windows_conditions is not None and self.windows_conditions.connected is not None:
+            return self.windows_conditions.connected
+        return self.network.get_network_available()
+
     def network_metered(self) -> bool:
         if self.windows_conditions is not None:
             return self.windows_conditions.metered
@@ -739,7 +746,7 @@ class Engine(GObject.Object):
             return _("rclone is missing")
         if self.cfg.paused_all:
             return _("Paused")
-        if not self.network.get_network_available():
+        if not self.network_available():
             return _("Offline")
         if self.cfg.pause_on_metered and self.network_metered():
             return _("Paused on a metered connection")
