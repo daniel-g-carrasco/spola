@@ -203,6 +203,31 @@ class BisyncScenarios(unittest.TestCase):
         self.assertEqual(self.backups(), [])    # nothing replaced, nothing lost
         self.assertTrue(self.bisync().plan.empty)
 
+    def test_identical_files_moved_in_one_run_keep_their_own_dates(self):
+        # two copies of a document, with different dates, both moved on Koofr
+        # in the same run: each lands here as itself, not as the other with
+        # the other's date (which the next run would take for a change here,
+        # and upload again: 737 files on 2026-10-19)
+        for i in range(10):
+            self.write(self.local, f"doc{i}.odt", f"same {i}", age=3 * 86400)
+            self.write(self.local, f"copia/doc{i}.odt", f"same {i}", age=40 * 86400)
+        for i in range(5):
+            self.write(self.local, f"keep{i}.txt", "same", age=600)
+        self.align()
+        inodes = {rel: (self.local / rel).stat().st_ino for rel in self.files(self.local)}
+        (self.remote / "archivio").mkdir()
+        (self.remote / "archivio2").mkdir()
+        for i in range(10):
+            (self.remote / f"doc{i}.odt").rename(self.remote / "archivio" / f"doc{i}.odt")
+            (self.remote / "copia" / f"doc{i}.odt").rename(self.remote / "archivio2" / f"doc{i}.odt")
+        out = self.bisync(force=True)                   # as a confirmed run: 20 moves of 27 entries
+        self.assertIs(out.result, Result.OK, out.message)
+        self.assertEqual(len(out.plan.moved_local), 20)
+        for i in range(10):
+            self.assertEqual((self.local / "archivio" / f"doc{i}.odt").stat().st_ino, inodes[f"doc{i}.odt"])
+            self.assertEqual((self.local / "archivio2" / f"doc{i}.odt").stat().st_ino, inodes[f"copia/doc{i}.odt"])
+        self.assertTrue(self.bisync().plan.empty)      # nothing taken for a change
+
     def test_renames_on_koofr_are_moves_here(self):
         for i in range(20):
             self.write(self.local, f"PXL_{i:02}.jpg", f"photo {i}", age=600)

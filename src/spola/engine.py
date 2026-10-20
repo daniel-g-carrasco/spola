@@ -220,6 +220,19 @@ class Task:
     max_changes: int | None = None      # likewise for the files changed here at once
 
 
+def safety_message(outcome: Outcome) -> str:
+    """Why a run stopped for a confirmation, in the user's words: bisync's
+    own line names Path1, Path2 and --force, and is not translated."""
+    if outcome.safety == "deletes" and outcome.excess:
+        side, (n, total) = next(iter(outcome.excess.items()))
+        if side == "Path1":
+            return _("{n} of {total} files are gone from this computer at once").format(n=count(n), total=count(total))
+        return _("{n} of {total} files are gone from Koofr at once").format(n=count(n), total=count(total))
+    if outcome.safety == "all-changed":
+        return _("Every file of one side changed at once")
+    return outcome.message
+
+
 def gone_message(gone: str) -> str:
     """What a side with nothing left means (PairRuntime.gone)."""
     return {
@@ -258,6 +271,7 @@ class PairRuntime:
     # (the folder is not on Koofr any more), "koofr-empty", "here-empty"
     gone: str = ""
     safety: str = ""        # which check stopped the run waiting for a confirmation (Outcome.safety)
+    safety_changed: int = 0     # "changes": how many files the check counted (jobs.TooManyChanges)
     rerun_requested: bool = False   # a run asked for while one ran: again afterwards
     last_failure: str = ""          # a run that could not start, until one does
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
@@ -366,8 +380,9 @@ class Engine(GObject.Object):
         self._clock = (time.time(), time.monotonic())
         GLib.timeout_add_seconds(60, self._check_clock)
         GLib.timeout_add_seconds(ACTIVITY_INTERVAL_S, self._poll_activity)
-        GLib.timeout_add_seconds(60, self._prune_backups)
-        GLib.timeout_add_seconds(24 * 3600, self._prune_backups)
+        # in a thread: an rmtree of gigabytes would freeze the window
+        GLib.timeout_add_seconds(60, lambda: self.prune_now() or False)
+        GLib.timeout_add_seconds(24 * 3600, lambda: self.prune_now() or True)
 
     def before_sleep(self) -> None:
         """The machine is about to sleep regardless of the lock (a privileged
@@ -1057,8 +1072,12 @@ class Engine(GObject.Object):
             rt.ahead_source = 0
         max_delete = max_changes = None
         if mode is Mode.SYNC and force:
-            max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts)
-            max_changes = confirmed_max_changes(kept.outcome.plan, kept.bases)
+            # what the checks counted when they stopped the run: files gone
+            # from both sides, or changed the same way on both, which the
+            # preview does not list, count for them all the same
+            stopped = rt.last_outcome if rt.last_outcome is not None and rt.last_outcome.safety == "deletes" else None
+            max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts, stopped.excess if stopped else None)
+            max_changes = confirmed_max_changes(kept.outcome.plan, kept.bases, rt.safety_changed)
         rt.before_run = (rt.status, rt.message)     # what this answers: back to it if the run is dropped
         rt.preview = None               # what it said is about to happen
         self._enqueue(Task(pair_id, mode, max_delete=max_delete, max_changes=max_changes, reason="confirmed",
@@ -1709,7 +1728,7 @@ class Engine(GObject.Object):
         if changes is not None:
             # more files changed here at once than may go up over Koofr's
             # copies unasked: the run did not start; a preview, then a word
-            rt.safety = "changes"
+            rt.safety, rt.safety_changed = "changes", changes.changed
             message = _("{n} of {total} files changed on this computer at once").format(
                 n=count(changes.changed), total=count(changes.total))
             if task.callback:
@@ -1942,6 +1961,7 @@ class Engine(GObject.Object):
                                    "{n} files are not synced: Koofr does not accept their names.",
                                    len(rt.refused)).format(n=len(rt.refused)))
             rt.retries = 0
+            rt.safety_changed = 0
             rt.last_sync = time.time()
             if rt.pending_busy:
                 # new files left out while being written: synced once they settle
@@ -2000,8 +2020,9 @@ class Engine(GObject.Object):
             self._set_status(pair, rt, Status.PENDING)
         elif result is Result.NEEDS_CONFIRMATION:
             rt.safety = outcome.safety
-            self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, outcome.message)
-            self.emit("attention", pair.id, "confirm", outcome.message)
+            message = safety_message(outcome)
+            self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, message)
+            self.emit("attention", pair.id, "confirm", message)
         elif result is Result.NEEDS_REPAIR and (outcome.empty_side or outcome.root_missing):
             self._side_gone(pair, rt, outcome)
         elif result is Result.NEEDS_REPAIR:
@@ -2070,12 +2091,17 @@ class Engine(GObject.Object):
         def apply(paths: list[str], conflicts: list[str]) -> bool:
             if rt.listing_serial != serial or self.cfg.pair(pair.id) is None:
                 return False
+            had = bool(rt.conflicts)
             rt.conflicts = conflicts
             rt.states.load_listing(paths)
             rt.states.conflicts = set(conflicts)
             rt.states.refused = {r.path for r in rt.refused}
             if then is not None:
                 then(paths)
+            if had != bool(conflicts) and rt.run is None and rt.status in (Status.OK, Status.CONFLICTS, Status.SKIPPED):
+                # the status was set before this reading: a run that made (or
+                # took away) conflicts says so now, not at the next run
+                self._set_status(pair, rt, self._idle_status(pair, rt))
             return False
 
         threading.Thread(target=work, name=f"listing-{pair.id}", daemon=True).start()

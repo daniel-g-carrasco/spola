@@ -388,8 +388,15 @@ def main(argv: list[str]) -> int:
             # as the window does: the run may delete what the preview showed, with a
             # margin, never more (--force would lift every limit); if every file
             # changed, bisync's second check, once more past it
-            bound = confirmed_max_delete(preview.plan, listings.counts(paths.workdir(pair.id)))
-            changes = confirmed_max_changes(preview.plan, jobs.listed_files(paths, pair))
+            # as the window: what the checks counted when they stopped the
+            # plain run (files gone or changed the same way on both sides are
+            # in no list of the preview) counts for the bound too
+            plain = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, dry_run=True, quiet=True)
+            excess = plain.excess if plain is not None and plain.safety == "deletes" else None
+            previous = listings.load(paths.workdir(pair.id), 1) or []
+            seen = len(jobs.changed_here(pair.local, previous))
+            bound = confirmed_max_delete(preview.plan, listings.counts(paths.workdir(pair.id)), excess)
+            changes = confirmed_max_changes(preview.plan, jobs.listed_files(paths, pair), seen)
             outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, max_delete=bound, max_changes=changes)
             if outcome is not None and outcome.result is Result.NEEDS_CONFIRMATION and outcome.safety == "all-changed":
                 outcome = _run(cfg, pair, paths, rclone, creds, Mode.SYNC, force=True, max_changes=changes)

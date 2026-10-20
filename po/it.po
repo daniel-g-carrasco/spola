@@ -2538,6 +2538,20 @@ msgstr "Elimina"
 msgid "{n} of {total} files changed on this computer at once"
 msgstr "{n} file su {total} cambiati su questo computer tutti insieme"
 
+#: src/spola/engine.py
+#, python-brace-format
+msgid "{n} of {total} files are gone from this computer at once"
+msgstr "{n} file su {total} spariti da questo computer tutti insieme"
+
+#: src/spola/engine.py
+#, python-brace-format
+msgid "{n} of {total} files are gone from Koofr at once"
+msgstr "{n} file su {total} spariti da Koofr tutti insieme"
+
+#: src/spola/engine.py
+msgid "Every file of one side changed at once"
+msgstr "Tutti i file di un lato sono cambiati insieme"
+
 #: src/spola/app.py
 #, python-brace-format
 msgid "The settings file was damaged: the previous save was used. The damaged file is kept at {path}."
