@@ -36,7 +36,7 @@ from gi.repository import Gio, GLib, GObject
 
 from . import config as config_mod
 from . import conflicts as conflicts_mod
-from . import WINDOWS, jobs, koofr_api, listings
+from . import WINDOWS, filetree, jobs, koofr_api, listings
 from . import trash as trash_mod
 from . import verify
 from . import versions as versions_mod
@@ -177,6 +177,9 @@ class Preview:
     # the files of the last listings, {path: size}, here and on Koofr: what
     # share of a folder a change touches (None before a first alignment)
     bases: tuple[dict[str, int], dict[str, int]] | None = None
+    # the files each folder holds in them, at any depth (filetree.folder_counts):
+    # counted once, in the preparing thread, for every list of the preview
+    base_counts: tuple | None = None
     counts: tuple[int, int] | None = None       # entries of those listings, each side
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
@@ -215,6 +218,7 @@ class Task:
     cancelled: bool = False         # Stop while the run was still being prepared
     case_renames: list = field(default_factory=list)    # preflight.CaseRename, done on Koofr first
     bases: tuple | None = None          # a preview's Preview.bases, read in the preparing thread
+    base_counts: tuple | None = None    # a preview's Preview.base_counts, likewise
     counts: tuple | None = None         # a preview's Preview.counts, likewise
     max_delete: int | None = None       # a confirmed run: what its preview showed, not the pair's limit
     max_changes: int | None = None      # likewise for the files changed here at once
@@ -267,6 +271,7 @@ class PairRuntime:
     ahead_source: int = 0                   # timer before preparing the preview ahead
     restoring: bool = False                 # files coming back from Koofr's trash: no run meanwhile
     restore_cancel: threading.Event | None = None
+    copying_back: bool = False              # a kept copy being put back (restore_version): no run meanwhile
     # a side with nothing left, which bisync will not sync from: "koofr-gone"
     # (the folder is not on Koofr any more), "koofr-empty", "here-empty"
     gone: str = ""
@@ -457,28 +462,47 @@ class Engine(GObject.Object):
         pair = self.cfg.pair(pair_id) or Pair("", "", "")
         return self.versions.get(pair_id) or versions_mod.Index(pair)
 
-    def restore_version(self, pair_id: str, version_id: str, mode: str) -> str:
+    def restore_version(self, pair_id: str, version_id: str, mode: str,
+                        done: Callable[[str, str], None]) -> None:
         """Put a kept copy back ("copy": next to the file under a readable
-        name; "replace": in its place, the file there now kept aside first).
-        Returns the relative path written; OSError or ValueError with the
-        reason. The next sync uploads it: asked for at once. Refused while a
-        run of the pair is in progress, as resolving a conflict is: rclone
-        may have the file open (on Windows it cannot then be moved aside),
-        and the run's listing would not know what the restore wrote."""
-        pair = self.cfg.pair(pair_id)
-        if pair is None:
-            raise ValueError("no such folder")
-        rt = self.runtime.get(pair_id)
-        if rt is not None and rt.run is not None and not (rt.task and rt.task.dry_run):
-            raise ValueError(_("Wait for the current sync to finish."))
+        name; "replace": in its place, the file there now kept aside first),
+        in a thread: a copy of gigabytes would stop the window. `done(rel,
+        error)` on the main loop: the relative path written, or why not.
+        The next sync uploads it: asked for at once. Refused while a run of
+        the pair is in progress, as resolving a conflict is: rclone may have
+        the file open (on Windows it cannot then be moved aside), and the
+        run's listing would not know what the restore wrote; and no run of
+        the pair starts while it copies."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+
+        def refuse(error: str) -> None:
+            GLib.idle_add(lambda: done("", error) and False)
+        if pair is None or rt is None:
+            return refuse(_("This folder is no longer synced."))
+        if (rt.task is not None and not rt.task.dry_run) or rt.restoring or rt.copying_back:
+            return refuse(_("Wait for the current sync to finish."))
         version = self.versions_index(pair_id).by_id(version_id)
         if version is None:
-            raise ValueError("no such version")
-        rel = versions_mod.restore(self.paths, pair, version, mode, self.cfg.conflict_language)
-        self.refresh_versions(pair_id)
-        self.invalidate_preview(pair_id)
-        self.request_sync(pair_id, "restored")
-        return rel
+            return refuse("no such version")
+        rt.copying_back = True
+        language = self.cfg.conflict_language
+
+        def work() -> None:
+            try:
+                rel, error = versions_mod.restore(self.paths, pair, version, mode, language), ""
+            except (OSError, ValueError) as e:
+                rel, error = "", str(e)
+            GLib.idle_add(lambda: finished(rel, error) and False)
+
+        def finished(rel: str, error: str) -> None:
+            rt.copying_back = False
+            if not error and self.cfg.pair(pair_id) is not None:
+                self.refresh_versions(pair_id)
+                self.invalidate_preview(pair_id)
+                self.request_sync(pair_id, "restored")
+            done(rel, error)
+            GLib.idle_add(self._next)       # what waited for the copy
+        threading.Thread(target=work, name=f"restore-version-{pair_id}", daemon=True).start()
 
     def _keep_discarded(self, pair: Pair, original: str) -> Callable[[str], None]:
         """Where the copy not kept of a resolved conflict goes: among the
@@ -1582,7 +1606,7 @@ class Engine(GObject.Object):
 
     def _pair_free(self, pair_id: str) -> bool:
         rt = self.runtime.get(pair_id)
-        return rt is None or (rt.task is None and not rt.restoring)
+        return rt is None or (rt.task is None and not rt.restoring and not rt.copying_back)
 
     def _set_lane(self, task: Task, value: Task | None) -> None:
         if task.dry_run:
@@ -1662,6 +1686,8 @@ class Engine(GObject.Object):
                 if task.dry_run and task.mode is not Mode.CHECK:
                     free = free_space(rclone, paths, creds, override)
                     task.bases = jobs.listed_files(paths, pair)
+                    if task.bases is not None:
+                        task.base_counts = tuple(filetree.folder_counts(side) for side in task.bases)
                     task.counts = listings.counts(paths.workdir(pair.id))
             except jobs.Busy as e:
                 result, busy = (None, None, ""), e.paths
@@ -1806,6 +1832,7 @@ class Engine(GObject.Object):
         if task.dry_run:
             if rt.preview is not None and rt.preview.task is task:
                 rt.preview.free_bytes, rt.preview.bases, rt.preview.counts = free, task.bases, task.counts
+                rt.preview.base_counts = task.base_counts
             self.emit("pair-changed", pair.id)
             return False
         rt.stats, rt.transferring = None, []

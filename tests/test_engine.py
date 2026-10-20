@@ -21,7 +21,7 @@ from gi.repository import GLib
 
 from spola import engine as engine_mod
 from spola import trash as trash_mod
-from spola import koofr_api
+from spola import filetree, koofr_api
 from spola.account import Credentials, Quota
 from spola.config import Config, Pair
 from spola.conflicts import decide
@@ -814,6 +814,7 @@ class EngineTest(unittest.TestCase):
         kept, got = self.preview_of("p1")
         self.assertTrue(spin_until(lambda: got, 60))
         self.assertIsNone(kept.bases)
+        self.assertIsNone(kept.base_counts)
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
         kept, got = self.preview_of("p1", Mode.SYNC)
@@ -822,6 +823,9 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(here), 30)
         self.assertEqual(here, there)
         self.assertEqual(here["f07.txt"], 1)
+        # the files of each folder, counted in the preparing thread for the window's trees
+        self.assertEqual(kept.base_counts[0][""], 30)
+        self.assertEqual(kept.base_counts, (filetree.folder_counts(here), filetree.folder_counts(there)))
 
     def test_the_folder_gone_from_koofr_is_said_and_made_again(self):
         # deleted on Koofr (from another computer): Spola stops, says so,
@@ -1085,20 +1089,27 @@ class EngineTest(unittest.TestCase):
         # follow-up after the files the run wrote, under a loaded machine):
         # wait for none, as the window's user would after being told
         idle = lambda: self.engine.active is None and not self.engine.queue     # noqa: E731
+
+        def restore(vid: str, mode: str) -> str:        # in a thread: the answer on the main loop
+            got = []
+            self.engine.restore_version("p1", vid, mode, lambda rel, error: got.append((rel, error)))
+            self.assertTrue(spin_until(lambda: got, 30))
+            self.assertEqual(got[0][1], "", got)
+            return got[0][0]
         # restored as a copy next to the file: on Koofr after the next run
         self.assertTrue(spin_until(idle, 60))
-        rel = self.engine.restore_version("p1", old.id, "copy")
+        rel = restore(old.id, "copy")
         self.assertEqual((self.local / rel).read_text(), "1")
         self.assertTrue(spin_until(lambda: (self.remote / rel).exists() and self.status() is Status.OK, 60))
         self.assertEqual((self.remote / rel).read_text(), "1")
         self.assertEqual((self.local / "f01.txt").read_text(), "from another computer")
         # the deleted one goes back in its place, and up again
         self.assertTrue(spin_until(idle, 60))
-        self.engine.restore_version("p1", idx().deleted_under("")[0].id, "copy")
+        restore(idx().deleted_under("")[0].id, "copy")
         self.assertTrue(spin_until(lambda: (self.remote / "f02.txt").exists() and self.status() is Status.OK, 60))
         # replaced in place: the current file is kept first, so it can be undone
         self.assertTrue(spin_until(idle, 60))
-        self.engine.restore_version("p1", old.id, "replace")
+        restore(old.id, "replace")
         self.assertEqual((self.local / "f01.txt").read_text(), "1")
         self.assertTrue(spin_until(lambda: any(v.reason == "restored" for v in idx().of("f01.txt")), 30))
         self.assertTrue(spin_until(lambda: text_of(self.remote / "f01.txt") == "1" and self.status() is Status.OK, 60))
@@ -1107,18 +1118,43 @@ class EngineTest(unittest.TestCase):
     def test_a_version_is_not_restored_during_a_run(self):
         # rclone may have the file open (on Windows it cannot then be moved
         # aside), and the run's listing would not know what the restore wrote
+        def answer() -> tuple[str, str]:
+            got = []
+            self.engine.restore_version("p1", "any", "copy", lambda rel, error: got.append((rel, error)))
+            self.assertTrue(spin_until(lambda: got, 10))
+            return got[0]
         rt = self.engine.runtime["p1"]
         with mock.patch.object(rt, "run", object()), \
                 mock.patch.object(rt, "task", engine_mod.Task("p1", Mode.SYNC)):
-            with self.assertRaises(ValueError) as caught:
-                self.engine.restore_version("p1", "any", "copy")
-        self.assertEqual(str(caught.exception), engine_mod._("Wait for the current sync to finish."))
+            self.assertEqual(answer(), ("", engine_mod._("Wait for the current sync to finish.")))
+        with mock.patch.object(rt, "task", engine_mod.Task("p1", Mode.SYNC)):         # being prepared
+            self.assertEqual(answer(), ("", engine_mod._("Wait for the current sync to finish.")))
         # a preview (a dry run) writes nothing here: no reason to wait for it
         with mock.patch.object(rt, "run", object()), \
                 mock.patch.object(rt, "task", engine_mod.Task("p1", Mode.SYNC, dry_run=True)):
-            with self.assertRaises(ValueError) as caught:
-                self.engine.restore_version("p1", "any", "copy")
-        self.assertEqual(str(caught.exception), "no such version")
+            self.assertEqual(answer(), ("", "no such version"))
+
+    def test_no_run_of_the_pair_starts_while_a_version_is_put_back(self):
+        import threading
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        gate, got = threading.Event(), []
+
+        def slow_restore(*_args):           # a copy of gigabytes
+            gate.wait(10)
+            return "f00 (version).txt"
+        with mock.patch.object(engine_mod.versions_mod, "restore", slow_restore), \
+                mock.patch.object(self.engine, "versions_index", lambda pid: mock.Mock(by_id=lambda vid: object())):
+            self.engine.restore_version("p1", "v", "copy", lambda rel, error: got.append((rel, error)))
+            (self.local / "new.txt").write_text("x")
+            self.engine.request_sync("p1", "manual")
+            spin_until(lambda: False, 1.5)
+            self.assertIsNone(self.engine.runtime["p1"].run)        # it waits for the copy
+            self.assertEqual(got, [])
+            gate.set()
+            self.assertTrue(spin_until(lambda: got, 10))
+        self.assertEqual(got, [("f00 (version).txt", "")])
+        self.assertTrue(spin_until(lambda: "new.txt" in self.remote_files() and self.status() is Status.OK, 60))
 
     def test_the_copy_not_kept_of_a_conflict_is_kept_among_the_copies(self):
         self.align()

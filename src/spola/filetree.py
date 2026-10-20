@@ -34,11 +34,30 @@ class Node:
     children: list[Node] = field(default_factory=list)
 
 
+def folder_counts(files: Iterable[str]) -> Counter:
+    """How many of these files each folder holds, at any depth ("" is the
+    root). For a side's last listing, tens of thousands of files: counted
+    once, off the main loop, and given to build for every list."""
+    inside = Counter()
+    for path in files:
+        parts = path.split("/")
+        for i in range(1, len(parts)):
+            inside["/".join(parts[:i])] += 1
+        inside[""] += 1
+    return inside
+
+
+def _as_set(files):
+    return files if isinstance(files, (set, frozenset, dict)) else set(files)
+
+
 def build(entries: Iterable[tuple[str, str, str]], sizes: dict[str, int] | None = None,
-          folders: Iterable[str] = (), base: Iterable[str] | None = None) -> list[Node]:
+          folders: Iterable[str] = (), base: Iterable[str] | None = None,
+          base_counts: Counter | None = None) -> list[Node]:
     """`entries`: (path, note, path to show). The top nodes, folders first.
     `base`: the files of that side at the last run, for each folder's total
-    (what share of it the change touches)."""
+    (what share of it the change touches); `base_counts`: folder_counts of
+    them, when already counted."""
     sizes = sizes or {}
     entries = list(entries)
     known_folders = set(folders)
@@ -67,22 +86,21 @@ def build(entries: Iterable[tuple[str, str, str]], sizes: dict[str, int] | None 
     _total(root)
     if base is not None:
         # the files of each folder: those of the last run, with the new ones
-        inside = Counter()
-        for path in set(base) | {n.path for n in index.values() if not n.folder}:
-            parts = path.split("/")
-            for i in range(1, len(parts)):
-                inside["/".join(parts[:i])] += 1
-            inside[""] += 1
+        known = _as_set(base)
+        if base_counts is None:
+            base_counts = folder_counts(known)
+        new = folder_counts(n.path for n in index.values() if not n.folder and n.path not in known)
         for path, node in index.items():
             if node.folder:
-                node.total = inside[path]
+                node.total = base_counts[path] + new[path]
     _tidy(root)
     return root.children
 
 
 def whole(entries: Iterable[str], base: Iterable[str]) -> int:
     """How many files the whole synced folder has, the new ones included."""
-    return len(set(base) | set(entries))
+    known = _as_set(base)
+    return len(known) + len({path for path in entries if path not in known})
 
 
 def share(files: int, total: int) -> str:
