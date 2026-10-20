@@ -459,10 +459,16 @@ class Engine(GObject.Object):
         """Put a kept copy back ("copy": next to the file under a readable
         name; "replace": in its place, the file there now kept aside first).
         Returns the relative path written; OSError or ValueError with the
-        reason. The next sync uploads it: asked for at once."""
+        reason. The next sync uploads it: asked for at once. Refused while a
+        run of the pair is in progress, as resolving a conflict is: rclone
+        may have the file open (on Windows it cannot then be moved aside),
+        and the run's listing would not know what the restore wrote."""
         pair = self.cfg.pair(pair_id)
         if pair is None:
             raise ValueError("no such folder")
+        rt = self.runtime.get(pair_id)
+        if rt is not None and rt.run is not None and not (rt.task and rt.task.dry_run):
+            raise ValueError(_("Wait for the current sync to finish."))
         version = self.versions_index(pair_id).by_id(version_id)
         if version is None:
             raise ValueError("no such version")
