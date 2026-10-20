@@ -36,6 +36,8 @@ class ArgsTest(unittest.TestCase):
         for flag in ("--resync", "--force", "--dry-run", "--check-sync"):
             self.assertNotIn(flag, args)
         self.assertIn("--track-renames", args)
+        # two identical files moved in one run: each to its own place, not at random
+        self.assertEqual(args[args.index("--track-renames-strategy") + 1], "hash,modtime")
         self.assertIn("--ignore-times", args)          # never a Koofr copy deleted ahead of its upload
         self.assertFalse(set(args) & FORBIDDEN_FLAGS)
 
@@ -206,6 +208,7 @@ class ParseTest(unittest.TestCase):
     def test_which_safety_check_stopped_the_run(self):
         out = summarize(1, events("max-delete-abort.jsonl"), "/ROOT/a/", "/ROOT/b/")
         self.assertEqual((out.result, out.safety), (Result.NEEDS_CONFIRMATION, "deletes"))
+        self.assertEqual(out.excess, {"Path2": (1, 4)})         # what bisync counted, for the confirmed run
         line = json.dumps({"level": "error", "object": "Safety abort",
                            "msg": 'Safety abort: all files were changed on Path1 "x". Run with --force if desired.'})
         out = summarize(1, [parse_line(line)], "/ROOT/a/", "/ROOT/b/")
@@ -233,6 +236,11 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(confirmed_max_changes(Plan(upload=[f"f{i}" for i in range(400)]),
                                                ({f"f{i}": 1 for i in range(400)}, {})), 408)
         self.assertEqual(confirmed_max_changes(plan, None), 2)
+        # changed here and on Koofr both: a conflict in the plan, counted all the same
+        self.assertEqual(confirmed_max_changes(Plan(upload=["a"], conflicts=["b", "c"]), bases), 5)
+        # changed here the same way as on Koofr: in no list of the plan; the check's own count rules
+        self.assertEqual(confirmed_max_changes(plan, bases, seen=60), 62)
+        self.assertEqual(confirmed_max_changes(plan, bases, seen=2), 5)
 
     def test_a_confirmed_run_may_delete_what_its_preview_showed_and_little_more(self):
         plan = Plan(delete_remote=["a", "b", "c"], moved_remote=[("d", "e")], delete_local=["f"])
@@ -241,6 +249,9 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(confirmed_max_delete(plan, (3, 3)), 100)          # more than all: capped
         self.assertEqual(confirmed_max_delete(Plan(), (20, 20)), 2)         # nothing to delete: next to none
         self.assertEqual(confirmed_max_delete(plan, None), 100)            # no listing to bound against
+        # gone from both sides: nothing in the plan, but bisync counts them (20 of 40: 50%)
+        self.assertEqual(confirmed_max_delete(Plan(), (40, 40), {"Path1": (20, 40)}), 52)
+        self.assertEqual(confirmed_max_delete(plan, (20, 40), {"Path2": (2, 40)}), 22)
 
     def test_names_bisync_quotes(self):
         # a quote, a backslash or a control character in a name: bisync

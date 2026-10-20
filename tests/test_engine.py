@@ -662,6 +662,66 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(list(self.local.glob("f*.txt"))), 20)       # nothing deleted here
         self.assertEqual(len(self.remote_files()), 15)                     # nor there
 
+    def test_files_gone_from_both_sides_are_confirmed_once(self):
+        # the same files deleted here and on Koofr before the run (a deletion
+        # on the web and here, two computers): bisync counts them for its
+        # deletion check, the preview has nothing to delete for them, and
+        # the confirmed run must go through, not stop again for them
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        self.engine.set_paused("p1", True)
+        for i in range(20):
+            (self.local / f"f{i:02}.txt").unlink()
+            (self.remote / f"f{i:02}.txt").unlink()
+        self.engine.set_paused("p1", False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 60))
+        rt = self.engine.runtime["p1"]
+        self.assertEqual(rt.safety, "deletes")
+        self.assertEqual(rt.last_outcome.excess, {"Path1": (20, 30)})      # what bisync counted
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertTrue(got[0][0].plan.empty)                              # nothing to do for them
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out)))
+        self.assertTrue(spin_until(lambda: results, 60))
+        self.assertIs(results[0].result, Result.OK, results[0].message)
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
+        self.assertEqual(len(self.remote_files()), 10)
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 10)
+
+    def test_files_changed_here_and_some_on_koofr_too_are_confirmed_once(self):
+        # 60 of 90 files changed here (over the 50 that go unasked), 20 of
+        # them changed on Koofr as well: conflicts, which the preview lists
+        # apart from the uploads; the confirmed run must not stop again
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        for i in range(30, 90):
+            (self.local / f"f{i:02}.txt").write_text(str(i))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: len(self.remote_files()) == 90 and self.engine.active is None
+                                   and not self.engine.queue, 60))
+        self.engine.set_paused("p1", True)
+        for i in range(60):
+            (self.local / f"f{i:02}.txt").write_text(f"changed here {i}")
+        for i in range(20):
+            (self.remote / f"f{i:02}.txt").write_text(f"changed on Koofr {i}")
+        self.engine.set_paused("p1", False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 60))
+        rt = self.engine.runtime["p1"]
+        self.assertEqual((rt.safety, rt.safety_changed), ("changes", 60))
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        plan = got[0][0].plan
+        self.assertEqual(len(plan.conflicts), 20)
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True, lambda out, err: results.append(out)))
+        self.assertTrue(spin_until(lambda: results, 120))
+        self.assertIs(results[0].result, Result.OK, results[0].message)
+        self.assertTrue(spin_until(lambda: self.status() is Status.CONFLICTS and not self.engine.queue, 60),
+                        (self.status(), rt.message, [t.reason for t in self.engine.queue], self.engine.active))
+        self.assertEqual(len(self.engine.conflicts("p1")), 20)
+        self.assertEqual((self.remote / "f30.txt").read_text(), "changed here 30")
+
     def test_every_file_changed_is_confirmed_in_two_steps(self):
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))

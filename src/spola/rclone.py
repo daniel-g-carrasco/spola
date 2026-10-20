@@ -226,12 +226,17 @@ def allowed_changes(percent: int, previous_entries: int) -> int:
     return max(MIN_FREE_CHANGES, min(share, MAX_FREE_CHANGES))
 
 
-def confirmed_max_changes(plan: Plan, bases) -> int:
+def confirmed_max_changes(plan: Plan, bases, seen: int = 0) -> int:
     """The files changed here a confirmed preview showed (its uploads of
-    files this computer's listing already had), plus a small margin: what
-    the run that carries it out may find changed, no more."""
+    files this computer's listing already had, and its conflicts: changed
+    here and on Koofr both), plus a small margin: what the run that carries
+    it out may find changed, no more. `seen` is what the check counted when
+    it stopped the run (jobs.changed_here): a file changed here the same way
+    as on Koofr is in neither list of the plan, but counts for the check all
+    the same, and the confirmed run would stop again for it."""
     known = bases[0] if bases else {}
-    changed = sum(1 for path in plan.upload if path in known)
+    changed = sum(1 for path in plan.upload if path in known) + len(plan.conflicts)
+    changed = max(changed, int(seen or 0))
     return changed + max(2, math.ceil(changed * CONFIRMED_MARGIN / 100))
 
 
@@ -241,18 +246,26 @@ def confirmed_max_changes(plan: Plan, bases) -> int:
 CONFIRMED_MARGIN = 2
 
 
-def confirmed_max_delete(plan: Plan, counts: tuple[int, int] | None) -> int:
+def confirmed_max_delete(plan: Plan, counts: tuple[int, int] | None, excess: dict | None = None) -> int:
     """The --max-delete for the run that carries out a confirmed preview:
     the share of each side's entries the preview deletes (moves count as
     deletions there, as bisync counts them), plus a small margin. A run that
     would delete more than that stops again and asks again, instead of
     carrying it out on the strength of a confirmation given for less.
-    Without the listings' counts, nothing to bound against: 100."""
+    Without the listings' counts, nothing to bound against: 100.
+    `excess` is what bisync counted when it stopped the run (Outcome.excess):
+    a file gone from both sides since the last run counts for its check too,
+    but is in no list of the preview (there is nothing to do for it), and
+    a bound taken from the preview alone would stop the confirmed run again,
+    and again at every confirmation."""
     if not counts:
         return 100
     deleted = (len(plan.delete_remote) + len(plan.moved_remote),      # gone here, deleted on Koofr
                len(plan.delete_local) + len(plan.moved_local))       # gone on Koofr, deleted here
     percent = max(math.ceil(100 * n / c) if c else 0 for n, c in zip(deleted, counts, strict=True))
+    for n, c in (excess or {}).values():
+        if c:
+            percent = max(percent, math.ceil(100 * n / c))
     return max(1, min(100, percent + CONFIRMED_MARGIN))
 
 
@@ -332,6 +345,14 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         # still counts as a delete for --max-delete, so a big reorganisation
         # stops for a confirmation as before, with the moves in its preview.
         args.append("--track-renames")
+        # Which file is the moved one, among those with the same size and
+        # MD5: the one with the same modification time (within
+        # --modify-window). By hash alone, two identical files moved in the
+        # same run (a folder reorganised, with copies of a document in it)
+        # are matched at random, and the one moved here keeps the date of
+        # the other: the next run sees it changed, and uploads it again
+        # with the wrong date (737 files on 2026-10-19).
+        args += ["--track-renames-strategy", "hash,modtime"]
         # The files a run queues are copied as they are, without asking
         # first whether the other side has them already. That question is
         # what goes wrong on Koofr: it cannot change a file's date, so for a
@@ -417,6 +438,9 @@ _QUEUE = re.compile(r"^- (Path[12])\s+(Queue (?:copy to Path[12]|delete))\s+- (.
 _CONFLICT = re.compile(r"^- WARNING\s+New or changed in both paths\s+- (.*)$", re.S)
 _EQUAL = re.compile(r"^Files are equal! Skipping: (.*)$", re.S)
 _EMPTY_SIDE = re.compile(r"Empty current (Path[12]) listing")
+# bisync's own count when it stops for too many deletions: the files gone
+# from that side since the last run, and the entries that side had
+_EXCESS = re.compile(r"too many deletes \(>\d+%, (\d+) of (\d+)\) on (Path[12])")
 _RENAME = re.compile(r"^- (Path[12])\s+Renaming Path[12] copy\s+- (.*)$", re.S)
 _PHASE = re.compile(r"^- (Path[12])\s+(?:Resync is copying files to|Do queued copies to)\s+- (Path[12])$")
 # a move by name: "Moved (server-side) to: <new>" (a rename, or bisync's own
@@ -598,6 +622,9 @@ class Outcome:
     empty_side: str = ""
     root_missing: bool = False  # a side's folder is not there (a resync's "directory not found")
     identical: int = 0          # a verification (verify.py): the files the same on both sides
+    # a run stopped for too many deletions: {"Path1": (deleted, entries)}, as
+    # bisync counted them (confirmed_max_delete)
+    excess: dict = field(default_factory=dict)
 
 
 NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection reset",
@@ -729,6 +756,7 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             deletes[:] = [p for p in deletes if p not in olds]
 
     empty_side, root_missing, safety = "", False, ""
+    excess: dict[str, tuple[int, int]] = {}
     for ev in events:
         if (m := _EMPTY_SIDE.search(ev.message)):
             empty_side = m[1]
@@ -736,6 +764,8 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
             root_missing = True
         elif ev.kind is Kind.SAFETY_ABORT:
             safety = "all-changed" if "all files were changed" in ev.message else "deletes"
+            if (m := _EXCESS.search(ev.message)):
+                excess[m[3]] = (int(m[1]), int(m[2]))
 
     kinds = {ev.kind for ev in events}
     if not first_error:
@@ -772,4 +802,5 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
         result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
         setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
-    return Outcome(result, exit_code, first_error, plan, stats, network, safety, empty_side, root_missing)
+    return Outcome(result, exit_code, first_error, plan, stats, network, safety, empty_side, root_missing,
+                   excess=excess)
