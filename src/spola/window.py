@@ -345,8 +345,12 @@ class MainWindow(_WindowBase):
                 return
             try:
                 secrets.clear(user)
-            except GLib.Error:
-                pass
+            except (GLib.Error, OSError) as e:      # the keyring, the Credential Manager
+                # signed out all the same; but Spola would sign in with it at
+                # its next start, so it is said
+                self.toast(_("The app password could not be removed from the keyring: {error}. Spola will sign "
+                             "in with it again at its next start.")
+                           .format(error=getattr(e, "message", None) or str(e)))
             self.engine.set_paused_all(True)
             self.engine.set_credentials(None)
             self.engine.set_paused_all(False)
@@ -1044,14 +1048,20 @@ class ConflictsDialog(Adw.Dialog):
         self.toasts = Adw.ToastOverlay(child=view)
         self.set_child(self.toasts)
         self.group: Adw.PreferencesGroup | None = None
+        self._shown: list[conflicts.Conflict] | None = None
         self._handler = self.engine.connect("pair-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
         self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
         self._fill()
 
     def _fill(self) -> None:
+        items = self.engine.conflicts(self.pair_id)
+        if items == self._shown:
+            # the pair changed in another way (a run's progress, say): the
+            # rows stay, and so does a menu the user has open
+            return
+        self._shown = items
         if self.group is not None:
             self.page.remove(self.group)
-        items = self.engine.conflicts(self.pair_id)
         pair = self.engine.cfg.pair(self.pair_id)
         self.group = Adw.PreferencesGroup(description=_(
             "These files were changed both here and on Koofr before the two versions met: both are kept. "
@@ -1703,8 +1713,14 @@ class VerifyDialog(Adw.Dialog):
         self.set_child(self.nav)
         self._handler = self.engine.connect("pair-changed",
                                             lambda _e, pid: self._changed() if pid == pair_id else None)
-        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self.connect("closed", lambda *_: self._closed())
         self._start()
+
+    def _closed(self) -> None:
+        self.engine.disconnect(self._handler)
+        if self.waiting:
+            # closed while it runs: it goes on, and its result is a notification
+            self.engine.forget_listener(self.pair_id, self._done)
 
     def _start(self, refresh: bool = False) -> None:
         if self.result_group is not None:
@@ -1927,7 +1943,11 @@ class ExclusionsDialog(Adw.Dialog):
     def _save(self) -> None:
         buffer = self.text.get_buffer()
         text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-        changed = self.engine.set_filters(self.pair_id, text)
+        try:
+            changed = self.engine.set_filters(self.pair_id, text)
+        except OSError as e:        # nothing changed: the dialog stays, with the text typed
+            self.window.toast(_("The exclusions could not be saved: {error}").format(error=e.strerror or e))
+            return
         self.close()
         pair = self.engine.cfg.pair(self.pair_id)
         if changed and pair and pair.initialized:
@@ -1937,7 +1957,7 @@ class ExclusionsDialog(Adw.Dialog):
 class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self, window: MainWindow):
         super().__init__(title=_("Preferences"))
-        self.engine = window.engine
+        self.engine, self.window = window.engine, window
         cfg = self.engine.cfg
         page = Adw.PreferencesPage()
 
@@ -2035,6 +2055,14 @@ class PreferencesDialog(Adw.PreferencesDialog):
                 GLib.source_remove(self._days_source)
             self._days_source = GLib.timeout_add(800, lambda: self._backup_days(int(row.get_value()), row) or False)
         days.connect("notify::value", days_changed)
+
+        def closed(*_args):
+            # closed before the value settled: applied now, its word (if any)
+            # on the window, not on a dialog no longer shown
+            if self._days_source:
+                GLib.source_remove(self._days_source)
+                self._backup_days(int(days.get_value()), days, parent=self.window)
+        self.connect("closed", closed)
         group.add(days)
         page.add(group)
 
@@ -2069,7 +2097,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
                     used=GLib.format_size(quota.used or 0), total=GLib.format_size(quota.total)))
         run_in_thread(lambda: account.check(self.engine.rclone, self.engine.paths, creds), done)
 
-    def _backup_days(self, days: int, row) -> None:
+    def _backup_days(self, days: int, row, parent: Gtk.Widget | None = None) -> None:
         self._days_source = 0
         cfg, paths = self.engine.cfg, self.engine.paths
         if days >= cfg.backup_days:
@@ -2100,7 +2128,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             else:
                 row.set_value(cfg.backup_days)
         dialog.connect("response", chosen)
-        dialog.present(self)
+        dialog.present(parent or self)
 
     def _set(self, name: str, value, conditions: bool = False) -> None:
         setattr(self.engine.cfg, name, value)

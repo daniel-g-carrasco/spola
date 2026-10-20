@@ -15,6 +15,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -173,14 +174,28 @@ def read_filters(paths: Paths, pair: Pair) -> str:
 
 def write_filters(paths: Paths, pair: Pair, text: str) -> bool:
     """Store the pair's exclusions; True if they changed (bisync then asks
-    for a new first alignment, which the app shows as a repair preview)."""
+    for a new first alignment, which the app shows as a repair preview).
+    Whole or not at all: half a list of exclusions would let files in that
+    the user keeps out. Raises OSError when it cannot be written."""
     if not text.endswith("\n"):
         text += "\n"
     if text == read_filters(paths, pair):
         return False
     path = paths.filters_file(pair.id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(prefix=".filters-", suffix=".txt", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:     # line ends as ensure_filters writes them
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return True
 
 

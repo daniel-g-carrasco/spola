@@ -106,6 +106,10 @@ class UpdateDialog(Adw.Dialog):
         return False
 
     def _downloaded(self, installer: Path) -> bool:
+        if self._cancel.is_set():
+            # "Later" once the last chunk was in: not started (the file goes
+            # with the other downloads, at the next start)
+            return False
         self.status.set_label(_("Starting the installer…"))
         try:
             # Setup asks Spola to quit (rclone stopped with its state saved),

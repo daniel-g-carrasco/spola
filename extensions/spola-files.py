@@ -15,6 +15,7 @@ slows Files down.
 
 import importlib
 import os
+import sys
 
 import gi
 
@@ -195,7 +196,8 @@ class SpolaProvider(GObject.GObject, *_providers()):
     def _proxy_ready(self, _source, result):
         try:
             self.proxy = Gio.DBusProxy.new_for_bus_finish(result)
-        except GLib.Error:
+        except GLib.Error as e:     # no emblems nor entries until the file manager restarts: said in its log
+            print(f"spola-files: no connection to Spola: {e.message}", file=sys.stderr)
             return
         self.proxy.connect("g-signal", self._on_signal)
         self.proxy.connect("notify::g-name-owner", lambda *_: self._owner_changed())
@@ -428,8 +430,8 @@ class SpolaProvider(GObject.GObject, *_providers()):
                 gi.require_version("Gdk", "3.0")
                 from gi.repository import Gdk, Gtk
                 Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD).set_text(url, -1)
-        except (ImportError, ValueError, AttributeError):
-            pass
+        except (ImportError, ValueError, AttributeError) as e:
+            print(f"spola-files: the link could not be copied: {e}", file=sys.stderr)
 
 
 def _(text):

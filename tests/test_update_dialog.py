@@ -32,6 +32,15 @@ class FocusTest(unittest.TestCase):
         self.assertIs(dialog.get_focus(), dialog.action)
         self.assertIs(dialog.get_default_widget(), dialog.action)
 
+    def test_later_as_the_download_ends_starts_nothing(self):
+        from pathlib import Path
+        from unittest import mock
+        dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", "", []))
+        dialog._cancel.set()            # "Later" (the dialog closed) once the last chunk was in
+        with mock.patch("spola.update_dialog.subprocess.Popen") as popen:
+            dialog._downloaded(Path("spola-setup-v99.0.0-windows-x64.exe"))
+        popen.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

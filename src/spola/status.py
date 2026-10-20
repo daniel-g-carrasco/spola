@@ -22,7 +22,6 @@ from . import __version__
 from .engine import Engine, Status
 from .log import complain
 
-FILE = "status.json"
 FORMAT = 1
 DEBOUNCE_MS = 1000
 HEARTBEAT_S = 60        # written again even when nothing changes: a reader tells a crash from a quiet day
@@ -122,7 +121,7 @@ class StatusFile:
 
     def __init__(self, engine: Engine, path: Path | None = None):
         self.engine = engine
-        self.path = path or engine.paths.state / FILE
+        self.path = path or engine.paths.status_file
         self._source = 0
         self._handlers = [engine.connect(signal, self._changed)
                           for signal in ("status-changed", "pair-changed", "pairs-changed", "run-finished")]

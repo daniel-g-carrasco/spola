@@ -3072,3 +3072,18 @@ msgstr[1] "{n} file dell'account letti finora"
 #: src/spola/window.py
 msgid "Koofr's trash could not be read entirely"
 msgstr "Impossibile leggere tutto il cestino di Koofr"
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "The app password could not be removed from the keyring: {error}. Spola will sign in with it again at its next start."
+msgstr "Non è stato possibile togliere la password per applicazioni dal portachiavi: {error}. Al prossimo avvio Spola la userà per accedere di nuovo."
+
+#: src/spola/window.py
+#, python-brace-format
+msgid "The exclusions could not be saved: {error}"
+msgstr "Non è stato possibile salvare le esclusioni: {error}"
+
+#: src/spola/cli.py
+#, python-brace-format
+msgid "Cannot tell whether Spola is running ({error}): make sure it is not."
+msgstr "Impossibile sapere se Spola è in esecuzione ({error}): assicurati che non lo sia."

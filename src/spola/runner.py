@@ -44,6 +44,35 @@ class PairBusy(Exception):
     """Another Spola process (GUI or CLI) is already running this pair."""
 
 
+def take_pair_lock(lock_path: Path) -> int:
+    """The pair's lock, held through the returned descriptor until
+    release_pair_lock; PairBusy if another process holds it."""
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | (os.O_NOINHERIT if WINDOWS else os.O_CLOEXEC), 0o600)
+    if WINDOWS:
+        taken = win32.lock(fd)
+    else:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            taken = True
+        except BlockingIOError:
+            taken = False
+    if not taken:
+        os.close(fd)
+        raise PairBusy(str(lock_path))
+    os.ftruncate(fd, 0)
+    os.write(fd, f"{os.getpid()}\n".encode())
+    return fd
+
+
+def release_pair_lock(fd: int) -> None:
+    if WINDOWS:
+        win32.unlock(fd)
+    else:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    os.close(fd)
+
+
 class BisyncRun:
     def __init__(self, argv: list[str], env: dict, lock_path: Path, log_dir: Path,
                  path1: str, path2: str,
@@ -140,30 +169,11 @@ class BisyncRun:
     # -- internals -----------------------------------------------------------
 
     def _take_lock(self) -> None:
-        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.lock_path, os.O_RDWR | os.O_CREAT | (os.O_NOINHERIT if WINDOWS else os.O_CLOEXEC), 0o600)
-        if WINDOWS:
-            taken = win32.lock(fd)
-        else:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                taken = True
-            except BlockingIOError:
-                taken = False
-        if not taken:
-            os.close(fd)
-            raise PairBusy(str(self.lock_path))
-        os.ftruncate(fd, 0)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        self._lock_fd = fd
+        self._lock_fd = take_pair_lock(self.lock_path)
 
     def _release_lock(self) -> None:
         if self._lock_fd is not None:
-            if WINDOWS:
-                win32.unlock(self._lock_fd)
-            else:
-                fcntl.flock(self._lock_fd, fcntl.LOCK_UN)
-            os.close(self._lock_fd)
+            release_pair_lock(self._lock_fd)
             self._lock_fd = None
 
     def _read(self) -> None:

@@ -716,8 +716,12 @@ class Engine(GObject.Object):
 
     def set_credentials(self, creds: Credentials | None) -> None:
         self.creds = creds
-        listeners = self.trash_read.listeners
-        self.trash_read = TrashRead(generation=self.trash_read.generation + 1)    # another account, or none
+        # another account, or none: a reading still going is superseded (its
+        # pages and its end unheard, its loop stopped), its listeners told once
+        old = self.trash_read
+        listeners, old.listeners = old.listeners, []
+        old.generation += 1
+        self.trash_read = TrashRead(generation=old.generation)
         for listener in listeners:
             GLib.idle_add(lambda f=listener: f([], True, _("Sign in to Koofr first.")) and False)
         if creds:
