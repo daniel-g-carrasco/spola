@@ -2,7 +2,8 @@
 notifications, through Shell_NotifyIcon (ctypes, no extra module).
 
 The same interface as tray.TrayIcon (the D-Bus StatusNotifierItem of Linux
-desktops), so the app drives both the same way. The menu is built when it
+desktops), so the app drives both the same way, plus notify(): on Linux the
+app sends its notifications through GApplication. The menu is built when it
 is opened, from the items of that moment: a click can never land on an item
 that has moved. A notification is a balloon of the icon, which Windows 10
 and 11 show as a toast; a click on it calls back.

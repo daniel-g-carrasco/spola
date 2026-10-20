@@ -419,7 +419,9 @@ class Engine(GObject.Object):
         return False
 
     def prune_now(self) -> None:
-        """The retention just shortened: apply it, in a thread (rmtree of gigabytes)."""
+        """The backups past their retention removed, with rclone's leftover
+        fragments, in a thread (an rmtree of gigabytes): a minute after the
+        start, once a day, and at once when the retention is shortened."""
         threading.Thread(target=self._prune_backups, name="prune-backups", daemon=True).start()
 
     # -- previous versions (the copies kept here) ---------------------------------
