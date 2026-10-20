@@ -50,6 +50,12 @@ class Paths:
         return self.config / "config.json"
 
     @property
+    def status_file(self) -> Path:
+        # status.py: what the running app is doing, written again every minute
+        # (not on Windows), for the Noctalia plugin and the command line
+        return self.state / "status.json"
+
+    @property
     def rclone_config(self) -> Path:
         # Deliberately a file that never exists: rclone then keeps its config
         # in memory (the remote comes from environment variables) and never

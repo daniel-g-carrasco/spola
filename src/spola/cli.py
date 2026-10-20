@@ -16,6 +16,7 @@ import argparse
 import getpass
 import os
 import sys
+import time
 from pathlib import Path
 
 from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_api, listings, preflight, verify
@@ -24,15 +25,19 @@ from .i18n import _, ngettext
 from .paths import Paths
 from .rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
                      default_excluded, find_rclone, koofr_env, summarize as rclone_summarize)
-from .runner import BisyncRun, PairBusy
+from .runner import BisyncRun, PairBusy, release_pair_lock, take_pair_lock
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync", "verify",
             "import-koofr-desktop", "forget-windows")
 # Developer aid, as in the app: the Koofr side becomes a local folder
 DEV_REMOTE = os.environ.get("SPOLA_DEV_REMOTE") or None
+STATUS_FRESH_S = 3 * 60     # the running app writes its status file every minute
 
 
-def _app_running() -> bool:
+def _app_running(paths: Paths) -> bool:
+    """Whether Spola runs: its name on the session bus. Without a bus to
+    ask, its status file written lately (not on Windows) answers; without
+    that either, a word on stderr rather than a silent no."""
     try:
         from gi.repository import Gio, GLib
         bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
@@ -40,7 +45,14 @@ def _app_running() -> bool:
                               "NameHasOwner", GLib.Variant("(s)", (APP_ID,)), None,
                               Gio.DBusCallFlags.NONE, 2000, None)
         return bool(reply.unpack()[0])
-    except Exception:
+    except Exception as e:
+        try:
+            if time.time() - paths.status_file.stat().st_mtime < STATUS_FRESH_S:
+                return True
+        except OSError:
+            pass
+        print(_("Cannot tell whether Spola is running ({error}): make sure it is not.").format(error=e),
+              file=sys.stderr)
         return False
 
 
@@ -227,7 +239,7 @@ def main(argv: list[str]) -> int:
     # between them: the window does it, or Spola quits first
     touches_pair = args.command in ("login", "logout", "add", "remove", "align", "repair", "import-koofr-desktop",
                                     "sync", "preview", "verify")
-    if touches_pair and _app_running():
+    if touches_pair and _app_running(paths):
         return _fail(_("Spola is running: use its window, or quit it first."))
 
     if args.command == "login":
@@ -319,9 +331,18 @@ def main(argv: list[str]) -> int:
         return _fail(_("No such pair: {key}").format(key=args.pair))
 
     if args.command == "remove":
-        cfg.pairs.remove(pair)
-        _save(cfg, paths)
-        preflight.release_root(pair)
+        # under the pair's lock: a run of it in another process keeps its
+        # state until it is over (then no run finds the pair any more)
+        try:
+            lock = take_pair_lock(paths.lock_file(pair.id))
+        except PairBusy:
+            return _fail(_("This folder is being synced by another Spola process."))
+        try:
+            cfg.pairs.remove(pair)
+            _save(cfg, paths)
+            preflight.release_root(pair)
+        finally:
+            release_pair_lock(lock)
         paths.forget(pair.id)
         print(_("Removed. No file was deleted."))
         return 0

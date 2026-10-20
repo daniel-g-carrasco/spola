@@ -22,6 +22,7 @@ from .dbus_service import SyncService  # noqa: E402
 from .status import StatusFile  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _  # noqa: E402
+from .log import complain  # noqa: E402
 from .paths import Paths, in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
 from .ui import progress_text, run_in_thread, status_badge, status_text, time_left, tray_icon  # noqa: E402
@@ -199,8 +200,8 @@ class SpolaApp(Adw.Application):
         if self.engine.cfg.nautilus_integration and not WINDOWS:
             try:
                 file_managers.install()      # a newer Spola brings a newer extension
-            except (OSError, FileNotFoundError):
-                pass
+            except OSError as e:        # said; the extension already there keeps working
+                complain("updating the file manager extension", e)
         if WINDOWS:
             # once a day, a while after start: the syncs come first
             GLib.timeout_add_seconds(UPDATE_CHECK_DELAY_S, self._daily_update_check)
@@ -261,7 +262,10 @@ class SpolaApp(Adw.Application):
 
         def inhibit(reason):
             cookie = self.sleep.inhibit(reason)
-            return ("logind", cookie) if cookie else ("desktop", desktop(reason))
+            if cookie:
+                return ("logind", cookie)
+            cookie = desktop(reason)
+            return ("desktop", cookie) if cookie else 0     # 0: no lock, nothing to release after
 
         def uninhibit(cookie):
             kind, value = cookie
@@ -275,15 +279,17 @@ class SpolaApp(Adw.Application):
         user = self.engine.cfg.user
         if not user or self.engine.rclone is None:
             return
+        # said when it fails: the window then only shows "Not signed in"
         try:
             password = secrets.lookup(user)
-        except GLib.Error:
+        except (GLib.Error, OSError) as e:      # the keyring, the Credential Manager
+            complain("reading the Koofr password", e)
             password = None
         if password:
             try:
                 self.engine.set_credentials(Credentials.from_password(user, password, self.engine.rclone))
-            except Exception:
-                pass
+            except Exception as e:
+                complain("using the Koofr password", e)
 
     def do_command_line(self, command_line):
         options = command_line.get_options_dict()
@@ -307,8 +313,8 @@ class SpolaApp(Adw.Application):
             from . import explorer
             try:
                 explorer.register(sys.executable, self.engine.cfg.pairs if self.engine.cfg.explorer_menu else [])
-            except OSError:
-                pass
+            except OSError as e:        # said; the entries of before stay
+                complain("writing File Explorer's entries", e)
 
     def _in_pair(self, path: str):
         from . import explorer
@@ -371,7 +377,7 @@ class SpolaApp(Adw.Application):
                 self._tell(str(error))
                 return
             Gdk.Display.get_default().get_clipboard().set(url)
-            self.tray.notify(_("Koofr link copied"), url)
+            self._tell(url, title=_("Koofr link copied"))
 
         run_in_thread(work, done)
 
@@ -585,11 +591,11 @@ class SpolaApp(Adw.Application):
         dialog.connect("response", lambda _d, r: window.get_clipboard().set(url) if r == "copy" else None)
         dialog.present(window)
 
-    def _tell(self, message: str) -> None:
+    def _tell(self, message: str, title: str = APP_NAME) -> None:
         if WINDOWS:
-            self.tray.notify(APP_NAME, message)
+            self.tray.notify(title, message)
             return
-        note = Gio.Notification.new(APP_NAME)
+        note = Gio.Notification.new(title)
         note.set_body(message)
         self.send_notification("file-manager", note)
 

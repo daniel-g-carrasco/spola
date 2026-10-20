@@ -1177,6 +1177,32 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: found, 10))
         self.assertEqual(sum(len(d.entries) for d in found[0][0]), 9)
 
+    def test_a_sign_out_during_a_trash_reading_is_told_once(self):
+        import threading
+        entry = lambda i: trash_mod.Entry("m", f"/test/f{i}.txt", 1, 1_800_000_000_000 - i)      # noqa: E731
+        gate = threading.Event()
+
+        class Api:
+            calls = []
+
+            def page(self, cursor):
+                self.calls.append(cursor)
+                if cursor:                  # the second page comes after the sign-out
+                    gate.wait(10)
+                n = int(cursor or 1)
+                return [entry(n * 10 + i) for i in range(3)], str(n + 1)
+        api = Api()
+        self.engine.koofr_trash = lambda creds: api
+        seen = []
+        self.engine.trash_entries(lambda entries, done, error: seen.append((len(entries), done, error)))
+        self.assertTrue(spin_until(lambda: (3, False, "") in seen, 10), seen)      # the first page shown
+        self.engine.set_credentials(None)
+        gate.set()
+        spin_until(lambda: False, 1)        # the reading of the account signed out from ends meanwhile
+        told = (0, True, engine_mod._("Sign in to Koofr first."))
+        self.assertEqual(([s for s in seen if s[1]], seen[-1]), ([told], told))      # once, and nothing after
+        self.assertEqual(api.calls, [None, "2"])                                    # its loop stopped too
+
     def test_a_verification_compares_both_sides_and_changes_nothing(self):
         rt = self.engine.runtime["p1"]
         self.align()
