@@ -422,6 +422,38 @@ class RefusedPathsTest(unittest.TestCase):
         self.assertEqual(exclude_lines([Refused("d \U0001F334", True, "emoji"), Refused("f.txt", False, "emoji")]),
                          "/d \U0001F334/**\n/f.txt\n")
         self.assertEqual(exclude_lines([]), "")
+        # a control character (a newline in a Linux name, as for a file being
+        # written left out of a run) stays one rule, not two
+        self.assertEqual(exclude_lines([Refused("a\nb.txt", False, "busy")]), "/a?b.txt\n")
+
+
+@unittest.skipUnless(_setup.WINDOWS, "NTFS junctions")
+class JunctionTest(unittest.TestCase):
+    def test_spola_does_not_go_through_a_junction_rclone_skips(self):
+        # rclone (--skip-links) never goes through an NTFS junction; Spola's
+        # own walks went in, and saw files no run syncs (B-02)
+        import subprocess
+        from spola import jobs
+        with tempfile.TemporaryDirectory() as tmp:
+            root, outside = Path(tmp) / "pair", Path(tmp) / "outside"
+            (root / "sub").mkdir(parents=True)
+            outside.mkdir()
+            (root / "sub" / "a.txt").write_text("a")
+            (outside / "b \U0001F334.txt").write_text("b")          # a name Koofr would refuse, too
+            link = root / "giunzione"
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(link).replace("/", chr(92)),
+                                   str(outside).replace("/", chr(92))], capture_output=True)
+            self.assertEqual(made.returncode, 0, made.stderr)
+            try:
+                self.assertTrue(os.path.isjunction(link))
+                self.assertEqual(jobs.local_files(str(root)), {"sub/a.txt"})
+                new, known = jobs.being_written(str(root), [], time.time())
+                self.assertEqual(known, [])
+                self.assertFalse(any("giunzione" in str(p) for p in new))
+                self.assertEqual(refused_paths(str(root), "/pair", frozenset()), [])
+                self.assertEqual(scan_names(str(root), "/pair"), [])
+            finally:
+                os.rmdir(link)                                         # the junction only, not its target
 
 
 if __name__ == "__main__":

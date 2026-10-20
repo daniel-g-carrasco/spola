@@ -11,7 +11,9 @@ be asked to do, so every rule about when a run may start lives here:
 from __future__ import annotations
 
 import os
+import re
 import shutil
+import stat
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -25,7 +27,7 @@ from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_
 from .i18n import _, translation_for
 from .koofr_api import user_agent
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, allowed_changes, conflict_suffix, default_excluded,
-                     effective_max_delete, exclude_lines, filter_escape, no_window, remote_spec,
+                     effective_max_delete, exclude_lines, excluded_by, no_window, remote_spec,
                      reserved_exclude_lines,
                      windows_reserved_names_matter)
 
@@ -131,7 +133,8 @@ def being_written(root: str, previous: list[listings.Entry], now: float,
         for item in items:
             rel = prefix + item.name
             try:
-                if item.is_symlink():
+                # links and NTFS junctions: rclone (--skip-links) never goes through them
+                if item.is_symlink() or item.is_junction():
                     continue
                 if item.is_dir():
                     if not default_excluded(rel + "/"):
@@ -188,7 +191,10 @@ def local_files(root: str) -> set[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir + "/"
-        dirnames[:] = [d for d in dirnames if not default_excluded(f"{rel_dir}{d}/")]
+        # os.walk goes into an NTFS junction (it is no symlink to it); rclone
+        # (--skip-links) does not
+        dirnames[:] = [d for d in dirnames if not default_excluded(f"{rel_dir}{d}/")
+                       and not os.path.isjunction(os.path.join(dirpath, d))]
         found.update(f"{rel_dir}{f}" for f in filenames if not default_excluded(f"{rel_dir}{f}"))
     return found
 
@@ -295,7 +301,9 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         if len(changed) > allowed:
             raise TooManyChanges(len(changed), sum(1 for e in previous if not e.is_dir), changed[:5])
     exclude_file = None
-    lines = exclude_lines(refused) + "".join(filter_escape(path) + "\n" for path in busy)
+    # the files being written as the refused names: a control character (a
+    # newline in a Linux name) becomes "?", or it would split the rule in two
+    lines = exclude_lines(refused) + exclude_lines([Refused(path, False, "busy") for path in busy])
     if windows_reserved_names_matter():
         lines += reserved_exclude_lines()       # Windows 10's device names, on both sides
     if lines:
@@ -431,6 +439,42 @@ def backups_older_than(paths: Paths, pair_id: str, days: int, now: float | None 
                     except OSError:
                         pass
     return runs, size
+
+
+# rclone's fragment of a download cut short (a crash, a kill, the power
+# gone): "<name>.<8 hex>.partial" next to the file, left out of every run
+# by DEFAULT_EXCLUDES' "*.partial", and never removed by rclone itself
+RCLONE_PARTIAL = re.compile(r"\.[0-9a-f]{8}\.partial$")
+PARTIAL_MAX_AGE_S = 86400
+
+
+def remove_stale_partials(root: str, excluded=(), now: float | None = None) -> int:
+    """rclone's fragments under the pair's folder older than a day (one of a
+    download in progress is younger), removed; returns how many. Only that
+    exact form of name, only plain files, only in the folders rclone writes
+    to: not in the excluded ones (`excluded`: the pair's exclusion
+    patterns, exclusion_patterns), links or junctions."""
+    now = time.time() if now is None else now
+    removed = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
+        rel_dir = "" if rel_dir == "." else rel_dir + "/"
+        dirnames[:] = [d for d in dirnames
+                       if not default_excluded(f"{rel_dir}{d}/") and not excluded_by(f"{rel_dir}{d}/", excluded)
+                       and not os.path.islink(os.path.join(dirpath, d))
+                       and not os.path.isjunction(os.path.join(dirpath, d))]
+        for name in filenames:
+            if not RCLONE_PARTIAL.search(name):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                st = os.lstat(path)
+                if stat.S_ISREG(st.st_mode) and now - st.st_mtime > PARTIAL_MAX_AGE_S:
+                    os.remove(path)
+                    removed += 1
+            except OSError:
+                pass
+    return removed
 
 
 def prune_backups(paths: Paths, pair_id: str, days: int, now: float | None = None) -> int:

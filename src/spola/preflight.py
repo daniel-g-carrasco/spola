@@ -461,6 +461,8 @@ def scan_names(root: str, remote_root: str = "/", limit: int = 200,
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root)
         rel_dir = "" if rel_dir == "." else rel_dir
+        # an NTFS junction is never synced (rclone --skip-links): not looked into either
+        dirnames[:] = [d for d in dirnames if not os.path.isjunction(os.path.join(dirpath, d))]
         dirnames[:] = [d for d in dirnames if not skip(os.path.join(rel_dir, d) + "/")]
         seen: dict[str, str] = {}
         for name in dirnames + filenames:
@@ -503,6 +505,8 @@ def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = fro
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root)
         rel_dir = "" if rel_dir == "." else rel_dir
+        # an NTFS junction is never synced (rclone --skip-links): its names are none of Koofr's business
+        dirnames[:] = [d for d in dirnames if not os.path.isjunction(os.path.join(dirpath, d))]
         keep_dirs = []
         groups: dict[str, list[tuple[str, bool]]] = {}
         for name, is_dir in [(d, True) for d in dirnames] + [(f, False) for f in filenames]:
