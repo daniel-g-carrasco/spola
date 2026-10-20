@@ -69,6 +69,24 @@ def _ssl_context():
     return context
 
 
+class _PasswordStaysHome(urllib.request.HTTPRedirectHandler):
+    """urllib passes every header on to wherever a redirect leads, the app
+    password too: here it follows only to the same host, over https."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new is not None:
+            was, now = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(new.full_url)
+            if now.scheme != "https" or now.netloc != was.netloc:
+                new.remove_header("Authorization")
+        return new
+
+
+def _open(request: urllib.request.Request, timeout: float):
+    opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_context()), _PasswordStaysHome())
+    return opener.open(request, timeout=timeout)
+
+
 def _get(user: str, password: str, path: str, params: dict | None = None) -> dict:
     url = KOOFR_WEB + path + ("?" + urllib.parse.urlencode(params) if params else "")
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
@@ -76,7 +94,7 @@ def _get(user: str, password: str, path: str, params: dict | None = None) -> dic
         "Authorization": f"Basic {token}", "Accept": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT, context=_ssl_context()) as response:
+        with _open(request, TIMEOUT) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as e:
         raise ApiError(f"HTTP {e.code} for {path}") from None
@@ -91,7 +109,7 @@ def _post_json(user: str, password: str, path: str, body: dict) -> dict:
         "Authorization": f"Basic {token}", "Content-Type": "application/json", "Accept": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=120, context=_ssl_context()) as response:
+        with _open(request, 120) as response:
             text = response.read()
             return json.loads(text) if text else {}
     except urllib.error.HTTPError as e:
@@ -109,7 +127,7 @@ def _post(user: str, password: str, path: str, params: dict, body: dict) -> None
         "Authorization": f"Basic {token}", "Content-Type": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT, context=_ssl_context()):
+        with _open(request, TIMEOUT):
             pass
     except urllib.error.HTTPError as e:
         raise ApiError(f"HTTP {e.code} for {path}") from None

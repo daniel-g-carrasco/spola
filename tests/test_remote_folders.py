@@ -102,7 +102,8 @@ class RemoteFoldersTest(unittest.TestCase):
 
 
 class ApiTest(unittest.TestCase):
-    """The two REST calls, against a fake urlopen: the right URL, method and body."""
+    """The two REST calls, against a fake opener (nothing reaches Koofr):
+    the right URL, method and body."""
 
     def test_list_and_create(self):
         requests = []
@@ -120,12 +121,12 @@ class ApiTest(unittest.TestCase):
             def __exit__(self, *exc):
                 return False
 
-        def urlopen(request, timeout, context=None):
+        def fake_open(request, timeout):
             requests.append(request)
             files = [{"name": "b", "type": "dir"}, {"name": "A", "type": "dir"}, {"name": "x.txt", "type": "file"}]
             return Response(json.dumps({"files": files}).encode())
 
-        with mock.patch("urllib.request.urlopen", urlopen):
+        with mock.patch.object(koofr_api, "_open", fake_open):
             self.assertEqual(koofr_api.list_folders("u", "p", "m-1", "/data work"), ["A", "b"])
             koofr_api.create_folder("u", "p", "m-1", "/data work", "New")
         get, post = requests

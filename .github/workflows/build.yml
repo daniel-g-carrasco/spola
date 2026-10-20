@@ -7,6 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# read-only for every job: only "release" below writes (the release itself);
+# the tests, which run a downloaded rclone, get no token that writes
+permissions:
+  contents: read
+
 jobs:
   test:
     uses: ./.github/workflows/test.yml
@@ -19,7 +24,9 @@ jobs:
     container:
       image: registry.fedoraproject.org/fedora:44
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install the KDE Frameworks headers
         run: dnf -y install --setopt=install_weak_deps=False cmake extra-cmake-modules gcc-c++ kf6-kio-devel qt6-qtbase-devel
       - name: Build and install for a user, as the README says
@@ -36,7 +43,9 @@ jobs:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install the Go SDK extension (rclone is built from source)
         run: flatpak install -y --noninteractive flathub org.freedesktop.Sdk.Extension.golang//25.08
       - name: Build
@@ -45,7 +54,7 @@ jobs:
             build-dir build-aux/flatpak/io.github.daniel_g_carrasco.spola.yaml
           flatpak build-bundle repo spola.flatpak io.github.daniel_g_carrasco.spola stable \
             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: spola-flatpak
           path: spola.flatpak
@@ -57,7 +66,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: spola-flatpak
       - name: Publish the release

@@ -45,6 +45,11 @@ DOWNLOAD_FOLDER_PREFIX = "spola-update-"
 PUBLIC_KEY = "RWQnErzpJyMPROWGTtWUJRvxMHh8hdPaJU+NhzmlE7SNKlnpn8tGNYH3"
 SIGNATURE_SUFFIX = ".minisig"
 SIGNATURE_MAX_BYTES = 4096
+# what is read at most: GitHub's answer about a release (a few tens of KB),
+# an installer whose size the release does not give
+RELEASE_MAX_BYTES = 2**20
+INSTALLER_MAX_BYTES = 512 * 2**20
+CHUNK = 256 * 1024
 
 
 class UpdateError(Exception):
@@ -119,7 +124,10 @@ def latest_release(timeout: float = 15.0) -> Release:
         url = os.environ.get("SPOLA_DEV_RELEASE_API") or url
     try:
         with _get(url, timeout) as response:
-            data = json.load(response)
+            raw = response.read(RELEASE_MAX_BYTES + 1)
+        if len(raw) > RELEASE_MAX_BYTES:
+            raise UpdateError(_("unexpected answer from GitHub"))
+        data = json.loads(raw)
     except urllib.error.HTTPError as e:
         raise UpdateError(_("GitHub answered {code}").format(code=e.code)) from None
     except (urllib.error.URLError, OSError, ValueError) as e:
@@ -213,13 +221,16 @@ def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | No
             signature = response.read(SIGNATURE_MAX_BYTES).decode("utf-8", "replace")
         with _get(asset.url, 30) as response, open(part, "wb") as out:
             total = int(response.headers.get("Content-Length") or asset.size or 0)
+            limit = asset.size or INSTALLER_MAX_BYTES
             done = 0
             while True:
                 if cancelled is not None and cancelled.is_set():
                     raise UpdateError(_("cancelled"))
-                chunk = response.read(256 * 1024)
+                chunk = response.read(CHUNK)
                 if not chunk:
                     break
+                if done + len(chunk) > limit:       # more than the release says: no disk filled with it
+                    raise UpdateError(_("the file downloaded does not match the release: not started"))
                 out.write(chunk)
                 digest.update(chunk)
                 signed.update(chunk)

@@ -4,9 +4,11 @@ own changes ignored, a full page treated as "everything changed"."""
 
 import itertools
 import unittest
+import urllib.request
 
 import _setup  # noqa: F401
 
+from spola import koofr_api
 from spola.config import Pair
 from spola.koofr_api import ACTIVITY_LIMIT, Activity, folder_url, touched_pairs, user_agent, web_url
 
@@ -63,6 +65,17 @@ class TouchedPairsTest(unittest.TestCase):
         self.assertEqual(folder_url("m-1", "/data/imports", "a.jpg"), base + "%2Fdata%2Fimports")
         self.assertEqual(folder_url("m-1", "/", "a.jpg"), base + "%2F")
         self.assertEqual(web_url("", "/x"), "https://app.koofr.net/app/storage")
+
+
+class RedirectTest(unittest.TestCase):
+    def test_the_password_follows_a_redirect_only_to_the_same_host_over_https(self):
+        def follow(newurl):
+            request = urllib.request.Request("https://app.koofr.net/api/v2/mounts",
+                                             headers={"Authorization": "Basic secret"})
+            return koofr_api._PasswordStaysHome().redirect_request(request, None, 302, "Found", {}, newurl)
+        self.assertEqual(follow("https://app.koofr.net/api/v2/mounts/").get_header("Authorization"), "Basic secret")
+        self.assertIsNone(follow("https://elsewhere.example/api").get_header("Authorization"))
+        self.assertIsNone(follow("http://app.koofr.net/api/v2/mounts").get_header("Authorization"))
 
 
 if __name__ == "__main__":
