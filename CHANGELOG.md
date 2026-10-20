@@ -8,6 +8,26 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-10-20
+
+### Fixed
+- The window no longer stops for seconds with big folders: the lists of a
+  preview, restoring a kept copy or opening one, the backups a shorter
+  retention would delete, the troubleshooting text of "About", "Recently
+  Deleted Files" while Koofr's trash is read, and a folder's page during a
+  sync. On Linux, the folders to watch are found without stopping it.
+- Windows: Add Folder offers "Same place as on this computer" on Koofr,
+  which it never did on Windows; the window shows the home folder as "~"
+  and groups the synced folders by where they are.
+- Linux: a file whose name is not UTF-8 no longer takes away the emblems
+  of every file in its folder.
+- The kept copies said that Koofr keeps no older versions: it does (120
+  days on free accounts, up to two years on paid ones), also of the files
+  Spola replaces there.
+
+### Changed
+- No sync of a folder starts while a kept copy is put back in it.
+
 ## [0.3.32] - 2026-10-20
 
 ### Fixed
@@ -559,7 +579,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.32...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.33...main
+[0.3.33]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.33
 [0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32
 [0.3.31]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.31
 [0.3.30]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.30
