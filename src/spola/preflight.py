@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .config import Config, Pair, normalize_remote
 from .i18n import _
+from .places import remote_within, within
 
 # Koofr limits (koofr.eu help pages): 255 characters per name, 1023 per path,
 # nothing outside the Unicode Basic Multilingual Plane (most emoji).
@@ -46,16 +47,6 @@ def _real(path: str) -> str:
     return os.path.realpath(os.path.abspath(path))
 
 
-def _is_within(child: str, parent: str) -> bool:
-    if os.name == "nt":
-        # C:\Users\me and c:/users/ME are the same folder (MSYS2's Python,
-        # which the Windows build uses, writes "/" itself)
-        child, parent = (p.replace("\\", "/").casefold().rstrip("/") for p in (child, parent))
-        return child == parent or child.startswith(parent + "/")
-    child, parent = child.rstrip("/") or "/", parent.rstrip("/") or "/"
-    return child == parent or child.startswith(parent + "/") or parent == "/"
-
-
 def home_dir(environ=None) -> str:
     environ = os.environ if environ is None else environ
     if os.name == "nt":
@@ -72,9 +63,9 @@ PROTECTED_IN_PROFILE = ("appdata", ".koofr", ".ssh", ".config", ".cache")
 def _check_windows_root(real: str, home: str, path: str) -> list[Problem]:
     """The same rules as on Linux: inside the profile but not its app data,
     or on another drive than Windows' own (not a drive's root)."""
-    if _is_within(home, real):
+    if within(home, real):
         return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]
-    if _is_within(real, home):
+    if within(real, home):
         first = os.path.relpath(real, home).replace("\\", "/").split("/")[0].casefold()
         if first in PROTECTED_IN_PROFILE:
             return [Problem("protected", _("This folder holds settings and data of the system or of other apps and cannot be synced."), path)]
@@ -99,15 +90,15 @@ def check_local_root(path: str, home: str | None = None) -> list[Problem]:
 
     if os.name == "nt":
         return _check_windows_root(real, home, path)
-    if _is_within(home, real):
+    if within(home, real):
         # "/" , "/var", "/var/home", the home folder itself...
         return [Problem("too-broad", _("This folder contains your whole home folder: choose a folder inside it."), path)]
-    if _is_within(real, home):
+    if within(real, home):
         rel = os.path.relpath(real, home).split("/")[0]
         if rel in PROTECTED_IN_HOME:
             return [Problem("protected", _("This folder holds settings and data of the system or of other apps and cannot be synced."), path)]
         return []
-    if any(_is_within(real, allowed) and real.rstrip("/") != allowed for allowed in ALLOWED_OUTSIDE_HOME):
+    if any(within(real, allowed) and real.rstrip("/") != allowed for allowed in ALLOWED_OUTSIDE_HOME):
         return []
     return [Problem("outside-home", _("Only folders inside your home folder or on removable drives can be synced."), path)]
 
@@ -121,10 +112,9 @@ def check_overlap(local: str, remote: str, cfg: Config, ignore_id: str | None = 
         if other.id == ignore_id:
             continue
         other_real = _real(other.local)
-        if _is_within(real, other_real) or _is_within(other_real, real):
+        if within(real, other_real) or within(other_real, real):
             problems.append(Problem("local-overlap", _("This folder overlaps with the folder of another pair."), other.local))
-        theirs, ours = other.remote.casefold(), remote.casefold()     # Koofr ignores case
-        if _is_within(ours, theirs) or _is_within(theirs, ours):
+        if remote_within(remote, other.remote) or remote_within(other.remote, remote):     # Koofr ignores case
             problems.append(Problem("remote-overlap", _("This Koofr folder overlaps with the Koofr folder of another pair."), other.remote))
     return problems
 
@@ -296,7 +286,7 @@ def check_koofr_desktop(local: str, config_path: Path, active: bool | None = Non
         if s.get("paused"):
             continue
         theirs = _real(s["localPath"])
-        if _is_within(real, theirs) or _is_within(theirs, real):
+        if within(real, theirs) or within(theirs, real):
             problems.append(Problem(
                 "koofr-desktop",
                 _("Koofr Desktop is syncing this folder too: two sync engines on the same files lose files. "

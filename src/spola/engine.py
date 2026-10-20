@@ -48,7 +48,8 @@ from .config import Config, Pair
 from .i18n import _, count, every_translation, ngettext
 from .log import complain
 from .paths import Paths
-from .rclone import (Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
+from .rclone import (MODIFY_WINDOW_NS, Event, Kind, Mode, Outcome, Result, bisync_args,
+                     confirmed_max_changes, confirmed_max_delete,
                      default_excluded, summarize as rclone_summarize,
                      describe, excluded_by, find_rclone, fold_case_renames, koofr_env, no_window, relative_path,
                      remote_spec)
@@ -1324,7 +1325,7 @@ class Engine(GObject.Object):
             # a local "Koofr" of the tests does not ("-")
             same_content = was.hash == "-" or (bool(md5) and was.hash == f"md5:{md5}")
             if (st.st_size == mine.size == was.size == there.get("Size") and same_content
-                    and known is not None and abs(st.st_mtime_ns - known) <= 1_000_000):
+                    and known is not None and abs(st.st_mtime_ns - known) <= MODIFY_WINDOW_NS):
                 times[rel] = listings.bisync_time(there["ModTime"])
         if times:
             listings.retime(lst2, times)

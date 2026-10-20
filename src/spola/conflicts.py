@@ -23,6 +23,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from . import places
 from .i18n import _, every_translation, ngettext
 
 DATE = r"\d{4}-\d{2}-\d{2}"
@@ -146,15 +147,11 @@ def decide(conflict: Conflict, rule: str) -> Decision:
 
 
 def _free_name(root: str, rel: str) -> str:
-    """`rel` if nothing is there, else "name (2).ext", "name (3).ext"..."""
-    if not os.path.lexists(os.path.join(root, rel)):
-        return rel
-    stem, ext = os.path.splitext(rel)
-    for i in range(2, 1000):
-        candidate = f"{stem} ({i}){ext}"
-        if not os.path.lexists(os.path.join(root, candidate)):
-            return candidate
-    raise ResolveError(_("Too many files with that name."))
+    """places.free_name, said as a conflict's own error."""
+    try:
+        return places.free_name(root, rel)
+    except FileExistsError:
+        raise ResolveError(_("Too many files with that name.")) from None
 
 
 def move_to_trash(path: str) -> None:

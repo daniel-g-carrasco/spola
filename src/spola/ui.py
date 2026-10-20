@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gio, GLib, Gtk  # noqa: E402
 
-from . import APP_ID, conflicts  # noqa: E402
+from . import APP_ID, conflicts, places  # noqa: E402
 from .engine import Engine, Status  # noqa: E402
 from .i18n import _, ngettext  # noqa: E402
 from .paths import nearest_folder  # noqa: E402
@@ -186,16 +186,27 @@ def status_line(engine: Engine, pair_id: str) -> str:
     return pair_status_text(engine, pair_id) + (" · " + detail if detail else "")
 
 
+def _homes() -> tuple[str, str]:
+    # as written and as it really is (/home is /var/home on Fedora Atomic)
+    return str(Path.home()), os.path.realpath(Path.home())
+
+
 def display_path(path: str) -> str:
-    home = str(Path.home())
-    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+    """~/data/work for a path in the home folder (on Windows whatever the
+    case and the separators), the path itself anywhere else."""
+    for home in _homes():
+        shown = places.home_relative(path, home)
+        if shown != path:
+            return shown
+    return path
 
 
 def place_name(folder: str) -> str:
     """Where a synced folder lives, for a group title: the home folder by
     its name (a lone "~" says nothing), anything else as ~/path."""
-    homes = {str(Path.home()), os.path.realpath(Path.home())}
-    return _("Home Folder") if folder in homes else display_path(folder)
+    if any(places.local_key(folder) == places.local_key(home) for home in _homes()):
+        return _("Home Folder")
+    return display_path(folder)
 
 
 def reveal(window, path: str) -> None:

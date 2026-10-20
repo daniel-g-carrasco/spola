@@ -10,7 +10,7 @@ from pathlib import Path
 
 import _setup
 
-from spola import explorer
+from spola import explorer, places
 from spola.config import Pair
 
 
@@ -26,15 +26,15 @@ class LocateTest(unittest.TestCase):
 
     def test_inside_the_pair_or_not(self):
         pairs = [self.other, self.pair]
-        self.assertEqual(explorer.locate(pairs, str(self.root)), (self.pair, ""))
-        self.assertEqual(explorer.locate(pairs, str(self.root / "Sub dir" / "a.txt")), (self.pair, "Sub dir/a.txt"))
-        self.assertIsNone(explorer.locate([self.pair], str(Path(self.tmp.name) / "Workshop" / "x")))   # not a prefix
-        self.assertIsNone(explorer.locate(pairs, self.tmp.name))
+        self.assertEqual(places.locate(pairs, str(self.root)), (self.pair, ""))
+        self.assertEqual(places.locate(pairs, str(self.root / "Sub dir" / "a.txt")), (self.pair, "Sub dir/a.txt"))
+        self.assertIsNone(places.locate([self.pair], str(Path(self.tmp.name) / "Workshop" / "x")))   # not a prefix
+        self.assertIsNone(places.locate(pairs, self.tmp.name))
 
     @unittest.skipUnless(_setup.WINDOWS, "NTFS: case and separators do not matter")
     def test_windows_case_and_separators(self):
         path = str(self.root / "Sub dir" / "a.txt").upper().replace("/", "\\")
-        pair, relative = explorer.locate([self.pair], path)
+        pair, relative = places.locate([self.pair], path)
         self.assertEqual(relative.casefold(), "sub dir/a.txt")
 
     def test_koofr_page_and_remote(self):

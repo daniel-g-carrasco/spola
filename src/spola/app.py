@@ -317,8 +317,8 @@ class SpolaApp(Adw.Application):
                 complain("writing File Explorer's entries", e)
 
     def _in_pair(self, path: str):
-        from . import explorer
-        found = explorer.locate(self.engine.cfg.pairs, path)
+        from . import places
+        found = places.locate(self.engine.cfg.pairs, path)
         if found is None:
             self._tell(_("“{name}” is not in a folder synced with Koofr.").format(name=os.path.basename(path) or path))
         return found
@@ -345,8 +345,8 @@ class SpolaApp(Adw.Application):
                 self._show_versions(pair.id, relative, "file")
 
     def _copy_link(self, path: str) -> None:
-        from . import explorer, koofr_api
-        from .rclone import default_excluded, koofr_env, no_window, remote_spec
+        from . import explorer
+        from .rclone import default_excluded, koofr_env, share_link
         found = self._in_pair(path)
         creds, rclone = self.engine.creds, self.engine.rclone
         if found is None:
@@ -359,17 +359,13 @@ class SpolaApp(Adw.Application):
         if refusal:
             self._tell(refusal)
             return
-        argv = [rclone, "link", remote_spec(explorer.remote_path(pair, relative)),
-                "--config", str(self.engine.paths.rclone_config)]
+        remote, config = explorer.remote_path(pair, relative), self.engine.paths.rclone_config
         name = os.path.basename(path.rstrip("\\/")) or path
 
         def work() -> str:
-            import subprocess
-            proc = subprocess.run(argv, env=koofr_env(creds.user, creds.obscured), capture_output=True,
-                                  text=True, timeout=60, **no_window())
-            url = koofr_api.share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
+            url, said = share_link(rclone, koofr_env(creds.user, creds.obscured), config, remote)
             if not url:
-                raise OSError(explorer.link_error(name, proc.stderr))
+                raise OSError(explorer.link_error(name, said))
             return url
 
         def done(url, error) -> None:

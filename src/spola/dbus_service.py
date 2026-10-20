@@ -27,17 +27,16 @@ The methods of version 1 are unchanged: an older extension keeps working.
 from __future__ import annotations
 
 import os
-import subprocess
 import threading
 from collections.abc import Callable
 
 from gi.repository import Gio, GLib
 
-from . import APP_ID, koofr_api
+from . import APP_ID, koofr_api, places
 from .engine import Engine
 from .i18n import _
 from .paths import Paths
-from .rclone import koofr_env, remote_spec
+from .rclone import koofr_env, share_link
 from .states import State, ancestors_and_self
 
 OBJECT_PATH = "/io/github/daniel_g_carrasco/spola/Sync"
@@ -143,13 +142,7 @@ class SyncService:
     def locate(self, uri: str):
         """(pair, relative path) for a URI inside a pair, else None."""
         path = path_for(uri)
-        if not path:
-            return None
-        for pair in self.engine.cfg.pairs:
-            root = pair.local.rstrip("/")
-            if path == root or path.startswith(root + "/"):
-                return pair, path[len(root):].strip("/")
-        return None
+        return places.locate(self.engine.cfg.pairs, path) if path else None
 
     def state_of(self, uri: str) -> int:
         found = self.locate(uri)
@@ -335,15 +328,8 @@ class SyncService:
         paths: Paths = self.engine.paths
 
         def work():
-            try:
-                proc = subprocess.run([rclone, "link", remote_spec(remote), "--config", str(paths.rclone_config)],
-                                      env=koofr_env(creds.user, creds.obscured), capture_output=True, text=True,
-                                      timeout=60)
-                url = koofr_api.share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
-                error = "" if url else (proc.stderr.strip().splitlines() or ["rclone link failed"])[-1]
-            except (OSError, subprocess.SubprocessError) as e:
-                url, error = "", str(e)
-            GLib.idle_add(done, url, error)
+            url, said = share_link(rclone, koofr_env(creds.user, creds.obscured), paths.rclone_config, remote)
+            GLib.idle_add(done, url, "" if url else (said.splitlines() or ["rclone link failed"])[-1])
 
         def done(url, error):
             if then is not None:

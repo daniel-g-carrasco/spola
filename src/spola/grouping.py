@@ -11,16 +11,18 @@ from __future__ import annotations
 
 import os
 
-
-def _within(child: str, parent: str) -> bool:
-    return child == parent or child.startswith(parent.rstrip("/") + "/")
+from . import places
 
 
 def group_pairs(pairs) -> list[tuple[str, list[tuple[str, str]]]]:
     """[(parent folder, [(pair id, title relative to it), ...]), ...], both sorted."""
-    groups: dict[str, list] = {}
+    groups: dict[str, list] = {}        # by places.local_key of the parent folder
+    written: dict[str, str] = {}        # that parent as its first pair writes it
     for pair in pairs:
-        groups.setdefault(os.path.dirname(pair.local.rstrip("/")), []).append(pair)
+        parent = os.path.dirname(os.path.normpath(pair.local))
+        key = places.local_key(parent)
+        written.setdefault(key, parent)
+        groups.setdefault(key, []).append(pair)
     merged = True
     while merged:
         merged = False
@@ -28,14 +30,15 @@ def group_pairs(pairs) -> list[tuple[str, list[tuple[str, str]]]]:
             if len(groups[parent]) != 1:
                 continue
             ancestor = next((g for g in sorted(groups, key=len, reverse=True)
-                             if g != parent and _within(parent, g)), None)
+                             if g != parent and places.within(parent, g)), None)
             if ancestor is not None:
                 groups[ancestor].extend(groups.pop(parent))
                 merged = True
                 break
     out = []
-    for parent in sorted(groups, key=str.casefold):
-        rows = [(p.id, os.path.relpath(p.local, parent)) for p in groups[parent]]
+    for key in sorted(groups, key=lambda k: written[k].casefold()):
+        parent = written[key]
+        rows = [(p.id, os.path.relpath(p.local, parent)) for p in groups[key]]
         out.append((parent, sorted(rows, key=lambda r: r[1].casefold())))
     return out
 
@@ -43,7 +46,5 @@ def group_pairs(pairs) -> list[tuple[str, list[tuple[str, str]]]]:
 def expected_remote(local: str, home: str) -> str | None:
     """The Koofr path a pair would have if it mirrored the home folder
     (~/data/work -> /data/work): when it does, the window does not repeat it."""
-    local, home = os.path.realpath(local), os.path.realpath(home)
-    if not local.startswith(home + "/"):
-        return None
-    return "/" + os.path.relpath(local, home)
+    rel = places.relative(os.path.realpath(local), os.path.realpath(home))
+    return "/" + rel if rel else None
