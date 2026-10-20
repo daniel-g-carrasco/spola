@@ -30,9 +30,7 @@ import time
 import traceback
 
 from . import cloudfiles, listings
-from .rclone import Result, default_excluded
-
-MODIFY_WINDOW_NS = 1_000_000        # bisync's --modify-window: 1 ms
+from .rclone import MODIFY_WINDOW_NS, Result, default_excluded
 
 
 class ExplorerStatus:

@@ -13,19 +13,14 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-from . import koofr_api
+from . import koofr_api, places
 from .config import normalize_remote
 from .i18n import _
+from .places import remote_within as _within
 
 
 def join(parent: str, name: str) -> str:
     return normalize_remote(parent.rstrip("/") + "/" + name)
-
-
-def _within(child: str, parent: str) -> bool:
-    """Koofr ignores case: /Data/Work is inside /data."""
-    child, parent = (child.rstrip("/") or "/").casefold(), (parent.rstrip("/") or "/").casefold()
-    return child == parent or parent == "/" or child.startswith(parent + "/")
 
 
 def _parts(path: str) -> list[str]:
@@ -139,8 +134,7 @@ def blocked_reason(remote: str, pairs: Iterable) -> str:
 
 
 def _home_short(path: str) -> str:
-    home = os.path.realpath(os.path.expanduser("~"))
-    return "~" + path[len(home):] if path == home or path.startswith(home + "/") else path
+    return places.home_relative(path, os.path.realpath(os.path.expanduser("~")))
 
 
 def suggestions(folders, local: str, pairs: Iterable, home: str | None = None,
@@ -167,8 +161,9 @@ def suggestions(folders, local: str, pairs: Iterable, home: str | None = None,
         if path.casefold() not in {s.path.casefold() for s in found} and not blocked_reason(path, pairs):
             found.append(Suggestion(path, reason, exists))
 
-    if local.startswith(home + "/"):
-        same = normalize_remote(os.path.relpath(local, home))
+    in_home = places.relative(local, home)
+    if in_home:
+        same = normalize_remote(in_home)
         spelled = resolve(children, same)
         if spelled:
             add(spelled, _("Same place as on this computer"))

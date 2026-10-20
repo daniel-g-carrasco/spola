@@ -30,6 +30,9 @@ from .i18n import _, count, ngettext
 from .listings import go_unquote
 
 REMOTE_NAME = "koofr"   # changing it would orphan every pair's bisync listings
+# two modification times closer than this are the same (bisync's
+# --modify-window: Koofr keeps milliseconds, this computer nanoseconds)
+MODIFY_WINDOW_NS = 1_000_000
 
 FORBIDDEN_FLAGS = frozenset({
     "--delete-excluded", "--inplace", "--copy-links", "-L", "--links", "-l",
@@ -184,6 +187,20 @@ def no_window() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
+def share_link(rclone: str, env: dict, rclone_config, remote: str) -> tuple[str, str]:
+    """Koofr's share page of a path on Koofr (rclone link; the page, not
+    the direct download): (url, "") or ("", what rclone said). For the
+    file managers' and File Explorer's "Copy Koofr Link"."""
+    from .koofr_api import share_page
+    try:
+        proc = subprocess.run([rclone, "link", remote_spec(remote), "--config", str(rclone_config)], env=env,
+                              capture_output=True, text=True, timeout=60, **no_window())
+    except (OSError, subprocess.SubprocessError) as e:
+        return "", str(e)
+    url = share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
+    return (url, "") if url else ("", proc.stderr.strip() or "rclone link failed")
+
+
 def obscure(password: str, rclone: str) -> str:
     """rclone's reversible obfuscation, required for passwords given through
     the environment. Passed on stdin so it never shows in a command line."""
@@ -317,8 +334,8 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         # the nanosecond. A file moved here (--track-renames) keeps its own
         # time while bisync records Koofr's, and the next run would take the
         # difference for a change and upload the file again: under 1 ms, two
-        # times are the same.
-        "--modify-window", "1ms",
+        # times are the same (MODIFY_WINDOW_NS, for Spola's own comparisons).
+        "--modify-window", f"{MODIFY_WINDOW_NS // 1_000_000}ms",
         "--create-empty-src-dirs",
         "--resilient", "--recover",
         "--max-lock", "2m",

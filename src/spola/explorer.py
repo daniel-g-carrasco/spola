@@ -25,27 +25,6 @@ CLASSES = r"Software\Classes"
 TARGETS = ("*", "Directory")        # files, folders (not a folder's background: AppliesTo is not read there)
 
 
-def _slashes(path: str) -> str:
-    return os.path.normpath(path).replace("\\", "/").rstrip("/")
-
-
-def _key(path: str) -> str:
-    return path.casefold() if os.name == "nt" else path
-
-
-def locate(pairs: list[Pair], path: str) -> tuple[Pair, str] | None:
-    """(pair, path relative to its root, with "/") of a path inside a pair;
-    on Windows whatever the case and the separators."""
-    wanted = _slashes(path)
-    for pair in pairs:
-        root = _slashes(pair.local)
-        if _key(wanted) == _key(root):
-            return pair, ""
-        if _key(wanted).startswith(_key(root) + "/"):
-            return pair, wanted[len(root) + 1:].strip("/")
-    return None
-
-
 def remote_path(pair: Pair, relative: str) -> str:
     return posixpath.join(pair.remote, relative) if relative else pair.remote
 

@@ -1855,12 +1855,20 @@ class VerifyDialog(Adw.Dialog):
         self.page.add(group)
 
     def _show(self, path: str, on_koofr: bool) -> None:
-        pair = self.engine.cfg.pair(self.pair_id)
-        if on_koofr:
-            url = koofr_api.folder_url(self.engine.cfg.mount_id, pair.remote, path)
-            Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
-        else:
-            reveal(self.window, os.path.join(pair.local, path))
+        show_in_pair(self.window, self.engine, self.pair_id, path, on_koofr)
+
+
+def show_in_pair(window, engine: Engine, pair_id: str, path: str, on_koofr: bool) -> None:
+    """A file of a list (a preview's, a verification's): its folder on
+    Koofr's site, or the file in the file manager."""
+    pair = engine.cfg.pair(pair_id)
+    if pair is None:
+        return
+    if on_koofr:
+        url = koofr_api.folder_url(engine.cfg.mount_id, pair.remote, path)
+        Gtk.UriLauncher.new(url).launch(window, None, None, None)
+    else:
+        reveal(window, os.path.join(pair.local, path))
 
 
 class LeftOutDialog(Adw.Dialog):
@@ -2522,12 +2530,7 @@ class PreviewDialog(Adw.Dialog):
         self._start(refresh=True)
 
     def _show(self, path: str, on_koofr: bool) -> None:
-        pair = self.engine.cfg.pair(self.pair_id)
-        if on_koofr:
-            url = koofr_api.folder_url(self.engine.cfg.mount_id, pair.remote, path)
-            Gtk.UriLauncher.new(url).launch(self.window, None, None, None)
-        else:
-            reveal(self.window, os.path.join(pair.local, path))
+        show_in_pair(self.window, self.engine, self.pair_id, path, on_koofr)
 
     def _confirm(self) -> None:
         if not self.engine.confirm(self.pair_id, self.mode, self.force):

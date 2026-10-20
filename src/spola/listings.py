@@ -106,14 +106,8 @@ def counts(workdir: Path) -> tuple[int, int] | None:
 
 def count(workdir: Path) -> int | None:
     """Entries agreed on by the last run (the smaller side), or None."""
-    counts = []
-    for side in (1, 2):
-        path = find(workdir, side)
-        if path is None:
-            return None
-        with open(path, encoding="utf-8", errors="surrogateescape") as f:
-            counts.append(sum(1 for line in f if line[:1] in ("-", "d")))
-    return min(counts)
+    both = counts(workdir)
+    return min(both) if both is not None else None
 
 
 _EXACT = re.compile(r'^([-d])(\s+)(-?\d+) (\S+) (\S+) (\S+) (".*")$')

@@ -36,6 +36,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import places
 from .config import Pair
 from .i18n import translation_for, _
 from .paths import Paths
@@ -258,17 +259,6 @@ def version_name(rel: str, when: float, language: str = "") -> str:
     return f"{folder}/{new}" if folder else new
 
 
-def free_name(root: str, rel: str) -> str:
-    """`rel` if nothing is there, else "name (2).ext", "name (3).ext"..."""
-    if not os.path.lexists(os.path.join(root, rel)):
-        return rel
-    stem, ext = os.path.splitext(rel)
-    for i in range(2, 1000):
-        candidate = f"{stem} ({i}){ext}"
-        if not os.path.lexists(os.path.join(root, candidate)):
-            return candidate
-    raise FileExistsError(os.path.join(root, rel))
-
 
 def copy_path(paths: Paths, version: Version) -> Path:
     return paths.backup_dir(version.pair_id) / version.run / version.rel
@@ -307,7 +297,7 @@ def restore(paths: Paths, pair: Pair, version: Version, mode: str, language: str
         raise FileNotFoundError(str(src))
     here = os.path.join(pair.local, rel)
     if mode == "copy" and os.path.lexists(here):
-        target = free_name(pair.local, version_name(rel, version.time, language))
+        target = places.free_name(pair.local, version_name(rel, version.time, language))
     else:
         if os.path.lexists(here):
             keep_aside(paths, pair, rel, "restored", now=now)
