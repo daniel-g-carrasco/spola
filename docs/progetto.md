@@ -812,3 +812,23 @@ Lo stesso succede da sempre qui con `--backup-dir1`, per la stessa ragione: dura
 - **B-18:** commenti e documentazione corretti (`--track-renames` con la data, `wintray`, `prune_now`).
 
 Restano gli strutturali: M-07 (lavoro pesante sul main loop della finestra), un modulo unico per i percorsi (B-07, B-08) e M-09 (nomi non UTF-8 su D-Bus); B-14, B-15 e B-17 sono teorici o voluti.
+
+## Appendice AO. Gli strutturali della verifica, e le versioni di Koofr provate (2026-10-20, 0.3.33)
+
+**Le versioni di Koofr, provate.** Dentro `/spola-test/versions-20261020`, poi rimossa: un file caricato con rclone e sovrascritto con rclone; `GET /api/v2/mounts/{mount}/files/versions?path=` (risponde anche la v2.1) elenca la versione precedente (`{"versions": [{"id", "type", "modified", "size", "contentType", "tags"}]}`, la dimensione era quella del primo contenuto). Quindi Koofr tiene le versioni anche dei file che sostituisce Spola, e i due testi delle copie conservate che dicevano il contrario sono corretti. L'endpoint non è documentato da Koofr: se un giorno servisse mostrare quelle versioni in Spola, si parte da qui.
+
+**M-07, lavoro pesante fuori dal main loop:**
+
+- anteprima: i file per cartella dell'ultimo giro (`filetree.folder_counts`) si contano una volta nel thread che prepara l'anteprima (`Preview.base_counts`), non fino a nove volte sul main loop; `build` e `whole` lavorano solo su ciò che la lista contiene;
+- ripristino di una copia e "Apri una copia" in un thread; durante la copia nessun giro della coppia parte (`PairRuntime.copying_back`, controllato da `_pair_free`); il ripristino è rifiutato anche con un giro vero in preparazione; D-Bus risponde a `RestoreVersion` a copia fatta;
+- giorni di backup ridotti: il conto dei backup da cancellare in un thread; se fallisce, i giorni tornano come prima;
+- "Informazioni": i listing letti nella parte lenta, in thread, con gli errori detti;
+- pagina della coppia: esclusioni, log e conflitti riletti solo quando possono essere cambiati (`stat` del file delle esclusioni, la tupla dei conflitti, il log una volta che c'è);
+- "File eliminati di recente": ogni pagina del cestino guardata una volta, il disco interrogato una volta per percorso, ricostruito solo il gruppo del cestino e solo quando cambiano le righe mostrate;
+- Linux: le cartelle da sorvegliare trovate sul main loop per 50 ms al massimo, il resto in un thread e aggiunto a blocchi di 200 (un albero piccolo resta immediato, come i test si aspettano). `tests/test_watcher.py` gira anche su Windows, dove i monitor di Gio esistono.
+
+**B-07 e B-08, un modulo per i percorsi:** `places.py` (dentro/fuori in locale e su Koofr, la coppia di un percorso, "~", il nome libero). Su Windows il confronto è senza maiuscole come in NTFS, lettera per lettera (`lower()`, non `casefold()`: "ß" non è "ss"). Uniti anche `rclone.share_link`, `listings.count` su `counts`, `window.show_in_pair` e `rclone.MODIFY_WINDOW_NS`.
+
+**M-09:** i nomi non UTF-8 restano fuori dalle risposte D-Bus (`sendable`); le estensioni, dopo una risposta fallita, considerano la cartella nota per 30 secondi invece di chiedere a ogni ridisegno.
+
+Della verifica restano B-14, B-15 e B-17 (teorici o voluti), la firma del bundle `.flatpak` e un piano di rotazione della chiave minisign.

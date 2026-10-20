@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.33" date="2026-10-20" type="development">
+      <description>
+        <p>The window no longer stops for seconds with big folders (previews, restoring or opening a kept copy, Recently Deleted Files, a folder's page during a sync). On Windows, Add Folder offers the same place on Koofr as on this computer, and the window shows the home folder as "~" and groups the folders by where they are. On Linux, a file name that is not UTF-8 no longer takes the emblems of its whole folder. Koofr keeps previous versions of the files replaced there, as the window now says.</p>
+      </description>
+    </release>
     <release version="0.3.32" date="2026-10-20" type="development">
       <description>
         <p>A Windows folder that went away and came back (a drive plugged in again) is watched again at once; "Later" in the update window no longer starts the installer when the download has just ended; a verification closed while it runs still says when everything matches; Preferences closed at once keeps the backup days just set; the menu of a conflict stays open while the folder syncs. Errors that passed in silence are said, the exclusions are saved whole or not at all, and rclone's fragments of a download cut short are removed after a day. The Koofr password never follows a redirect to another site, an update reads no more than the release says, and on Windows Spola runs only the rclone it ships.</p>
