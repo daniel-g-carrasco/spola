@@ -1350,7 +1350,10 @@ def version_subtitle(version, days: int) -> str:
 
 def open_version(window, engine: Engine, version) -> None:
     """A read-only copy in the cache, opened with the default app: nothing
-    the app does can change the kept copy. Copies a day old are cleared."""
+    the app does can change the kept copy. Copies a day old are cleared.
+    On Windows a program, a script or a shortcut is shown in its folder
+    instead: opening it would run it, and a kept copy may come from anyone
+    who shares the folder on Koofr."""
     from . import versions as versions_mod
     folder = os.path.join(GLib.get_user_cache_dir(), "spola", "open")
     try:
@@ -1366,6 +1369,13 @@ def open_version(window, engine: Engine, version) -> None:
     except OSError as e:
         window.toast(str(e))
         return
+    if WINDOWS:
+        from .win32 import runs_when_opened
+        if runs_when_opened(path):
+            reveal(window, path)
+            window.toast(_("“{name}” is a program or a shortcut: shown in its folder, not opened").format(
+                name=os.path.basename(path)))
+            return
     Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(window, None, None, None)
 
 

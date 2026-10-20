@@ -618,6 +618,11 @@ msgstr "{stem} (Koofr {date}){ext}"
 msgid "“{name}” is not in a folder synced with Koofr."
 msgstr "«{name}» non è in una cartella sincronizzata con Koofr."
 
+#: src/spola/window.py
+#, python-brace-format
+msgid "“{name}” is a program or a shortcut: shown in its folder, not opened"
+msgstr "«{name}» è un programma o un collegamento: mostrato nella sua cartella, non aperto"
+
 #: src/spola/engine.py:470
 msgid "rclone is missing"
 msgstr "manca rclone"
