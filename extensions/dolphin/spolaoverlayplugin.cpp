@@ -226,6 +226,10 @@ private:
             m_inFlight.remove(folder);
             QDBusPendingReply<StateMap> reply = *w;
             if (reply.isError()) {
+                // known for a while, with nothing to show: not asked again at
+                // every redraw of the folder, but once more in 30 s
+                m_folders.insert(folder, ++m_age);
+                QTimer::singleShot(30000, this, [this, folder] { m_folders.remove(folder); });
                 return;
             }
             m_folders.insert(folder, ++m_age);

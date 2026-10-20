@@ -49,6 +49,7 @@ EMBLEMS = {SYNCED: "spola-synced-symbolic", SYNCING: "spola-syncing-symbolic", P
 MAX_FOLDERS = 400          # folders kept in the cache (oldest dropped first)
 MAX_SEEN = 5000            # files Files asked about, to ask again when Spola comes back
 CALL_TIMEOUT_MS = 10000
+FOLDER_RETRY_S = 30     # a folder Spola could not answer for: asked again after this, not at every redraw
 ROOTS_RETRY_S = (1, 2, 5, 10, 30)   # GetRoots failed while Spola is there: it may be starting
 
 HOME_REAL = os.path.realpath("/home")
@@ -341,6 +342,11 @@ class SpolaProvider(GObject.GObject, *_providers()):
     def _folder_ready(self, folder, reply):
         self.cache.in_flight.discard(folder)
         if reply is None:
+            # known for a while, with nothing to show: not asked again at
+            # every redraw of the folder, but once more in FOLDER_RETRY_S
+            self.cache.set_folder(folder, {})
+            GLib.timeout_add_seconds(FOLDER_RETRY_S, lambda: self.cache.drop_folder(folder) or False)
+            log(f"folder {folder}: no answer, again in {FOLDER_RETRY_S} s")
             return
         (states,) = reply.unpack()
         log(f"folder {folder}: {len(states)} entries")

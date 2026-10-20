@@ -84,6 +84,18 @@ def uri_for(path: str) -> str:
     return Gio.File.new_for_path(path).get_uri()
 
 
+def sendable(name: str) -> bool:
+    """Whether a name can go over D-Bus: one that is not UTF-8 on the disk
+    comes from os.scandir with surrogates, which no "s" can hold, and the
+    whole answer would fail (the emblems of the whole folder gone). Such
+    names are left out: the file managers cannot show them right anyway."""
+    try:
+        name.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def path_for(uri: str) -> str | None:
     """The local path of a file:// URI, or of an absolute path as it is."""
     if uri.startswith("/"):
@@ -168,7 +180,7 @@ class SyncService:
             children = [(e.name, e.is_dir(follow_symlinks=False)) for e in os.scandir(folder)]
         except OSError:
             return {}
-        return {name: int(state) for name, state in rt.states.folder_states(rel, children).items()}
+        return {name: int(state) for name, state in rt.states.folder_states(rel, children).items() if sendable(name)}
 
     # -- D-Bus ------------------------------------------------------------------
 
@@ -282,14 +294,14 @@ class SyncService:
         found = self.locate(uri)
         if not found:
             return []
-        return sorted(self._index(found[0]).names_in(found[1]))
+        return sorted(name for name in self._index(found[0]).names_in(found[1]) if sendable(name))
 
     def _as_dicts(self, pair, found) -> list[dict]:
         days = self.engine.cfg.backup_days
         return [{"id": GLib.Variant("s", v.id), "path": GLib.Variant("s", uri_for(os.path.join(pair.local, v.rel))),
                  "time": GLib.Variant("x", int(v.time)), "size": GLib.Variant("t", v.size),
                  "reason": GLib.Variant("s", v.reason), "expires": GLib.Variant("x", int(v.expires(days)))}
-                for v in found]
+                for v in found if sendable(v.id)]       # (the path goes as a URI: always sendable)
 
     def _on_versions_changed(self, _engine, pair_id: str) -> None:
         pair = self.engine.cfg.pair(pair_id)
