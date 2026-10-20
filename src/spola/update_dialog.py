@@ -110,8 +110,10 @@ class UpdateDialog(Adw.Dialog):
         try:
             # Setup asks Spola to quit (rclone stopped with its state saved),
             # replaces the files and starts it again; its progress shows
-            subprocess.Popen([str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
-                             close_fds=True)
+            args = [str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+            if updates.per_user_install():
+                args.append("/CURRENTUSER")         # as it was installed: no elevation
+            subprocess.Popen(args, close_fds=True)
         except OSError as e:
             self._failed(_("Cannot start the installer: {error}").format(error=e.strerror or e))
         return False

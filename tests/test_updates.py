@@ -68,6 +68,9 @@ class ReleaseTest(unittest.TestCase):
         self.assertIsNone(installer(signature={**SIGNATURE, "browser_download_url": "https://example.com/s.minisig"}))
         self.assertIsNone(installer(browser_download_url="https://example.com/spola-setup-v0.4.0-windows-x64.exe"))
         self.assertIsNone(installer(name="spola-setup-vdev-windows-x64.exe"))          # a CI build
+        # another version's installer, duly signed, offered under a newer tag: not this release's
+        self.assertIsNone(installer(name="spola-setup-v0.3.9-windows-x64.exe"))
+        self.assertEqual(updates.installer_name("v0.4.0"), "spola-setup-v0.4.0-windows-x64.exe")
         self.assertIsNone(installer(name="spola-setup-v0.4.0-evil-windows-x64.exe"))
 
 
@@ -78,6 +81,7 @@ class DownloadTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         self.source = self.tmp / "setup.exe"
+        self.addCleanup(updates.release_held)          # the verified installer is kept open
         self.source.write_bytes(PAYLOAD)
         self.signature = self.tmp / "setup.exe.minisig"
         self.signature.write_text(SIGNED_V9)
@@ -126,6 +130,29 @@ class KeyTest(unittest.TestCase):
 
 
 class InstalledTest(unittest.TestCase):
+
+    @unittest.skipUnless(updates.sys.platform == "win32", "Windows only")
+    def test_a_verified_installer_cannot_be_replaced_or_renamed_but_still_runs(self):
+        import os
+        import shutil
+        import subprocess
+        folder = Path(tempfile.mkdtemp(prefix="spola-hold-"))
+        try:
+            exe = folder / "held.exe"
+            shutil.copy2(os.path.join(os.environ["SystemRoot"], "System32", "whoami.exe"), exe)
+            updates.hold(exe)
+            with self.assertRaises(OSError):
+                os.replace(exe, folder / "renamed.exe")                 # no delete sharing: no rename
+            with self.assertRaises(OSError):
+                open(exe, "r+b").close()                                # no write sharing
+            with self.assertRaises(OSError):
+                exe.unlink()
+            self.assertTrue(exe.exists())
+            done = subprocess.run([str(exe)], capture_output=True, timeout=30)   # Setup only reads it
+            self.assertEqual(done.returncode, 0)
+        finally:
+            updates.release_held()
+            shutil.rmtree(folder, ignore_errors=True)
 
     def test_installed_build_only_when_frozen(self):
         self.assertFalse(updates.installed_build())     # the tests run from the sources

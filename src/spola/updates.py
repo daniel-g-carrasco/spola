@@ -127,13 +127,62 @@ def latest_release(timeout: float = 15.0) -> Release:
     return parse_release(data)
 
 
+def installer_name(version: str) -> str:
+    return f"spola-setup-v{version.strip().lstrip('vV')}-windows-x64.exe"
+
+
 def installer_of(release: Release) -> Asset | None:
-    """The release's installer: a released version, from Spola's own
-    releases, with the SHA-256 GitHub gives for it and its signature. Else
-    None: the dialog then opens the release page."""
+    """The release's installer: the one named for the release's own version
+    (an answer that pairs a newer tag with an older, duly signed installer
+    would otherwise install that older one), from Spola's own releases,
+    with the SHA-256 GitHub gives for it and its signature. Else None: the
+    dialog then opens the release page."""
+    wanted = installer_name(release.version).lower()
     return next((a for a in release.assets
-                 if INSTALLER.match(a.name) and a.url.startswith(DOWNLOADS) and a.sha256
-                 and a.signature_url.startswith(DOWNLOADS)), None)
+                 if INSTALLER.match(a.name) and a.name.lower() == wanted and a.url.startswith(DOWNLOADS)
+                 and a.sha256 and a.signature_url.startswith(DOWNLOADS)), None)
+
+
+def per_user_install() -> bool:
+    """Spola installed for this user only (under the profile's local app
+    data), as Setup does by default: an update then never needs to elevate."""
+    local = os.environ.get("LOCALAPPDATA", "")
+    return bool(local) and os.path.normcase(os.path.abspath(sys.executable)).startswith(
+        os.path.normcase(os.path.abspath(local)) + os.sep)
+
+
+_held: list = []        # the handles of the installers kept open (see hold)
+
+
+def hold(path: Path) -> None:
+    """Windows: the verified installer kept open, with no write or delete
+    sharing, until Spola exits: no other process of the user can replace or
+    rename it between the check and the moment Setup reads it (and reads
+    it again, elevated, when Spola is installed for all users: the file of
+    a process of the user would then run as an administrator). Setup only
+    needs to read it. Elsewhere nothing to do."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    generic_read, share_read, open_existing = 0x80000000, 0x1, 3
+    handle = kernel32.CreateFileW(str(path), generic_read, share_read, None, open_existing, 0, None)
+    if handle in (None, ctypes.c_void_p(-1).value):
+        raise OSError(ctypes.get_last_error(), "the installer could not be kept open")
+    _held.append(handle)
+
+
+def release_held() -> None:
+    """The installers kept open, let go (at quit, and in the tests)."""
+    if sys.platform != "win32":
+        return
+    import ctypes
+    while _held:
+        ctypes.windll.kernel32.CloseHandle(_held.pop())
 
 
 def download_folder() -> Path:
@@ -189,6 +238,7 @@ def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | No
         if f"file:{asset.name}" not in trusted.split():
             raise UpdateError(_("the installer is not signed by Spola: not started"))
         part.replace(dest)
+        hold(dest)
         return dest
     except urllib.error.HTTPError as e:
         raise UpdateError(_("download failed ({code})").format(code=e.code)) from None
