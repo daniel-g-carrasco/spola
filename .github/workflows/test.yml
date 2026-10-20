@@ -31,7 +31,9 @@ jobs:
           echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
       - run: ruff check --select F,E9,B .
       - run: python3 tools/compile_po.py
-      - run: python3 -m unittest discover -s tests -v
+      # warnings as unittest shows them, but PyGObject's on Python 3.14
+      # (gi.events, at every run of the main loop: thousands of lines)
+      - run: python3 -W default -W "ignore::DeprecationWarning:gi.events" -m unittest discover -s tests -v
       - name: Validate desktop entry and AppStream metadata
         run: |
           desktop-file-validate data/io.github.daniel_g_carrasco.spola.desktop
@@ -66,6 +68,7 @@ jobs:
       - name: The dialog tests, and that they really ran
         run: |
           cd tests
-          xvfb-run -a python3 -m unittest -v test_add_folder test_import_dialog test_update_dialog 2>&1 | tee ../gtk-tests.log
+          xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" \
+            -m unittest -v test_add_folder test_import_dialog test_update_dialog 2>&1 | tee ../gtk-tests.log
           test "${PIPESTATUS[0]}" -eq 0
           if grep -q "skipped=" ../gtk-tests.log; then echo "the GTK tests were skipped"; exit 1; fi
