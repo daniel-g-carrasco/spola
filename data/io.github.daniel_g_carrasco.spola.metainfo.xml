@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.32" date="2026-10-20" type="development">
+      <description>
+        <p>A Windows folder that went away and came back (a drive plugged in again) is watched again at once; "Later" in the update window no longer starts the installer when the download has just ended; a verification closed while it runs still says when everything matches; Preferences closed at once keeps the backup days just set; the menu of a conflict stays open while the folder syncs. Errors that passed in silence are said, the exclusions are saved whole or not at all, and rclone's fragments of a download cut short are removed after a day. The Koofr password never follows a redirect to another site, an update reads no more than the release says, and on Windows Spola runs only the rclone it ships.</p>
+      </description>
+    </release>
     <release version="0.3.31" date="2026-10-20" type="development">
       <description>
         <p>From an independent review: identical files moved together keep their own dates (they were uploaded again with the other's), a confirmation no longer goes in circles when files are gone from both sides or changed the same way on both, the status shows the conflicts a run made at once, old backups are removed without freezing the window, and a safety stop says its reason in plain words; a previous version is restored once the sync in progress has finished. Windows updates install only the installer of the announced version, kept open until Setup has read it, and "Open a Copy" shows a program or a shortcut in its folder instead of running it.</p>
