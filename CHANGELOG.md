@@ -8,6 +8,60 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-10-20
+
+### Fixed
+- Windows: when a synced folder went away and came back (a drive unplugged
+  and plugged in again, a folder renamed and renamed back), Spola no longer
+  saw its changes until it was restarted, and synced it only at its
+  periodic checks. It now watches the folder again as soon as it is back.
+- "Later" in the update window, chosen just as the download ended, still
+  started the installer.
+- A verification whose window was closed while it ran never said that
+  everything matched.
+- Closing Preferences right after changing how many days backups are kept
+  could lose the change.
+- The menu of a conflict could close by itself while the folder synced.
+- Signing out while Koofr's trash was being read could still show the
+  trash of the account just left.
+- Linux: copying a Koofr link from the command line ended with an error,
+  after copying the link.
+- A file being written, with a line break in its name (possible on Linux),
+  could keep other files out of that run.
+- Folders that Windows links elsewhere (junctions) are no longer looked
+  into: rclone does not sync them, and Spola counted their files.
+
+### Changed
+- The fragments rclone leaves next to a file when a download is cut short
+  (a crash, the power gone), named "….partial", are removed after a day.
+- What goes wrong is said instead of passing in silence: the password that
+  cannot be read at the start, File Explorer's entries or the file manager
+  extension that cannot be written, exclusions that cannot be saved (the
+  dialog stays, with the text typed), a password that Sign Out cannot
+  remove from the keyring.
+- The exclusions are saved whole or not at all.
+
+### Security
+- The Koofr app password follows a redirect of Koofr's server only to
+  Koofr itself, over https.
+- An update downloads no more than the release says, and reads at most
+  1 MB of GitHub's description of it.
+- Windows: Spola runs only the rclone it ships, whatever the environment
+  says (SPOLA_RCLONE, the PATH).
+- Windows: an update removes the previous version's libraries before it
+  installs the new ones.
+- The CI's actions are pinned to exact commits.
+- The command line takes a folder's lock before it forgets the folder, and
+  says when it cannot tell whether Spola is running.
+
+Not done, from the same review: copies on Koofr of what a first alignment
+or a repair replaces there. Koofr keeps the previous versions of a file
+itself (120 days on free accounts, two years on paid ones, up to five
+versions, files up to 5 GB) and deleted files go to its trash; and rclone's
+way of keeping such copies moves the files to replace away first, so that
+for as long as the run lasts they are missing on Koofr, which another
+computer syncing the same folder would take for deletions.
+
 ## [0.3.31] - 2026-10-20
 
 ### Fixed
@@ -505,7 +559,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.31...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.32...main
+[0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32
 [0.3.31]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.31
 [0.3.30]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.30
 [0.3.29]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.29
