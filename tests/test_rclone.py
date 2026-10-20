@@ -412,5 +412,24 @@ class DefaultsTest(unittest.TestCase):
         self.assertIs(summarize(7, [crit], "/a/", "koofr:b").result, Result.NEEDS_REPAIR)
 
 
+class FindRcloneTest(unittest.TestCase):
+    def test_the_windows_build_runs_only_the_rclone_it_ships(self):
+        import os
+        import sys
+        import tempfile
+        from unittest import mock
+
+        from spola import rclone as rclone_mod
+        with (tempfile.TemporaryDirectory() as tmp,
+              mock.patch.dict(os.environ, {"SPOLA_RCLONE": "C:/elsewhere/rclone.exe"}),
+              mock.patch.object(sys, "frozen", True, create=True),
+              mock.patch.object(sys, "_MEIPASS", tmp, create=True)):
+            self.assertIsNone(rclone_mod.find_rclone())         # none shipped: none at all, not the environment's
+            (Path(tmp) / "rclone.exe").write_bytes(b"")
+            self.assertEqual(rclone_mod.find_rclone(), str(Path(tmp) / "rclone.exe"))
+        with mock.patch.dict(os.environ, {"SPOLA_RCLONE": "/opt/rclone"}):
+            self.assertEqual(rclone_mod.find_rclone(), "/opt/rclone")     # from the sources: the tests' own
+
+
 if __name__ == "__main__":
     unittest.main()

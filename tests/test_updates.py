@@ -109,6 +109,24 @@ class DownloadTest(unittest.TestCase):
         self.refused(self.asset(sha256=""))
         self.refused(self.asset(sha256="0" * 64))
 
+    def test_no_more_is_read_than_the_release_says(self):
+        seen = []
+        with mock.patch.object(updates, "CHUNK", 1000), self.assertRaises(updates.UpdateError):
+            updates.download(self.asset(size=3000), self.tmp / "got.exe", lambda done, total: seen.append(done))
+        self.assertEqual(seen, [1000, 2000, 3000])           # the fourth chunk, past the size, not taken
+        self.assertFalse((self.tmp / "got.exe.part").exists())
+
+    def test_an_answer_too_big_for_a_release_is_refused(self):
+        import json
+        import os
+        answer = self.tmp / "release.json"
+        answer.write_text(json.dumps({**RELEASE, "body": "x" * updates.RELEASE_MAX_BYTES}))
+        with mock.patch.dict(os.environ, {"SPOLA_DEV_RELEASE_API": answer.as_uri()}):
+            with self.assertRaises(updates.UpdateError):
+                updates.latest_release()
+            answer.write_text(json.dumps(RELEASE))
+            self.assertEqual(updates.latest_release().version, "0.4.0")
+
     def test_an_installer_not_signed_for_this_release_is_refused(self):
         self.refused(self.asset(signature_url=""))
         # signed, with the name of another release's installer

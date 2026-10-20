@@ -53,6 +53,13 @@ english.AppDescription=Keep your folders in sync with Koofr
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
 
+[InstallDelete]
+; the version before's libraries and modules (PyInstaller's _internal) go
+; first: one the new version no longer ships must not stay there and be
+; loaded. Spola has quit by then (PrepareToInstall); its settings and data
+; are not in {app}, the uninstaller is not in _internal
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Files]
 Source: "..\..\dist\Spola\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 

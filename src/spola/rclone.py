@@ -155,16 +155,19 @@ def reserved_exclude_lines() -> str:
 
 
 def find_rclone() -> str | None:
+    """The rclone Spola runs, with the account's password in its
+    environment. The Windows build: only the rclone.exe it ships, next to
+    its own files (SPOLA_RCLONE and the PATH are the environment's, which
+    any program of the user can change). The Flatpak: its own. From the
+    sources: SPOLA_RCLONE (the tests', a developer's), else the PATH's."""
+    if getattr(sys, "frozen", False):
+        bundled = Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))) / "rclone.exe"
+        return str(bundled) if bundled.is_file() else None
     override = os.environ.get("SPOLA_RCLONE")
     if override:
         return override
     if os.path.exists("/app/bin/rclone"):
         return "/app/bin/rclone"
-    if getattr(sys, "frozen", False):
-        # the Windows build: rclone.exe next to Spola's own files
-        bundled = Path(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))) / "rclone.exe"
-        if bundled.is_file():
-            return str(bundled)
     return shutil.which("rclone")
 
 
