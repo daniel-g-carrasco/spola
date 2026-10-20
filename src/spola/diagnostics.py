@@ -115,8 +115,6 @@ def summary(engine) -> str:
         lines.append(f"    status: {status} {rt.message!r}" + (f", safety {rt.safety}" if rt.safety else "")
                      + (f", gone {rt.gone}" if rt.gone else "") + (f", retries {rt.retries}" if rt.retries else "")
                      + (f", could not start: {rt.last_failure!r}" if rt.last_failure else ""))
-        counts = listings.counts(paths.workdir(pair.id))
-        lines.append(f"    listings: {counts[0]} entries here, {counts[1]} on Koofr" if counts else "    listings: none")
         out = rt.last_outcome
         if out is not None:
             result = getattr(out.result, "name", str(out.result))
@@ -130,9 +128,19 @@ def summary(engine) -> str:
     return "\n".join(lines)
 
 
-def storage(paths: Paths, rclone: str | None) -> str:
-    """The slow part, for a thread: rclone's version and the room taken."""
+def storage(paths: Paths, rclone: str | None, pair_ids=()) -> str:
+    """The slow part, for a thread: rclone's version, the entries of each
+    folder's listings (a read of both, tens of MB for a big folder) and the
+    room taken."""
     lines = [f"rclone version: {rclone_version(rclone)}"]
+    for pair_id in pair_ids:
+        try:
+            counts = listings.counts(paths.workdir(pair_id))
+        except OSError as e:
+            lines.append(f"[{pair_id}] listings: {e}")
+            continue
+        lines.append(f"[{pair_id}] listings: {counts[0]} entries here, {counts[1]} on Koofr" if counts
+                     else f"[{pair_id}] listings: none")
     for label, folder in (("logs", paths.state / "logs"), ("listings", paths.state / "bisync"),
                           ("backups", paths.data / "backup")):
         if folder.is_dir():

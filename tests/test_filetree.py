@@ -45,6 +45,13 @@ class TreeTest(unittest.TestCase):
         (new,) = filetree.build([("n/x.txt", "", ""), ("n/y.txt", "", "")], base=base)
         self.assertEqual(filetree.share(new.files, new.total), "the whole folder")
         self.assertEqual(filetree.build(entries)[0].total, 0)                        # no listing: no share
+        # the listing's counts made once (the preparing thread does it) give the same totals
+        counted = filetree.folder_counts(base)
+        self.assertEqual((counted[""], counted["p/Vantage"], counted["p/Vantage/MXP21"]), (5, 4, 2))
+        (again,) = filetree.build(entries, base=base, base_counts=counted)
+        self.assertEqual([again.total] + [c.total for c in again.children], [top.total] + [c.total for c in top.children])
+        (new_again,) = filetree.build([("n/x.txt", "", ""), ("n/y.txt", "", "")], base=base, base_counts=counted)
+        self.assertEqual(new_again.total, new.total)
 
     def test_names_in_natural_order(self):
         top = filetree.build([(f"d/old-{i}.docx", "", "") for i in (10, 2, 1)] + [("d/Sub/x", "", ""), ("d/a", "", "")])

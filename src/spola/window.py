@@ -882,6 +882,8 @@ class PairPage(Adw.NavigationPage):
 
         view.set_content(page)
         self.set_child(view)
+        self._conflicts_seen: tuple | None = None      # what update() last read from the disk
+        self._filters_seen = object()
         self._handlers = [
             self.engine.connect("pair-changed", lambda _e, pid: self.update() if pid == pair_id else None),
             self.engine.connect("status-changed", lambda _e: self.update()),
@@ -937,10 +939,14 @@ class PairPage(Adw.NavigationPage):
 
         if self.keep.get_active() == pair.paused:
             self.keep.set_active(not pair.paused)
-        n = len(self.engine.conflicts(self.pair_id)) if rt.conflicts else 0
-        self.conflicts_row.set_visible(n > 0)
-        self.conflicts_row.set_subtitle(escape(ngettext("{n} file changed on both sides",
-                                                        "{n} files changed on both sides", n).format(n=n)))
+        # this runs at every change of the pair, each second during a sync:
+        # what needs the disk is read again only when it may have changed
+        if tuple(rt.conflicts) != self._conflicts_seen:
+            self._conflicts_seen = tuple(rt.conflicts)
+            n = len(self.engine.conflicts(self.pair_id)) if rt.conflicts else 0       # a stat per copy
+            self.conflicts_row.set_visible(n > 0)
+            self.conflicts_row.set_subtitle(escape(ngettext("{n} file changed on both sides",
+                                                            "{n} files changed on both sides", n).format(n=n)))
         self.left_out_row.set_visible(bool(rt.refused))
         self.left_out_row.set_subtitle(escape(ngettext("{n} name Koofr does not accept",
                                                        "{n} names Koofr does not accept",
@@ -953,12 +959,20 @@ class PairPage(Adw.NavigationPage):
         self.verify_row.set_sensitive(signed_in)
         self.verify_row.set_subtitle(escape(verification_summary(rt.preview)
                                             or _("Compare sizes and checksums here and on Koofr. Nothing is changed.")))
-        self.log_row.set_visible(newest_log(self.engine.paths.log_dir(self.pair_id)) is not None)
+        if not self.log_row.get_visible():      # once there is a log there always is one (runner.KEEP_LOGS)
+            self.log_row.set_visible(newest_log(self.engine.paths.log_dir(self.pair_id)) is not None)
         self._update_copies(pair)
-        patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
-                    if line.strip() and not line.lstrip().startswith("#")]
-        self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
-                                                .format(n=len(patterns))))
+        try:
+            st = self.engine.paths.filters_file(self.pair_id).stat()
+            filters = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            filters = None
+        if filters != self._filters_seen:
+            self._filters_seen = filters
+            patterns = [line for line in jobs.read_filters(self.engine.paths, pair).splitlines()
+                        if line.strip() and not line.lstrip().startswith("#")]
+            self.exclusions_row.set_subtitle(escape(ngettext("{n} pattern", "{n} patterns", len(patterns))
+                                                    .format(n=len(patterns))))
 
     def _primary(self) -> None:
         rt = self.engine.runtime.get(self.pair_id)
@@ -1364,30 +1378,35 @@ def open_version(window, engine: Engine, version) -> None:
     the app does can change the kept copy. Copies a day old are cleared.
     On Windows a program, a script or a shortcut is shown in its folder
     instead: opening it would run it, and a kept copy may come from anyone
-    who shares the folder on Koofr."""
+    who shares the folder on Koofr. The copy is made in a thread: a file of
+    gigabytes would stop the window."""
     from . import versions as versions_mod
     folder = os.path.join(GLib.get_user_cache_dir(), "spola", "open")
-    try:
-        for name in os.listdir(folder):
-            path = os.path.join(folder, name)
-            if time.time() - os.path.getmtime(path) > 86400:
-                import shutil
-                shutil.rmtree(path, ignore_errors=True)
-    except OSError:
-        pass
-    try:
-        path = versions_mod.open_copy(engine.paths, version, folder)
-    except OSError as e:
-        window.toast(str(e))
-        return
-    if WINDOWS:
-        from .win32 import runs_when_opened
-        if runs_when_opened(path):
-            reveal(window, path)
-            window.toast(_("“{name}” is a program or a shortcut: shown in its folder, not opened").format(
-                name=os.path.basename(path)))
+
+    def work() -> str:
+        import shutil
+        try:
+            for name in os.listdir(folder):
+                path = os.path.join(folder, name)
+                if time.time() - os.path.getmtime(path) > 86400:
+                    shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            pass
+        return versions_mod.open_copy(engine.paths, version, folder)
+
+    def done(path: str | None, error: Exception | None) -> None:
+        if error is not None:
+            window.toast(str(error))
             return
-    Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(window, None, None, None)
+        if WINDOWS:
+            from .win32 import runs_when_opened
+            if runs_when_opened(path):
+                reveal(window, path)
+                window.toast(_("“{name}” is a program or a shortcut: shown in its folder, not opened").format(
+                    name=os.path.basename(path)))
+                return
+        Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(window, None, None, None)
+    run_in_thread(work, done)
 
 
 class VersionsDialog(Adw.Dialog):
@@ -1405,6 +1424,13 @@ class VersionsDialog(Adw.Dialog):
         self.trash_entries: list = []          # Koofr's trash as read so far (the whole account's)
         self.trash_done = False
         self.trash_error = ""
+        # Koofr gives the whole account's trash (88,000 files after one deletion
+        # on 2026-10-14): each page is looked through once, and whether a file
+        # is back in its place is asked of the disk once per path
+        self._here: list = []                   # this folder's entries so far, not back, matching the search
+        self._scanned = 0                       # how many of trash_entries _here has looked through
+        self._back: dict[str, bool] = {}
+        self._trash_group = None
         self._trash_shown = None                # what the trash group shows: refilled only when it changes
         self._reading_row = None
         self._stop_trash = lambda: None
@@ -1425,7 +1451,8 @@ class VersionsDialog(Adw.Dialog):
         self.nav = Adw.NavigationView()
         self.nav.add(Adw.NavigationPage(title=title, child=view))
         self.set_child(self.nav)
-        self._handler = self.engine.connect("versions-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
+        self._handler = self.engine.connect("versions-changed",
+                                            lambda _e, pid: self._fill(fresh=True) if pid == pair_id else None)
         self.connect("closed", lambda *_: (self.engine.disconnect(self._handler), self._stop_trash()))
         self._fill()
         if kind == "deleted":
@@ -1438,13 +1465,16 @@ class VersionsDialog(Adw.Dialog):
     def _matches(self, rel: str) -> bool:
         return not self.query or self.query in rel.casefold()
 
-    def _fill(self) -> None:
+    def _fill(self, fresh: bool = False) -> None:
+        """Both groups built again; `fresh`: files may have come back (a
+        restore), so the disk is asked again."""
         pair = self.engine.cfg.pair(self.pair_id)
         if pair is None:
             return
         for group in self.groups:
             self.page.remove(group)
         self.groups = []
+        self._trash_group = None
         days = self.engine.cfg.backup_days
         index = self.engine.versions_index(self.pair_id)
         if self.kind == "file":
@@ -1472,17 +1502,30 @@ class VersionsDialog(Adw.Dialog):
         for version in local:
             group.add(self._row(version, version.rel[len(prefix):], days, show_when=True))
         self._add(group)
-        trash = Adw.PreferencesGroup(title=_("In Koofr's Trash"), description=escape(_(
+        if fresh:
+            self._back.clear()
+        self._scan_trash(pair, again=True)
+        self._fill_trash(pair)
+
+    TRASH_ROWS = 500        # the newest deletions; the search finds the others
+
+    def _fill_trash(self, pair) -> None:
+        """The trash group alone, built again (a page of the trash leaves the
+        copies kept here as they are)."""
+        if self._trash_group is not None:
+            self.page.remove(self._trash_group)
+            self.groups.remove(self._trash_group)
+        trash = self._trash_group = Adw.PreferencesGroup(title=_("In Koofr's Trash"), description=escape(_(
             "Files deleted on any computer or on the web, kept by Koofr for 30 days. A file you deleted here "
             "is first in this computer's wastebasket, and reaches Koofr's trash with the next sync. "
             "A restored file comes back here with the sync after the restore.")))
-        entries = self._trash_here(pair)
-        self._trash_shown = (len(entries), self.trash_done, self.trash_error)
+        entries = self._here
+        self._trash_shown = (min(len(entries), self.TRASH_ROWS), self.trash_done, self.trash_error)
         self._reading_row = None
         remote = pair.remote.rstrip("/") + ("/" + self.rel.strip("/") if self.rel else "")
         if self.trash_done and not entries and not self.trash_error:
             trash.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
-        for entry in entries[:500]:
+        for entry in entries[:self.TRASH_ROWS]:
             shown = entry.path[len(remote.rstrip("/")) + 1:] or os.path.basename(entry.path)
             subtitle = " · ".join((
                 _("deleted {date}").format(date=moment(entry.deleted / 1000)), GLib.format_size(entry.size),
@@ -1503,17 +1546,25 @@ class VersionsDialog(Adw.Dialog):
                                     subtitle=escape(self.trash_error)))
         self._add(trash)
 
-    def _trash_here(self, pair) -> list:
+    def _scan_trash(self, pair, again: bool = False) -> None:
         """The trash entries of this folder (the account's main storage),
-        not back in their place already, matching the search."""
+        matching the search, not back in their place already, into _here:
+        those read since the last scan, or all of them `again`."""
+        if again:
+            self._here, self._scanned = [], 0
         mount_id = self.engine.cfg.mount_id
         root = pair.remote.rstrip("/")
         remote = root + ("/" + self.rel.strip("/") if self.rel else "")
-        return [e for e in self.trash_entries
-                if (not mount_id or e.mount_id == mount_id)
-                and (e.path == remote or e.path.startswith(remote.rstrip("/") + "/"))
-                and not os.path.lexists(os.path.join(pair.local, e.path[len(root) + 1:]))
-                and self._matches(e.path)]
+        for e in self.trash_entries[self._scanned:]:
+            if ((not mount_id or e.mount_id == mount_id)
+                    and (e.path == remote or e.path.startswith(remote.rstrip("/") + "/"))
+                    and self._matches(e.path)):
+                back = self._back.get(e.path)
+                if back is None:
+                    back = self._back[e.path] = os.path.lexists(os.path.join(pair.local, e.path[len(root) + 1:]))
+                if not back:
+                    self._here.append(e)
+        self._scanned = len(self.trash_entries)
 
     def _add(self, group) -> None:
         self.groups.append(group)
@@ -1555,28 +1606,33 @@ class VersionsDialog(Adw.Dialog):
             dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
             dialog.set_default_response("copy")
 
+        def restored(rel: str, error: str) -> None:
+            if error:
+                tell(self.toasts, "", [error])
+            else:
+                tell(self.toasts, _("Restored: {path}. The next sync uploads it to Koofr.").format(path=rel), [])
+
         def chosen(_d, response):
-            if response not in ("copy", "replace"):
-                return
-            try:
-                rel = self.engine.restore_version(self.pair_id, version.id, response)
-            except (OSError, ValueError) as e:
-                tell(self.toasts, "", [str(e)])
-                return
-            tell(self.toasts, _("Restored: {path}. The next sync uploads it to Koofr.").format(path=rel), [])
+            if response in ("copy", "replace"):
+                self.engine.restore_version(self.pair_id, version.id, response, restored)     # in a thread
         dialog.connect("response", chosen)
         dialog.present(self)
 
     def _trash_update(self, entries: list, done: bool, error: str) -> None:
+        # each page comes with the whole list read so far; a list that is not
+        # the same one grown is a new reading: looked through from the start
+        again = len(entries) < self._scanned or bool(
+            self.trash_entries and entries and entries[0] is not self.trash_entries[0])
         self.trash_entries, self.trash_done, self.trash_error = entries, done, error
         pair = self.engine.cfg.pair(self.pair_id)
         if pair is None:
             return
-        # a page that adds nothing for this folder only updates the count
-        if (len(self._trash_here(pair)), done, error) == self._trash_shown and self._reading_row is not None:
+        self._scan_trash(pair, again=again)
+        # a page that changes none of the rows shown only updates the count
+        if (min(len(self._here), self.TRASH_ROWS), done, error) == self._trash_shown and self._reading_row is not None:
             self._reading_row.set_subtitle(escape(self._read_so_far()))
             return
-        self._fill()
+        self._fill_trash(pair)
 
     def _read_so_far(self) -> str:
         n = len(self.trash_entries)
@@ -1605,7 +1661,7 @@ class VersionsDialog(Adw.Dialog):
                 return
             tell(self.toasts, _("Restored from Koofr's trash: the next sync brings it here."), [])
             self.trash_entries, self.trash_done, self.trash_error = [], False, ""
-            self._fill()
+            self._fill(fresh=True)
             self._stop_trash = self.engine.trash_entries(self._trash_update)
         dialog.connect("response", chosen)
         dialog.present(self)
@@ -2106,13 +2162,30 @@ class PreferencesDialog(Adw.PreferencesDialog):
         if days >= cfg.backup_days:
             self._set("backup_days", days)
             return
-        runs = size = 0
-        for pair in cfg.pairs:
-            n, b = jobs.backups_older_than(paths, pair.id, days)
-            runs, size = runs + n, size + b
-        if not runs:
-            self._set("backup_days", days)
-            return
+        pair_ids = [pair.id for pair in cfg.pairs]
+
+        def work() -> tuple[int, int]:      # a walk of every backup to delete: not on the main loop
+            runs = size = 0
+            for pair_id in pair_ids:
+                n, b = jobs.backups_older_than(paths, pair_id, days)
+                runs, size = runs + n, size + b
+            return runs, size
+
+        def counted(result, error) -> None:
+            if int(row.get_value()) != days:
+                return              # changed again meanwhile: its own count asks
+            if error is not None:   # nothing deleted without its word: the days as they were
+                row.set_value(cfg.backup_days)
+                self.window.toast(str(error))
+                return
+            if not result[0]:
+                self._set("backup_days", days)
+                return
+            self._ask_backup_days(days, *result, row, parent or (self if self.get_root() is not None else self.window))
+        run_in_thread(work, counted)
+
+    def _ask_backup_days(self, days: int, runs: int, size: int, row, parent: Gtk.Widget) -> None:
+        cfg = self.engine.cfg
         dialog = Adw.AlertDialog(
             heading=_("Delete Older Backups?"),
             body=ngettext("{n} backup older than {days} days is deleted at once: {size} of files replaced or "
@@ -2131,7 +2204,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             else:
                 row.set_value(cfg.backup_days)
         dialog.connect("response", chosen)
-        dialog.present(parent or self)
+        dialog.present(parent)
 
     def _set(self, name: str, value, conditions: bool = False) -> None:
         setattr(self.engine.cfg, name, value)
@@ -2354,6 +2427,7 @@ class PreviewDialog(Adw.Dialog):
         # the files of the last run, here and on Koofr: how much of each folder a change touches
         preview = rt.preview if rt else None
         bases = preview.bases if preview is not None and preview.outcome is outcome else None
+        base_counts = preview.base_counts if bases is not None else None     # counted in the preparing thread
         on_side = {id(plan.upload): 0, id(plan.download): 1, id(plan.moved_remote): 0, id(plan.moved_local): 1,
                    id(plan.replace_local): 0, id(plan.delete_local): 0, id(plan.delete_remote): 1,
                    id(plan.conflicts): 0, id(plan.refused): 0}
@@ -2373,7 +2447,8 @@ class PreviewDialog(Adw.Dialog):
                     # a left-out name says why: most of them look perfectly normal
                     entries.append((entry, why.get(entry, "") if paths is plan.refused else "", entry))
             base = bases[on_side[id(paths)]] if bases is not None else None
-            nodes = filetree.build(entries, plan.sizes, plan.folders, base)
+            counted = base_counts[on_side[id(paths)]] if base_counts is not None else None
+            nodes = filetree.build(entries, plan.sizes, plan.folders, base, counted)
             files, size = filetree.totals(nodes)
             if paths is plan.upload or paths is plan.download:
                 size = size or (plan.upload_bytes if paths is plan.upload else plan.download_bytes)
@@ -2477,12 +2552,13 @@ def about_dialog(parent, engine: Engine | None = None, present: bool = True) -> 
     dialog.add_credit_section(_("Sync engine"), ["rclone https://rclone.org"])
     if engine is not None:
         # Troubleshooting: what a report needs, with its Save button; the
-        # slow part (rclone's version, the room the backups take) follows
+        # slow part (rclone's version, the listings, the room the backups
+        # take) follows
         head = diagnostics.summary(engine)
         dialog.set_debug_info_filename("spola-debug-info.txt")
         dialog.set_debug_info(head + "\n" + _("Measuring the space taken by the logs and backups…"))
-        paths, rclone = engine.paths, engine.rclone
-        run_in_thread(lambda: diagnostics.storage(paths, rclone),
+        paths, rclone, pair_ids = engine.paths, engine.rclone, [pair.id for pair in engine.cfg.pairs]
+        run_in_thread(lambda: diagnostics.storage(paths, rclone, pair_ids),
                       lambda text, error: dialog.set_debug_info(head + "\n" + (text if error is None else str(error))))
     if present:
         dialog.present(parent)

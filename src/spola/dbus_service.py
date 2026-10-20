@@ -246,8 +246,14 @@ class SyncService:
                 if not found:
                     invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder")
                     return
-                rel = self.engine.restore_version(found[0].id, vid, mode)
-                invocation.return_value(GLib.Variant("(s)", (uri_for(os.path.join(found[0].local, rel)),)))
+                local = found[0].local
+
+                def restored(rel: str, error: str) -> None:      # the answer once the copy is made
+                    if error:
+                        invocation.return_dbus_error(f"{INTERFACE}.Failed", error)
+                    else:
+                        invocation.return_value(GLib.Variant("(s)", (uri_for(os.path.join(local, rel)),)))
+                self.engine.restore_version(found[0].id, vid, mode, restored)
             elif method in ("ShowVersions", "ShowDeleted"):
                 (uri,) = params.unpack()
                 found = self.locate(uri)

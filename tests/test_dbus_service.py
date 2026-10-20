@@ -110,9 +110,9 @@ class VersionsServiceTest(unittest.TestCase):
         self.restored, self.shown = [], []
         pair = self.pair
 
-        def restore_version(pid, vid, mode):
+        def restore_version(pid, vid, mode, done):
             self.restored.append((pid, vid, mode))
-            return versions.restore(self.paths, pair, index.by_id(vid), mode, "en")
+            done(versions.restore(self.paths, pair, index.by_id(vid), mode, "en"), "")
         engine = SimpleNamespace(
             cfg=SimpleNamespace(pairs=[pair], mount_id="m", backup_days=30, pair=lambda pid: pair if pid == "p1" else None),
             runtime={}, creds=None, rclone=None, paths=self.paths, versions_index=lambda pid: index,

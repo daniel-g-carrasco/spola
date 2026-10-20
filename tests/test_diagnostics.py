@@ -33,8 +33,9 @@ class DiagnosticsTest(unittest.TestCase):
             self.assertIn("status: ERROR 'the disk is nearly full', retries 2", text)
             self.assertIn("last run: FAILED, exit 2, 'boom'", text)
             self.assertIn("conflicts: 1", text)
-            self.assertIn("listings: none", text)
-            slow = diagnostics.storage(paths, "/no/rclone")
+            self.assertNotIn("listings", text)                     # read in the slow part, in a thread
+            slow = diagnostics.storage(paths, "/no/rclone", ["p1"])
+            self.assertIn("[p1] listings: none", slow)
             self.assertIn("logs: 1 files, 2.5 kB", slow)
             self.assertIn("backups: none", slow)
             self.assertIn("rclone version: ", slow)                 # not found: said, not raised
