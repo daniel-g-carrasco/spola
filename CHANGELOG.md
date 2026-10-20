@@ -8,6 +8,44 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.31] - 2026-10-20
+
+### Fixed
+- Two identical files moved in the same run (copies of a document in a
+  reorganised folder) could each arrive with the date of the other, and
+  the next run took them for changed and uploaded them again (737 files on
+  2026-10-19). A move is now matched by content and date.
+- A confirmation could go in circles: when files had gone from both sides
+  (deleted on the web and here, or by two computers), or had changed the
+  same way on both, the confirmed run stopped again at every confirmation.
+  The confirmed run now allows what the safety check counted, and no more.
+- After a run that made conflicts, the folder's status said "up to date"
+  until the next run.
+- The window froze for a moment 60 seconds after the start, and once a
+  day, while old backups were removed: that now happens in the background.
+- Restoring a previous version while the folder was syncing could fail on
+  Windows (the file was open for the sync): Spola now says to wait for the
+  sync to finish, as it does for conflicts.
+
+### Changed
+- A safety stop gives its reason in Spola's words ("20 of 40 files are gone
+  from this computer at once") instead of rclone's line.
+
+### Security
+- Windows: an update installs only the installer of the version it
+  announces (a tampered answer could have offered an older, duly signed
+  one); the verified installer stays open until Spola exits, so that
+  nothing else can replace it before Setup reads it; an installation for
+  this user only is updated with /CURRENTUSER.
+- The test jobs of the CI get read-only tokens and keep no credentials, and
+  the rclone they run is checked against its SHA-256 first.
+- Windows: "Open a Copy" of a previous version no longer runs a program, a
+  script or a shortcut (a kept copy may come from anyone who shares the
+  folder on Koofr): it shows the copy in its folder.
+
+These come from an independent review of 0.3.30 (data integrity, security,
+redundancy, speed, code), which found no path that loses or corrupts a file.
+
 ## [0.3.30] - 2026-10-19
 
 ### Fixed
@@ -467,7 +505,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.30...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.31...main
+[0.3.31]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.31
 [0.3.30]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.30
 [0.3.29]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.29
 [0.3.28]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.28

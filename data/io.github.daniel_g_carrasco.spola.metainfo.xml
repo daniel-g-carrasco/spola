@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.31" date="2026-10-20" type="development">
+      <description>
+        <p>From an independent review: identical files moved together keep their own dates (they were uploaded again with the other's), a confirmation no longer goes in circles when files are gone from both sides or changed the same way on both, the status shows the conflicts a run made at once, old backups are removed without freezing the window, and a safety stop says its reason in plain words; a previous version is restored once the sync in progress has finished. Windows updates install only the installer of the announced version, kept open until Setup has read it, and "Open a Copy" shows a program or a shortcut in its folder instead of running it.</p>
+      </description>
+    </release>
     <release version="0.3.30" date="2026-10-19" type="development">
       <description>
         <p>Windows: Spola no longer stays "offline" with the network working (it asks Windows whether there is a network); the title bar's icon is sharp, drawn for its size; the status icons in the window match the notification area's; the text is a size larger.</p>
