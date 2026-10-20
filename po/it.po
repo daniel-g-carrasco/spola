@@ -3043,17 +3043,17 @@ msgstr "“{name}” torna al suo posto; la prossima sincronizzazione lo porta s
 
 #: src/spola/window.py
 #, python-brace-format
-msgid "Each copy stays {n} day, then the retention deletes it; Koofr keeps no older versions."
-msgid_plural "Each copy stays {n} days, then the retention deletes it; Koofr keeps no older versions."
-msgstr[0] "Ogni copia resta {n} giorno, poi la pulizia la elimina; Koofr non conserva versioni precedenti."
-msgstr[1] "Ogni copia resta {n} giorni, poi la pulizia la elimina; Koofr non conserva versioni precedenti."
+msgid "Each copy stays {n} day, then the retention deletes it; Koofr keeps its own previous versions of the files replaced there."
+msgid_plural "Each copy stays {n} days, then the retention deletes it; Koofr keeps its own previous versions of the files replaced there."
+msgstr[0] "Ogni copia resta {n} giorno, poi la pulizia la elimina; Koofr conserva da sé le versioni precedenti dei file sostituiti lì."
+msgstr[1] "Ogni copia resta {n} giorni, poi la pulizia la elimina; Koofr conserva da sé le versioni precedenti dei file sostituiti lì."
 
 #: src/spola/window.py
 #, python-brace-format
-msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} day (Preferences), then deletes it; Koofr keeps no older versions."
-msgid_plural "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} days (Preferences), then deletes it; Koofr keeps no older versions."
-msgstr[0] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorno (Preferenze), poi la elimina; Koofr non conserva versioni precedenti."
-msgstr[1] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorni (Preferenze), poi la elimina; Koofr non conserva versioni precedenti."
+msgid "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} day (Preferences), then deletes it; Koofr keeps its own previous versions of the files replaced there."
+msgid_plural "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} days (Preferences), then deletes it; Koofr keeps its own previous versions of the files replaced there."
+msgstr[0] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorno (Preferenze), poi la elimina; Koofr conserva da sé le versioni precedenti dei file sostituiti lì."
+msgstr[1] "Quando una sincronizzazione sostituisce o elimina un file qui, Spola ne conserva la vecchia copia per {n} giorni (Preferenze), poi la elimina; Koofr conserva da sé le versioni precedenti dei file sostituiti lì."
 
 #: src/spola/window.py
 #, python-brace-format
