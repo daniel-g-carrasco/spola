@@ -156,6 +156,24 @@ class VersionsServiceTest(unittest.TestCase):
         self.call("ShowDeleted", "(s)", str(self.root / "relazione.odt"))         # a file: the folder it is in
         self.assertEqual(self.shown, [("p1", "relazione.odt", "file"), ("p1", "docs", "deleted"), ("p1", "", "deleted")])
 
+    def test_a_name_that_is_not_utf8_leaves_the_others_their_answer(self):
+        # a Linux name that is not UTF-8 comes with surrogates (os.fsdecode),
+        # which no D-Bus string can hold: left out, the rest of the answer
+        # goes (it failed whole, and the folder lost every emblem)
+        import os
+        from spola import versions
+        from spola.dbus_service import sendable
+        bad = os.fsdecode(b"bad-\xff.txt")
+        self.assertFalse(sendable(bad))
+        self.assertTrue(sendable("relazione.odt"))
+        (self.paths.backup_dir("p1") / "20261017-123000" / bad).write_text("x")
+        index = versions.Index(self.pair, versions.scan(self.paths, self.pair))
+        self.service.engine.versions_index = lambda pid: index
+        self.assertEqual(self.call("GetFolderVersions", "(s)", uri_for(str(self.root))).value.unpack(),
+                         (["relazione.odt"],))
+        (deleted,) = self.call("ListDeleted", "(s)", uri_for(str(self.root))).value.unpack()
+        self.assertTrue(all(sendable(v["id"]) for v in deleted))
+
 
 if __name__ == "__main__":
     unittest.main()
