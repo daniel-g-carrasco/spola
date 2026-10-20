@@ -75,10 +75,13 @@ jobs:
           cat logs/interrupted.txt logs-detached/interrupted.txt logs-detached/run.txt || true
       - name: Tests
         # blocking: nothing is packaged, let alone released, from a build
-        # whose tests fail on Windows
+        # whose tests fail on Windows. Warnings shown as unittest shows them,
+        # but PyGObject's on Python 3.14 (gi.events, at every run of the main
+        # loop: thousands of lines)
         run: |
           set -o pipefail
-          env -u MSYSTEM python -m unittest discover -s tests -v 2>&1 | tee tests.log
+          env -u MSYSTEM python -W default -W "ignore::DeprecationWarning:gi.events" \
+            -m unittest discover -s tests -v 2>&1 | tee tests.log
       - name: The window
         continue-on-error: true
         run: |

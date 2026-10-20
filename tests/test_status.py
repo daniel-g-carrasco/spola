@@ -1,5 +1,7 @@
 """The status file other programs read (the Noctalia plugin)."""
 
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -52,8 +54,10 @@ class SnapshotTest(unittest.TestCase):
     def test_a_folder_whose_state_cannot_be_read_is_left_out(self):
         engine = fake_engine()
         engine.runtime["p1"].stats = {"bytes": "many", "totalBytes": 10}   # a bad value: that folder only
-        data = status.snapshot(engine)
+        with contextlib.redirect_stderr(io.StringIO()) as said:
+            data = status.snapshot(engine)
         self.assertEqual([p["id"] for p in data["pairs"]], ["p2"])
+        self.assertIn("spola: the status of work: TypeError", said.getvalue())     # said, with its traceback
 
     def test_written_whole_and_removed(self):
         with tempfile.TemporaryDirectory() as tmp:

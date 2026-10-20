@@ -3,6 +3,8 @@
 "Koofr" side (SPOLA_DEV_REMOTE): first alignment, a local change picked up by
 the monitor, a mass delete that stops and waits, pause, shutdown."""
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -908,8 +910,10 @@ class EngineTest(unittest.TestCase):
             raise RuntimeError("listing exploded")
         self.engine._refresh_listing = broken
         (self.local / "new.txt").write_text("x")
-        self.engine.request_sync("p1", "manual")
-        self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30))
+        with contextlib.redirect_stderr(io.StringIO()) as said:
+            self.engine.request_sync("p1", "manual")
+            self.assertTrue(spin_until(lambda: self.status() is Status.ERROR, 30))
+        self.assertIn("RuntimeError: listing exploded", said.getvalue())    # said, with its traceback
         self.assertIn("listing exploded", self.engine.runtime["p1"].message)
         self.assertIsNone(self.engine.active)
         self.assertIn("new.txt", self.remote_files())             # the run itself was done
