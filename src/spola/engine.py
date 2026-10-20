@@ -517,6 +517,12 @@ class Engine(GObject.Object):
                     self.paths.backup_dir(pair_id).rmdir()      # only once empty
             except (OSError, ValueError):
                 pass
+        # rclone's fragments of downloads cut short (a crash, a kill), a day old
+        for pair in list(self.cfg.pairs):
+            try:
+                jobs.remove_stale_partials(pair.local, jobs.exclusion_patterns(jobs.read_filters(self.paths, pair)))
+            except Exception as e:      # said; tried again tomorrow
+                complain(f"removing rclone's leftovers in {pair.name}", e)
         return True
 
     def network_available(self) -> bool:

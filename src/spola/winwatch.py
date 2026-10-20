@@ -64,6 +64,8 @@ kernel32.WaitForMultipleObjects.restype = wintypes.DWORD
 kernel32.GetOverlappedResult.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED),
                                          ctypes.POINTER(wintypes.DWORD), wintypes.BOOL]
 kernel32.CancelIoEx.argtypes = [wintypes.HANDLE, ctypes.POINTER(OVERLAPPED)]
+kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+kernel32.WaitForSingleObject.restype = wintypes.DWORD
 
 
 def names_in(data: bytes) -> set[str]:
@@ -80,6 +82,7 @@ def names_in(data: bytes) -> set[str]:
 
 class WinTreeWatcher:
     BUFFER_BYTES = 64 * 1024        # the most a network share takes
+    RETRY_S = (5, 15, 30, 60)       # a folder that cannot be watched: tried again after these, then every minute
 
     def __init__(self, root: str, on_change: Callable[[str], None],
                  ignore: Callable[[str], bool] = lambda rel: False, budget: int | None = None):
@@ -100,15 +103,37 @@ class WinTreeWatcher:
     def start(self) -> None:
         if self._thread is not None:
             return
-        handle = kernel32.CreateFileW(self.root, FILE_LIST_DIRECTORY, FILE_SHARE_ALL, None, OPEN_EXISTING,
-                                      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, None)
-        if handle in (None, INVALID_HANDLE_VALUE):
-            return                          # unreadable folder: rclone will report it
         self._stop_event = kernel32.CreateEventW(None, True, False, None)
         self._stopped = False
-        self._thread = threading.Thread(target=self._watch, args=(handle, self._stop_event),
-                                        name="spola-watch", daemon=True)
+        self._thread = threading.Thread(target=self._run, args=(self._stop_event,), name="spola-watch",
+                                        daemon=True)
         self._thread.start()
+
+    def _open(self):
+        handle = kernel32.CreateFileW(self.root, FILE_LIST_DIRECTORY, FILE_SHARE_ALL, None, OPEN_EXISTING,
+                                      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, None)
+        return None if handle in (None, INVALID_HANDLE_VALUE) else handle
+
+    def _run(self, stop_event) -> None:
+        """Watch until stopped. A folder that cannot be watched (gone, its
+        drive taken away, no longer readable) is tried again, every few
+        seconds and then every minute; when it can be watched again the
+        root is told, so that a run looks at what changed meanwhile. Before,
+        the thread ended at the first error and the pair was left to the
+        periodic check until Spola started again, without a word."""
+        failures = 0
+        while True:
+            handle = self._open()
+            if handle is not None:
+                if failures:
+                    self._tell({""})
+                failures = 0
+                if self._watch(handle, stop_event):
+                    return
+            delay = self.RETRY_S[min(failures, len(self.RETRY_S) - 1)]
+            failures += 1
+            if kernel32.WaitForSingleObject(stop_event, int(delay * 1000)) == WAIT_OBJECT_0:
+                return
 
     def stop(self) -> None:
         self._stopped = True
@@ -119,7 +144,9 @@ class WinTreeWatcher:
         kernel32.CloseHandle(self._stop_event)
         self._thread = self._stop_event = None
 
-    def _watch(self, handle, stop_event) -> None:
+    def _watch(self, handle, stop_event) -> bool:
+        """The changes under the root, until stopped (True) or until the
+        folder cannot be watched any more (False, the root told)."""
         io_event = kernel32.CreateEventW(None, True, False, None)
         buffer = ctypes.create_string_buffer(self.BUFFER_BYTES)
         overlapped = OVERLAPPED(hEvent=io_event)
@@ -131,19 +158,19 @@ class WinTreeWatcher:
                 if not kernel32.ReadDirectoryChangesW(handle, buffer, len(buffer), True, NOTIFY_FILTER,
                                                       None, ctypes.byref(overlapped), None):
                     self._tell({""})        # the folder is gone, or no longer readable: a run will say
-                    return
+                    return False
                 if kernel32.WaitForMultipleObjects(2, waiting, False, INFINITE) != WAIT_OBJECT_0:
                     kernel32.CancelIoEx(handle, ctypes.byref(overlapped))
                     kernel32.GetOverlappedResult(handle, ctypes.byref(overlapped), ctypes.byref(got), True)
-                    return
+                    return True
                 if not kernel32.GetOverlappedResult(handle, ctypes.byref(overlapped), ctypes.byref(got), False):
                     error = ctypes.get_last_error()
                     if error == ERROR_OPERATION_ABORTED:
-                        return
+                        return True
                     self._tell({""})
                     if error == ERROR_NOTIFY_ENUM_DIR:
                         continue            # more than the buffer held: told, and on
-                    return
+                    return False
                 # nothing in the buffer: more than it held
                 self._tell(names_in(buffer.raw[:got.value]) if got.value else {""})
         finally:

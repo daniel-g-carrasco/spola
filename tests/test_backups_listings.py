@@ -50,3 +50,29 @@ class KeptListingsTest(unittest.TestCase):
             for bad in ("../x", "replaced-20261017-000000", "nope"):
                 with self.assertRaises((ValueError, FileNotFoundError)):
                     jobs.restore_listings(paths, "p1", bad)
+
+
+class PartialsTest(unittest.TestCase):
+    def test_rclone_leftovers_a_day_old_go(self):
+        # a download cut short leaves "<name>.<8 hex>.partial" next to the
+        # file; nothing else removes it, and nothing else is removed
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = time.time() - 2 * 86400
+            for folder in ("d", "node_modules", "mine"):
+                (root / folder).mkdir()
+            files = {"d/f05.bin.af1b584d.partial": old,      # rclone's, two days old: goes
+                     "g.pdf.085c08fe.partial": time.time(),   # rclone's, a download in progress: stays
+                     "notes.partial": old,                    # not rclone's form: stays
+                     "x.ABCDEF12.partial": old,               # nor this
+                     "f05.bin": old,
+                     # in folders rclone never writes to: excluded by default, by the pair
+                     "node_modules/a.js.0123abcd.partial": old,
+                     "mine/b.txt.0123abcd.partial": old}
+            for rel, when in files.items():
+                (root / rel).write_text("x")
+                os.utime(root / rel, (when, when))
+            self.assertEqual(jobs.remove_stale_partials(str(root), ["mine/**"]), 1)
+            left = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
+            self.assertEqual(left, sorted(set(files) - {"d/f05.bin.af1b584d.partial"}))

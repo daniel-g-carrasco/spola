@@ -98,6 +98,24 @@ class WinWatchTest(unittest.TestCase):
         shutil.rmtree(self.root)                             # no handle left on it
         w.stop()                                             # twice: fine
 
+    def test_a_folder_gone_and_back_is_watched_again(self):
+        # the folder (or its drive) goes away: the root is told, and the
+        # watcher tries again until it can watch it, then tells the root
+        # again (what changed meanwhile) and goes on (B-03)
+        w = winwatch.WinTreeWatcher(str(self.root), self.told.append)
+        w.RETRY_S = (0.2,)
+        w.start()
+        self.addCleanup(w.stop)
+        time.sleep(0.2)
+        shutil.rmtree(self.root)
+        self.assertTrue(spin_until(lambda: "" in self.told))
+        self.assertEqual(w.count, 1)                         # still trying
+        self.told.clear()
+        self.root.mkdir()
+        self.assertTrue(spin_until(lambda: "" in self.told))     # back: a run looks at everything
+        (self.root / "dopo.txt").write_text("x")
+        self.assertTrue(spin_until(lambda: "dopo.txt" in self.told))
+
     def test_names_of_the_records(self):
         def record(name: str, last: bool = False) -> bytes:
             raw = name.encode("utf-16-le")
