@@ -991,9 +991,10 @@ class PairPage(Adw.NavigationPage):
         self.copies_group.set_visible(pair.initialized)
         self.copies_group.set_description(escape(ngettext(
             "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} day (Preferences), then "
-            "deletes it; Koofr keeps no older versions.",
+            "deletes it; Koofr keeps its own previous versions of the files replaced there.",
             "When a sync replaces or deletes a file here, Spola keeps the old copy for {n} days (Preferences), then "
-            "deletes it; Koofr keeps no older versions.", days).format(n=count(days))))
+            "deletes it; Koofr keeps its own previous versions of the files replaced there.",
+            days).format(n=count(days))))
         if summary.files:
             self.copies_row.set_subtitle(escape(ngettext("{n} copy", "{n} copies", summary.files)
                                                 .format(n=count(summary.files)) + " · " + GLib.format_size(summary.size)
@@ -1646,8 +1647,10 @@ class KeptCopiesDialog(Adw.Dialog):
             if not self.query or self.query in version.rel.casefold():
                 files.setdefault(version.rel, []).append(version)
         self.group = Adw.PreferencesGroup(description=escape(ngettext(
-            "Each copy stays {n} day, then the retention deletes it; Koofr keeps no older versions.",
-            "Each copy stays {n} days, then the retention deletes it; Koofr keeps no older versions.", days)
+            "Each copy stays {n} day, then the retention deletes it; Koofr keeps its own previous versions of "
+            "the files replaced there.",
+            "Each copy stays {n} days, then the retention deletes it; Koofr keeps its own previous versions of "
+            "the files replaced there.", days)
             .format(n=count(days))))
         if not files:
             self.group.add(Adw.ActionRow(title=_("No copy matches.") if self.query else _("No copy is kept.")))
