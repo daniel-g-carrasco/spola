@@ -1077,21 +1077,44 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(old.reason, "replaced")
         self.assertEqual([(v.rel, v.reason) for v in idx().deleted_under("")], [("f02.txt", "deleted")])
         self.assertEqual(idx().names_in(""), {"f01.txt", "f02.txt"})
+        # a restore is refused while a run of the pair goes on (the watcher's
+        # follow-up after the files the run wrote, under a loaded machine):
+        # wait for none, as the window's user would after being told
+        idle = lambda: self.engine.active is None and not self.engine.queue     # noqa: E731
         # restored as a copy next to the file: on Koofr after the next run
+        self.assertTrue(spin_until(idle, 60))
         rel = self.engine.restore_version("p1", old.id, "copy")
         self.assertEqual((self.local / rel).read_text(), "1")
         self.assertTrue(spin_until(lambda: (self.remote / rel).exists() and self.status() is Status.OK, 60))
         self.assertEqual((self.remote / rel).read_text(), "1")
         self.assertEqual((self.local / "f01.txt").read_text(), "from another computer")
         # the deleted one goes back in its place, and up again
+        self.assertTrue(spin_until(idle, 60))
         self.engine.restore_version("p1", idx().deleted_under("")[0].id, "copy")
         self.assertTrue(spin_until(lambda: (self.remote / "f02.txt").exists() and self.status() is Status.OK, 60))
         # replaced in place: the current file is kept first, so it can be undone
+        self.assertTrue(spin_until(idle, 60))
         self.engine.restore_version("p1", old.id, "replace")
         self.assertEqual((self.local / "f01.txt").read_text(), "1")
         self.assertTrue(spin_until(lambda: any(v.reason == "restored" for v in idx().of("f01.txt")), 30))
         self.assertTrue(spin_until(lambda: text_of(self.remote / "f01.txt") == "1" and self.status() is Status.OK, 60))
         self.assertTrue(all(versions_mod.copy_path(self.engine.paths, v).exists() for v in idx().versions))
+
+    def test_a_version_is_not_restored_during_a_run(self):
+        # rclone may have the file open (on Windows it cannot then be moved
+        # aside), and the run's listing would not know what the restore wrote
+        rt = self.engine.runtime["p1"]
+        with mock.patch.object(rt, "run", object()), \
+                mock.patch.object(rt, "task", engine_mod.Task("p1", Mode.SYNC)):
+            with self.assertRaises(ValueError) as caught:
+                self.engine.restore_version("p1", "any", "copy")
+        self.assertEqual(str(caught.exception), engine_mod._("Wait for the current sync to finish."))
+        # a preview (a dry run) writes nothing here: no reason to wait for it
+        with mock.patch.object(rt, "run", object()), \
+                mock.patch.object(rt, "task", engine_mod.Task("p1", Mode.SYNC, dry_run=True)):
+            with self.assertRaises(ValueError) as caught:
+                self.engine.restore_version("p1", "any", "copy")
+        self.assertEqual(str(caught.exception), "no such version")
 
     def test_the_copy_not_kept_of_a_conflict_is_kept_among_the_copies(self):
         self.align()
