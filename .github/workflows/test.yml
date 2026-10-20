@@ -10,18 +10,23 @@ on:
 
 env:
   RCLONE_VERSION: "1.75.2"
+  # the release's own SHA256SUMS, checked before anything of it runs
+  RCLONE_LINUX_SHA256: "349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702"
 
 jobs:
   core:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install PyGObject, gettext, rclone and the validators
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-glib-2.0 gettext desktop-file-utils appstream
           pipx install ruff
           curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          echo "${RCLONE_LINUX_SHA256}  rclone.zip" | sha256sum -c -
           unzip -q rclone.zip
           echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
       - run: ruff check --select F,E9,B .
@@ -47,11 +52,14 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Install GTK 4, libadwaita, a display and rclone
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-secret-1 xvfb gettext
           curl -fsSL -o rclone.zip "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          echo "${RCLONE_LINUX_SHA256}  rclone.zip" | sha256sum -c -
           unzip -q rclone.zip
           echo "SPOLA_RCLONE=$PWD/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" >> "$GITHUB_ENV"
       - run: python3 tools/compile_po.py
