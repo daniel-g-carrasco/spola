@@ -101,6 +101,37 @@ def window_icons(exe: str) -> None:
     user32.EnumWindows(visit, 0)
 
 
+# -- a file that runs when it is opened ---------------------------------------------
+
+# What Windows runs, rather than shows, when such a file is opened: programs,
+# scripts, installers, shortcuts, settings files. AssocIsDangerous gives the
+# system's own list, which policies can change; these always count.
+RUNS_WHEN_OPENED = frozenset((
+    ".exe", ".com", ".scr", ".pif", ".cpl", ".msc", ".bat", ".cmd", ".ps1", ".psm1", ".psd1", ".vbs", ".vbe",
+    ".js", ".jse", ".wsf", ".wsh", ".hta", ".msi", ".msp", ".mst", ".appx", ".msix", ".lnk", ".url", ".scf",
+    ".reg", ".inf", ".jar", ".application", ".appref-ms", ".gadget", ".chm", ".library-ms",
+    ".settingcontent-ms", ".diagcab", ".xbap", ".website",
+))
+
+
+def runs_when_opened(path: str) -> bool:
+    """Opening this file would run it (ShellExecute): a program, a script, a
+    shortcut. "Fattura.pdf.exe" counts by its last extension, as Windows
+    reads it."""
+    ext = os.path.splitext(path)[1].lower()
+    if not ext:
+        return False
+    if ext in RUNS_WHEN_OPENED:
+        return True
+    try:
+        shlwapi = ctypes.WinDLL("shlwapi")
+        shlwapi.AssocIsDangerous.argtypes = [wintypes.LPCWSTR]
+        shlwapi.AssocIsDangerous.restype = wintypes.BOOL
+        return bool(shlwapi.AssocIsDangerous(ext))
+    except (AttributeError, OSError):
+        return False
+
+
 # -- the lock on a pair ----------------------------------------------------------
 
 def lock(fd: int) -> bool:

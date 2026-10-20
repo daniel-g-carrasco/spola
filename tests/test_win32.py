@@ -63,5 +63,15 @@ class PopenOptionsTest(unittest.TestCase):
         self.assertIn("Signal received: interrupt", text)
 
 
+class RunsWhenOpenedTest(unittest.TestCase):
+    def test_programs_scripts_and_shortcuts_are_not_opened(self):
+        # a kept copy shown in its folder instead of run ("Open a Copy")
+        for name in ("setup.exe", "Fattura.pdf.exe", "avvio.LNK", "x.bat", "x.cmd", "x.ps1", "x.vbs",
+                     "x.js", "x.hta", "x.scr", "x.msi", "x.reg", "x.url"):
+            self.assertTrue(win32.runs_when_opened(rf"C:\tmp\{name}"), name)
+        for name in ("relazione.pdf", "tavola.dwg", "foglio.xlsx", "note.txt", "foto.jpg", "senza-estensione"):
+            self.assertFalse(win32.runs_when_opened(rf"C:\tmp\{name}"), name)
+
+
 if __name__ == "__main__":
     unittest.main()
