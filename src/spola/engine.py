@@ -1549,10 +1549,10 @@ class Engine(GObject.Object):
                           ngettext("{n} conflict resolved: both versions are kept, renamed.",
                                    "{n} conflicts resolved: both versions are kept, renamed.", done).format(n=done)
                           if rule == conflicts_mod.BOTH else
-                          ngettext("{n} conflict resolved by the folder's rule: the version not kept is in the "
-                                   "wastebasket.",
-                                   "{n} conflicts resolved by the folder's rule: the versions not kept are in the "
-                                   "wastebasket.", done).format(n=done))
+                          ngettext("{n} conflict resolved by the folder's rule: the version not kept is among the "
+                                   "folder's kept copies.",
+                                   "{n} conflicts resolved by the folder's rule: the versions not kept are among the "
+                                   "folder's kept copies.", done).format(n=done))
                 self.request_sync(pair.id, "conflict-resolved")
         left = len(new) - done
         if left > 0:

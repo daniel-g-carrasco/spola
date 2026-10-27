@@ -1080,8 +1080,8 @@ class ConflictsDialog(Adw.Dialog):
         pair = self.engine.cfg.pair(self.pair_id)
         self.group = Adw.PreferencesGroup(description=_(
             "These files were changed both here and on Koofr before the two versions met: both are kept. "
-            "Choose which one goes on under the original name; the other one goes to the wastebasket "
-            "here and to Koofr's trash."))
+            "Choose which one goes on under the original name; the other one is kept here among the "
+            "folder's kept copies, and goes to Koofr's trash there."))
         if not items:
             self.group.add(Adw.ActionRow(title=_("No conflicts left.")))
         self.resolve_all.set_visible(bool(items))
@@ -1161,13 +1161,13 @@ class ResolveAllDialog(Adw.Dialog):
 
         self.page = Adw.PreferencesPage()
         group = Adw.PreferencesGroup(title=_("Which Version to Keep"), description=_(
-            "A version that is not kept goes to the wastebasket here and to Koofr's trash, "
+            "A version that is not kept stays among the folder's kept copies here and goes to Koofr's trash, "
             "where you can get it back."))
         first = None
         for rule, title, subtitle in ((conflicts.NEWER, _("The Newer One"), _("By modification date")),
                                       (conflicts.LOCAL, _("This Computer's"), ""),
                                       (conflicts.KOOFR, _("Koofr's"), ""),
-                                      (conflicts.BOTH, _("Both, Renamed"), _("Nothing goes to the wastebasket"))):
+                                      (conflicts.BOTH, _("Both, Renamed"), _("Nothing is set aside"))):
             check = Gtk.CheckButton(valign=Gtk.Align.CENTER, group=first)
             first = first or check
             row = Adw.ActionRow(title=title, subtitle=subtitle, activatable_widget=check)
@@ -2138,7 +2138,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
                  (conflicts.BOTH, _("Keep Both Versions"))]
         rule = Adw.ComboRow(title=_("When a file changes on both sides"),
                             subtitle=_("Applied to new conflicts after each sync; a folder can have its own rule. "
-                                       "A version that is not kept goes to the wastebasket."))
+                                       "A version that is not kept stays among the folder's kept copies."))
         rule.set_model(Gtk.StringList.new([label for _code, label in rules]))
         rule.set_selected(next((i for i, (code, _l) in enumerate(rules) if code == cfg.conflict_rule), 0))
         rule.connect("notify::selected", lambda r, _p: self._set("conflict_rule", rules[r.get_selected()][0]))

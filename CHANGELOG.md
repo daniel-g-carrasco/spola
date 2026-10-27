@@ -8,6 +8,15 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+### Fixed
+- The conflicts window, Resolve All, Preferences and the notification of a
+  folder's rule still said that the version not kept goes to the
+  wastebasket: since 0.3.27 it stays among the folder's kept copies, where
+  Previous Versions finds it.
+- Translations: the name of a restored copy ("report (version of …).odt")
+  and of the conflict copies could drop out of the Italian catalogue when
+  it was refreshed.
+
 ## [0.3.33] - 2026-10-20
 
 ### Fixed
