@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Spola, Koofr sync for GNOME</title>
-  <meta name="description" content="Spola keeps your folders in sync with Koofr, on GNOME. Free and open source, built on rclone, careful with your files.">
+  <title>Spola, Koofr sync for GNOME and Windows</title>
+  <meta name="description" content="Spola keeps your folders in sync with Koofr, on GNOME and on Windows. Free and open source, built on rclone, careful with your files, with previous versions of what a sync replaces.">
   <link rel="icon" href="icon.png">
   <style>
     :root {
@@ -50,7 +50,7 @@
     </picture>
     <div>
       <h1>Spola</h1>
-      <p class="tagline">Keep your folders in sync with Koofr, on GNOME.</p>
+      <p class="tagline">Keep your folders in sync with Koofr, on GNOME and on Windows.</p>
     </div>
   </header>
 
@@ -58,7 +58,8 @@
     Koofr's own desktop client works, but on GNOME it never felt at home: an old GTK 3 window, nothing in
     Files, and a tray icon that redraws itself every second, which broke the tray of the shell I use. So I wrote
     Spola. It keeps folders on your computer and folders on <a href="https://koofr.eu">Koofr</a> identical, in
-    both directions, in the background, and it is careful with your files above everything else.
+    both directions, in the background, and it is careful with your files above everything else. It was born
+    for GNOME, and the same app runs on Windows too.
   </p>
   <p class="small">
     A <em>spola</em> is the shuttle of a loom, the piece that carries the thread from one side to the other.
@@ -66,19 +67,26 @@
   </p>
 
   <div class="buttons">
-    <a class="btn primary" href="https://daniel-g-carrasco.github.io/spola/spola.flatpakref">Install (Flatpak)</a>
+    <a class="btn primary" href="https://daniel-g-carrasco.github.io/spola/spola.flatpakref">Install on Linux (Flatpak)</a>
+    <a class="btn" href="https://github.com/daniel-g-carrasco/spola/releases/latest">Download for Windows</a>
     <a class="btn" href="https://github.com/daniel-g-carrasco/spola">Source on GitHub</a>
   </div>
   <p class="small">
-    Or from a terminal: <code>flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref</code>.
+    On Linux, from a terminal: <code>flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref</code>.
     It comes from its own signed repository and updates arrive through GNOME Software, like any other app.
     On <a href="https://margine.dev">Margine OS</a>: <code>ujust install-spola</code>.
   </p>
+  <p class="small">
+    On Windows, the latest release has an installer (<code>spola-setup-…-windows-x64.exe</code>, for your user
+    only, no administrator needed) and a portable zip. Spola offers its own updates and installs only one signed
+    with its key. The installer has no Windows certificate yet, so SmartScreen warns the first time:
+    <em>More info</em>, then <em>Run anyway</em>.
+  </p>
 
   <figure>
-    <img src="screenshots/main-window.png" width="480" height="640"
-         alt="Spola's window: a banner for a folder with conflicts, the status with another folder syncing, the file being uploaded, then the folders grouped by where they are">
-    <figcaption>What waits for you in a banner, what Spola is doing below it, the files on their way, then your folders, grouped by where they live.</figcaption>
+    <img src="screenshots/main-window.png" width="480" height="600"
+         alt="Spola's window: the status with a folder syncing and the file on its way, then the folders grouped by where they are">
+    <figcaption>What Spola is doing, the files on their way, then your folders, grouped by where they live.</figcaption>
   </figure>
 
   <h2>How it works</h2>
@@ -112,11 +120,14 @@
 
   <h2>Careful with your files</h2>
   <ul>
-    <li><strong>A preview before every big step.</strong> The first sync of a folder, a repair, and any sync stopped by a safety check show you the list of what would happen, how much goes each way and whether Koofr has room for it. Nothing runs until you say so. The other folders keep syncing meanwhile, you can close the preview and come back to it, and for a folder waiting for you it is ready before you ask.</li>
-    <li><strong>No surprise deletions.</strong> A sync that would delete more than 10% of a folder stops and waits for you. Files deleted or replaced on your computer go to a local backup for 30 days; on Koofr they go to Koofr's trash.</li>
+    <li><strong>A preview before every big step.</strong> The first sync of a folder, a repair, and any sync stopped by a safety check show you what would happen, as a tree of folders, with how much goes each way and whether Koofr has room for it. Nothing runs until you say so, and a confirmation allows what the preview showed, no more. The other folders keep syncing meanwhile, and you can close the preview and come back to it.</li>
+    <li><strong>No surprise deletions.</strong> A sync that would delete more than 10% of a folder, or more than about 500 files, stops and waits for you. So does one that would upload a whole library changed at once, the way a restored snapshot looks.</li>
+    <li><strong>Copies of what a sync replaces.</strong> Files a sync replaces or deletes on your computer are kept for 30 days, and come back from <em>Previous Versions</em>. On Koofr, Koofr keeps its own previous versions and its trash.</li>
     <li><strong>A move stays a move.</strong> Rename a file or move it to another folder and Spola moves it the same way on the other side (on Koofr, on the server) instead of deleting it and copying it again. A big reorganisation still stops and asks first, and lists the moves as moves.</li>
-    <li><strong>Conflicts keep both versions.</strong> When a file changed on both sides, you get two copies with readable names and a window to pick the one that stays: one by one, or all together with a rule (the newer one, this computer's, Koofr's, both), after seeing what happens to each file. If you prefer, a folder's rule does it on its own after each sync. The version not kept goes to the wastebasket, never away for good.</li>
-    <li><strong>An unplugged drive is not an empty folder.</strong> If the folder Spola knows is gone or replaced, the pair stops before rclone even starts.</li>
+    <li><strong>Conflicts keep both versions.</strong> When a file changed on both sides, you get two copies with readable names and a window to pick the one that stays: one by one, or all together with a rule (the newer one, this computer's, Koofr's, both), after seeing what happens to each file. If you prefer, a folder's rule does it on its own after each sync. The version not kept goes among the kept copies, never away for good.</li>
+    <li><strong>An unplugged drive is not an empty folder.</strong> If the folder Spola knows is gone or replaced, the pair stops before rclone even starts. A folder deleted on Koofr is not a reason to empty yours: Spola tells you and offers to bring it back from Koofr's trash.</li>
+    <li><strong>Check, don't trust.</strong> <em>Verify</em> compares every file here and on Koofr by size and checksum, changing nothing, and runs on its own after every confirmed alignment.</li>
+    <li><strong>No half-done work.</strong> Files still being written wait before they are synced, the computer stays awake while a sync runs, and a sync that would fill the disk does not start.</li>
     <li>Names Koofr refuses (emoji, names that differ only in case) are left out and shown to you while the rest keeps syncing, and Spola offers to rename them to names Koofr accepts.</li>
     <li>Your app password stays in the keyring and never shows up in a command line.</li>
   </ul>
@@ -133,12 +144,27 @@
     <figcaption>Many conflicts at once: a rule, what it does to each file, and what it leaves to you.</figcaption>
   </figure>
 
+  <h2>Previous versions</h2>
+  <p>
+    Right-click a file in your file manager and choose <em>Previous Versions…</em>: every copy Spola kept of it,
+    with its date, why it was kept and when it expires. Open one read-only, put it back next to the file as a copy,
+    or let it replace the file, which is kept first, so even that can be undone. On a folder,
+    <em>Recently Deleted Files…</em> lists what was deleted in it, the copies kept here and what sits in Koofr's
+    trash for that folder. Spola tells you before every restore that the next sync uploads it.
+  </p>
+
+  <figure>
+    <img src="screenshots/versions.png" width="480" height="600"
+         alt="Previous Versions of budget-2026.ods: three kept copies, each with its date, size, reason and expiry">
+    <figcaption>Three earlier versions of a spreadsheet, each with the reason it was kept and the day it goes.</figcaption>
+  </figure>
+
   <h2>In your file manager</h2>
   <p>
     Turn it on in the preferences and your file manager shows an emblem on every synced file and folder:
     up to date, syncing, waiting, error, conflict, left out. Right-click gives you <em>Sync Now</em>,
-    <em>Open on Koofr</em> and the share link. The extension only reads from a cache, so the file manager
-    stays as fast as it was.
+    <em>Open on Koofr</em>, the share link, and the previous versions. The extension only reads from a cache,
+    so the file manager stays as fast as it was.
   </p>
   <p>
     Files (Nautilus), Nemo and Caja get both, through their Python bindings (<code>nautilus-python</code>,
@@ -169,25 +195,43 @@
     <figcaption>And in Nemo.</figcaption>
   </figure>
 
+  <h2>On Windows</h2>
+  <p>
+    The same window, the same previews and the same safety checks. The status sits in the notification area,
+    File Explorer shows each synced folder's status the way cloud apps do, each file turning green once copied,
+    and its right-click menu gives <em>Open on Koofr</em>, the share link, <em>Previous Versions…</em> and
+    <em>Recently Deleted Files…</em>. A sleep that comes in the middle of a sync stops it gracefully, and it
+    goes on after waking.
+  </p>
+
   <h2>Coming from Koofr Desktop</h2>
   <p>
-    Spola can take your Koofr Desktop folders over: <code>spola import-koofr-desktop</code>, or
-    <code>ujust install-spola migrate</code> on Margine OS. Spola does not sync while Koofr Desktop runs on the
-    same computer or is set to start at login: two sync engines on the same folders is the quickest way to lose
+    Spola can take your Koofr Desktop folders over, on Linux and on Windows: <em>Import from Koofr Desktop</em>
+    in the menu, <code>spola import-koofr-desktop</code>, or <code>ujust install-spola migrate</code> on Margine OS.
+    Spola does not sync while Koofr Desktop runs on the same computer or is set to start at login: two sync engines on the same folders is the quickest way to lose
     files, and I learned it the hard way. Koofr Desktop on your other computers is fine. In my case the folders were already identical on both sides
     and the first sync of each moved nothing, but you see that in the preview before anything happens.
   </p>
 
+  <h2>On Noctalia</h2>
+  <p>
+    If your desktop is the <a href="https://noctalia.dev">Noctalia</a> shell, a
+    <a href="https://github.com/daniel-g-carrasco/spola/tree/main/noctalia/spola">plugin</a> puts Spola in the bar:
+    a cloud with the sync status, a panel with every folder and its progress, a tile to pause and resume everything.
+  </p>
+
   <h2>Where it stands</h2>
   <p>
-    This is version 0.3. I use it every day on my own machine, with 16 folders and a few hundred gigabytes,
-    and it replaced Koofr Desktop there. It is still young: if something looks wrong, please
+    This is version 0.3. I use it every day on my own machines, with 16 folders and a few hundred gigabytes,
+    and it replaced Koofr Desktop there. It is still young: what changes from one version to the next is in the
+    <a href="https://github.com/daniel-g-carrasco/spola/blob/main/CHANGELOG.md">changelog</a>, and if something looks wrong, please
     <a href="https://github.com/daniel-g-carrasco/spola/issues">open an issue</a>. It speaks English and Italian.
   </p>
 
   <footer>
     Spola is free software (MIT) and is not affiliated with Koofr.
     · <a href="https://github.com/daniel-g-carrasco/spola/releases">Releases</a>
+    · <a href="https://github.com/daniel-g-carrasco/spola/blob/main/CHANGELOG.md">Changelog</a>
     · <a href="https://github.com/daniel-g-carrasco/spola">Source</a>
     · <a href="https://github.com/daniel-g-carrasco/spola/issues">Issues</a>
     <br>© 2026 Daniel Grasso
