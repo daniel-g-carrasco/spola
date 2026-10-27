@@ -26,7 +26,7 @@ What changed, version by version, is in the [changelog](CHANGELOG.md). The desig
 
 ### Linux: Flatpak
 
-From [our own Flatpak repository](https://daniel-g-carrasco.github.io/spola/); updates arrive through GNOME Software:
+From [our own Flatpak repository](https://daniel-g-carrasco.github.io/spola/); updates arrive through your software centre (GNOME Software, KDE Discover) or `flatpak update`:
 
 ```bash
 flatpak install https://daniel-g-carrasco.github.io/spola/spola.flatpakref
