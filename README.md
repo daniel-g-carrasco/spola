@@ -8,11 +8,11 @@
 <h1 align="center">Spola</h1>
 
 <p align="center">
-  Keep your folders in sync with Koofr, on GNOME and on Windows.<br>
+  Keep your folders in sync with Koofr, on Linux and on Windows.<br>
   <a href="https://spola.neistar.com">spola.neistar.com</a>
 </p>
 
-Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) identical, in both directions, in the background. I wrote it because Koofr's own client never felt at home on GNOME. It is a GTK 4 / libadwaita app built on [rclone](https://rclone.org)'s two-way sync (`rclone bisync`), with a tray icon, the sync status in your file manager, and previous versions of the files a sync replaced. It runs on Linux and, since 0.3.11, on Windows.
+Spola keeps folders on your computer and folders on [Koofr](https://koofr.eu) identical, in both directions, in the background. I wrote it because Koofr's own client never felt at home on my Linux desktop. It is a GTK 4 / libadwaita app built on [rclone](https://rclone.org)'s two-way sync (`rclone bisync`), with a tray icon, the sync status in your file manager, and previous versions of the files a sync replaced. It runs on Linux and, since 0.3.11, on Windows.
 
 The name comes from the weaving shuttle (*spola* in Italian) that carries the thread from one side of the loom to the other; in Italian *fare la spola* means going back and forth.
 
