@@ -13,6 +13,12 @@ DEST="${DEST:-$ROOT/data/screenshots}"
 WORK="${TMPDIR:-/tmp}/spola-screenshots.$$"
 mkdir -p "$DEST"
 export LANGUAGE="${SHOT_LANGUAGE:-en}" LANG="${SHOT_LANG:-en_US.UTF-8}" SPOLA_DEV_USER=me@example.com SPOLA_SCREENSHOT_SCALE=2
+# rclone: SPOLA_RCLONE, else the PATH's, found before the PATH is cut down below
+# (without it every scene shows an empty window); the Flatpak's will do:
+#   SPOLA_RCLONE="$(flatpak info --show-location io.github.daniel_g_carrasco.spola)/files/bin/rclone"
+SPOLA_RCLONE="${SPOLA_RCLONE:-$(command -v rclone || true)}"
+[ -x "$SPOLA_RCLONE" ] || { echo "rclone not found: set SPOLA_RCLONE" >&2; exit 1; }
+export SPOLA_RCLONE
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin       # nautilus-python wants the system python3 first
 unset VIRTUAL_ENV PYTHONPATH PYTHONHOME
 
@@ -64,6 +70,24 @@ changes() {   # SCENE_QUIET=1: no changes at all; SCENE_NO_CONFLICT=1: everythin
     fi
     echo "lock" > "$home/Projects/~\$budget-2026.ods"
     head -c 6000000 /dev/urandom > "$home/Photos/2026/panorama.tif"
+    # files written in the last 30 s wait before they are synced (jobs.SETTLE_S):
+    # the scene's are finished, so they are dated a little earlier
+    find "$home" -type f -newermt '1 minute ago' -exec touch -d '2 minutes ago' {} +
+}
+
+kept() {   # SCENE_KEPT=1: copies of Projects/budget-2026.ods kept by three earlier runs
+    [ -n "${SCENE_KEPT:-}" ] || return 0
+    /usr/bin/python3 -c "
+import os, sys, time; sys.path.insert(0, '$1/src')
+from spola import config, versions; from spola.paths import Paths
+p = Paths.from_env(); c = config.load(p.config_file)
+pair = next(x for x in c.pairs if x.name == 'Projects')
+for days, reason, size in ((0.9, 'replaced', 48213), (4.3, 'conflict', 47120), (12.6, 'replaced', 39874)):
+    run = time.strftime(versions.RUN_NAME, time.localtime(time.time() - days * 86400))
+    target = p.backup_dir(pair.id) / run / 'budget-2026.ods'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(os.urandom(size))
+    versions.write_manifest(p, pair.id, run, {'budget-2026.ods': reason})"
 }
 
 pairs() {   # quick ones first, the slow one (Photos) last
@@ -109,9 +133,10 @@ one_scene() {
     echo "{\"version\": 2, \"width\": 480, \"height\": ${WINDOW_HEIGHT:-640}}" > "$out/state/spola/window.json"
     env "$@" BROADWAY_NUM="$SCENE_DISPLAY" SPOLA_SCREENSHOT="$DEST/$name.png" SPOLA_SCREENSHOT_DELAY="$delay" SPOLA_DEV_BWLIMIT=60k \
         "$ROOT/tools/gui_smoke.sh" "$out" bash -c "
-            $(declare -f pairs changes)
+            $(declare -f pairs changes kept)
             pairs '$ROOT/bin/spola' \"\$HOME\"
             changes \"\$HOME\" '$out/remote'
+            kept '$ROOT'
         " > "$WORK/$name.log" 2>&1 || true
 }
 
@@ -123,6 +148,8 @@ if [ -z "${ONLY_FILES:-}" ]; then
     window_scene folder 16 SPOLA_DEV_OPEN_PAIR=Photos
     WINDOW_HEIGHT=560 window_scene conflicts 20 SPOLA_DEV_OPEN_REVIEW=1
     window_scene add-folder 8 SPOLA_DEV_OPEN_ADD=Music
+    window_scene resolve-all 20 SCENE_MORE=1 SPOLA_DEV_OPEN_DIALOG=resolve-all
+    WINDOW_HEIGHT=600 window_scene versions 12 SCENE_QUIET=1 SCENE_KEPT=1 SPOLA_DEV_OPEN_VERSIONS=Projects:budget-2026.ods
     window_scene koofr-folders 8 SPOLA_DEV_OPEN_ADD=Music SPOLA_DEV_OPEN_ADD_BROWSE=/
     # (no preferences: Broadway's screen is 768 px high and the dialog is taller)
   fi

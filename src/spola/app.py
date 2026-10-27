@@ -416,6 +416,15 @@ class SpolaApp(Adw.Application):
                 waited[0] += 1
                 return waited[0] < 80
             GLib.timeout_add(500, open_dialog)
+        versions_of = os.environ.get("SPOLA_DEV_OPEN_VERSIONS")      # "Projects:budget-2026.ods"
+        if versions_of and ":" in versions_of:
+            def open_versions():
+                from .window import VersionsDialog
+                name, rel = versions_of.split(":", 1)
+                pair = next((p for p in self.engine.cfg.pairs if p.name == name), None)
+                if pair:
+                    VersionsDialog(self._window(), pair.id, rel, "file").present(self._window())
+            GLib.timeout_add(500, lambda: open_versions() and False)
         pair_name = os.environ.get("SPOLA_DEV_OPEN_PAIR")
         if pair_name:
             def open_pair():
