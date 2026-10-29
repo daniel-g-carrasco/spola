@@ -14,7 +14,7 @@ import _setup
 from spola import explorer, places
 from spola.config import Pair
 from spola.paths import Paths
-from spola.rclone import default_excluded
+from spola.rclone import clean_env, default_excluded
 
 
 class LocateTest(unittest.TestCase):
@@ -130,7 +130,7 @@ class LocateTest(unittest.TestCase):
                 filters.write_text(text)
                 result = subprocess.run([_setup.rclone_binary(), "lsf", "-R", str(self.root),
                                          "--config", os.devnull, "--filter-from", str(filters)],
-                                        capture_output=True, text=True, timeout=15)
+                                        capture_output=True, text=True, timeout=15, env=clean_env())
                 self.assertEqual(result.returncode, 0, result.stderr)
                 listed = set(result.stdout.splitlines())
                 for item in self.root.rglob("*"):

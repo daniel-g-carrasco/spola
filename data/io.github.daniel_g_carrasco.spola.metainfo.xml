@@ -114,7 +114,7 @@
   </screenshots>
 
   <releases>
-    <release version="0.3.35" date="2026-10-29" type="development">
+    <release version="0.3.36" date="2026-10-29" type="development">
       <description>
         <p>Share from the file manager opens a window showing who has access. Create, copy and revoke public links, manage their password and expiration, or invite people with view, edit or custom permissions. Inherited access stays visible, and opening the window or copying a link never publishes anything or changes permissions. Sharing settings are read back from Koofr after changes, including partial failures.</p>
       </description>
