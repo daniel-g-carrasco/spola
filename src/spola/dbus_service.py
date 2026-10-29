@@ -9,10 +9,10 @@ actions also take a plain absolute path, for the file managers whose menus
 can only run a command (Dolphin's service menu, Thunar's custom actions).
 The extension lives in the file manager's process on the host and must never
 wait: everything here answers from memory, except CreateShareLink, which
-asks rclone in a thread and answers when it is done.
+reads an existing Koofr link in a thread and answers when it is done.
 
-OpenOnKoofr and ShowShareLink do the whole job in Spola (open the browser,
-show the link with a Copy button): a command run from a menu cannot read an
+OpenOnKoofr and Share do the whole job in Spola (open the browser or sharing
+dialog): a command run from a menu cannot read an
 answer, and on Wayland an app in the background cannot set the clipboard.
 
 Version 2 adds the previous versions (versions.py), answered from the index
@@ -21,7 +21,9 @@ the menus), ListVersions and ListDeleted (a{sv} per copy: id, path, time,
 size, reason, expires), RestoreVersion (mode "copy" or "replace"; returns
 the URI written), ShowVersions and ShowDeleted (the window), and the
 VersionsChanged signal (the root of a pair whose copies were read again).
-The methods of version 1 are unchanged: an older extension keeps working.
+Version 3 adds Share. ShowShareLink opens the same dialog; CreateShareLink
+only retrieves an existing usable unprotected link. Creating access always
+requires an explicit action in the dialog, including from older extensions.
 """
 
 from __future__ import annotations
@@ -32,16 +34,15 @@ from collections.abc import Callable
 
 from gi.repository import Gio, GLib
 
-from . import APP_ID, koofr_api, places
+from . import APP_ID, explorer, koofr_api, places
 from .engine import Engine
 from .i18n import _
-from .paths import Paths
-from .rclone import koofr_env, share_link
+from .rclone import default_excluded
 from .states import State, ancestors_and_self
 
 OBJECT_PATH = "/io/github/daniel_g_carrasco/spola/Sync"
 INTERFACE = f"{APP_ID}.Sync1"
-VERSION = 2
+VERSION = 3
 BATCH_MS = 300
 
 XML = f"""
@@ -61,6 +62,7 @@ XML = f"""
     <method name="ShowWindow"><arg type="s" name="what" direction="in"/></method>
     <method name="OpenOnKoofr"><arg type="s" name="uri" direction="in"/></method>
     <method name="ShowShareLink"><arg type="s" name="uri" direction="in"/></method>
+    <method name="Share"><arg type="s" name="uri" direction="in"/></method>
     <method name="GetFolderVersions">
       <arg type="s" name="folder" direction="in"/><arg type="as" name="names" direction="out"/>
     </method>
@@ -115,13 +117,15 @@ class SyncService:
                  open_url: Callable[[str], None] = lambda url: None,
                  show_link: Callable[[str, str], None] = lambda name, url: None,
                  tell: Callable[[str], None] = lambda message: None,
-                 show_versions: Callable[[str, str, str], None] = lambda pair_id, rel, kind: None):
+                 show_versions: Callable[[str, str, str], None] = lambda pair_id, rel, kind: None,
+                 show_share: Callable[[str], None] | None = None):
         self.engine = engine
         self.show_window = show_window
         self.open_url = open_url          # the browser, from Spola
         self.show_link = show_link        # (file name, link): a window with a Copy button
         self.tell = tell                  # a notification: what went wrong
         self.show_versions = show_versions   # (pair id, relative path, "file" or "deleted"): the window
+        self.show_share = show_share or (lambda path: self.show_window(""))  # local path: sharing dialog
         self.connection: Gio.DBusConnection | None = None
         self._reg = 0
         self._pending: dict[str, int] = {}
@@ -223,14 +227,13 @@ class SyncService:
             elif method == "CreateShareLink":
                 (uri,) = params.unpack()
                 self._share_link(uri, invocation)
-            elif method == "ShowShareLink":
+            elif method in ("Share", "ShowShareLink"):
                 (uri,) = params.unpack()
-                if self.locate(uri) is None:
-                    self._not_synced(uri)
+                _found, refusal = self._sharing_target(uri)
+                if refusal:
+                    self.tell(refusal)
                 else:
-                    name = os.path.basename(path_for(uri) or uri)
-                    self._share_link(uri, None, lambda url, error: self.show_link(name, url) if url
-                                     else self.tell(error))
+                    self.show_share(path_for(uri))
                 invocation.return_value(None)
             elif method == "GetFolderVersions":
                 (uri,) = params.unpack()
@@ -324,32 +327,49 @@ class SyncService:
         name = os.path.basename(path_for(uri) or uri) or uri
         self.tell(_("“{name}” is not in a folder synced with Koofr.").format(name=name))
 
-    def _share_link(self, uri: str, invocation, then=None) -> None:
-        """rclone link in a thread; the link goes back over D-Bus
-        (invocation) or to then(url, error)."""
+    def _sharing_target(self, uri: str):
+        """Shared validation for dialog opening and legacy link retrieval."""
         found = self.locate(uri)
-        creds, rclone = self.engine.creds, self.engine.rclone
-        if not found or creds is None or rclone is None:
-            if invocation is not None:
-                invocation.return_dbus_error(f"{INTERFACE}.NotSynced", "not inside a synced folder, or not signed in")
-            elif then is not None:
-                then("", _("Not signed in to Koofr"))
-            return
+        if found is None:
+            name = os.path.basename(path_for(uri) or uri) or uri
+            return None, _("“{name}” is not in a folder synced with Koofr.").format(name=name)
+        if self.engine.creds is None:
+            return None, _("Not signed in to Koofr")
         pair, rel = found
-        remote = pair.remote.rstrip("/") + ("/" + rel if rel else "")
-        paths: Paths = self.engine.paths
+        refusal = explorer.link_refusal(pair, rel, os.path.isdir(path_for(uri)), default_excluded, self.engine.paths)
+        return found, refusal
+
+    def _share_link(self, uri: str, invocation) -> None:
+        """Compatibility retrieval: read existing public access, never create it."""
+        found, refusal = self._sharing_target(uri)
+        if refusal:
+            invocation.return_dbus_error(f"{INTERFACE}.NotSynced", refusal)
+            return
+        from . import sharing
+        pair, rel = found
+        remote = explorer.remote_path(pair, rel)
+        creds = self.engine.creds
+        mount_id = self.engine.cfg.mount_id
 
         def work():
-            url, said = share_link(rclone, koofr_env(creds.user, creds.obscured), paths.rclone_config, remote)
-            GLib.idle_add(done, url, "" if url else (said.splitlines() or ["rclone link failed"])[-1])
+            try:
+                link = sharing.Client(creds.user, creds.password, mount_id).load(remote).link
+                GLib.idle_add(done, link, "")
+            except Exception:
+                # Never expose arbitrary HTTP exception text (which can contain credentials).
+                GLib.idle_add(done, None, _("Sharing could not be checked. Open Share… to try again."))
 
-        def done(url, error):
-            if then is not None:
-                then(url, error)
-            elif url:
-                invocation.return_value(GLib.Variant("(s)", (url,)))
+        def done(link, error):
+            if self.engine.creds is not creds or self.engine.cfg.mount_id != mount_id:
+                invocation.return_dbus_error(f"{INTERFACE}.NotSynced", _("The Koofr account changed. Open Share… again."))
+                return False
+            if link and link.url and link.active and not link.has_password and not link.password_required:
+                invocation.return_value(GLib.Variant("(s)", (link.url,)))
             else:
-                invocation.return_dbus_error(f"{INTERFACE}.Failed", error)
+                name = "Failed" if error else "ExplicitSharingRequired"
+                invocation.return_dbus_error(f"{INTERFACE}.{name}", error or _(
+                    "Open Share… to explicitly create or manage a link. No usable unprotected link exists."))
+                self.show_share(path_for(uri))
             return False
 
         threading.Thread(target=work, name="share-link", daemon=True).start()

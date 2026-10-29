@@ -4,6 +4,7 @@ the condition that shows the entries only in the synced folders, and the
 registry keys written and removed."""
 
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,8 @@ import _setup
 
 from spola import explorer, places
 from spola.config import Pair
+from spola.paths import Paths
+from spola.rclone import default_excluded
 
 
 class LocateTest(unittest.TestCase):
@@ -21,7 +24,7 @@ class LocateTest(unittest.TestCase):
         self.root = Path(self.tmp.name) / "Work"
         (self.root / "Sub dir").mkdir(parents=True)
         (self.root / "Sub dir" / "a.txt").write_text("x")
-        self.pair = Pair("p1", str(self.root), "/data/work")
+        self.pair = Pair("p1", str(self.root), "/data/work", initialized=True)
         self.other = Pair("p2", str(Path(self.tmp.name) / "Workshop"), "/shop")
 
     def test_inside_the_pair_or_not(self):
@@ -50,6 +53,98 @@ class LocateTest(unittest.TestCase):
         self.assertNotEqual(explorer.link_refusal(self.pair, ".spola-root", False, default_excluded), "")
         self.assertEqual(explorer.link_refusal(self.pair, "Sub dir/a.txt", False, default_excluded), "")
         self.assertEqual(explorer.link_refusal(self.pair, "", True, default_excluded), "")     # the folder itself
+
+    def test_sharing_needs_a_confirmed_pair(self):
+        from spola.rclone import default_excluded
+        self.pair.initialized = False
+        self.assertNotEqual(explorer.link_refusal(self.pair, "Sub dir/a.txt", False, default_excluded), "")
+        self.assertNotEqual(explorer.link_refusal(self.pair, "", True, default_excluded), "")
+
+    def test_share_filters_respect_order_anchors_and_directory_traversal(self):
+        paths = Paths(Path(self.tmp.name) / "c", Path(self.tmp.name) / "s", Path(self.tmp.name) / "d")
+        filters = paths.filters_file(self.pair.id)
+        filters.parent.mkdir(parents=True)
+        cases = (
+            ("+ *.pdf\n- **\n", "report.pdf", False, True),
+            ("+ *.pdf\n- **\n", "nested/report.pdf", False, True),
+            ("+ *.pdf\n- **\n", "nested/report.txt", False, False),
+            ("+ *.pdf\n- **\n", "nested", True, True),
+            ("- *.pdf\n+ report.pdf\n", "report.pdf", False, False),
+            ("- /secret.txt\n", "secret.txt", False, False),
+            ("- /secret.txt\n", "nested/secret.txt", False, True),
+            ("- /A/B/**\n", "A/B/secret.txt", False, False),
+            ("- /A/B/**\n", "A/B", True, False),
+            ("- /A/B/**\n", "nested/A/B/secret.txt", False, True),
+            ("- A/B/**\n", "nested/A/B/secret.txt", False, False),
+            ("- private/\n", "nested/private/secret.txt", False, False),
+            ("- /private/\n+ *.pdf\n- **\n", "private/report.pdf", False, False),
+            ("+ *.pdf\n- /private/\n- **\n", "private/report.pdf", False, True),
+            ("+ /allowed/report.pdf\n- **\n", "allowed", True, True),
+            ("+ /allowed/report.pdf\n- **\n", "elsewhere", True, False),
+            ("+ /allowed/\n- **\n", "allowed/report.pdf", False, False),
+            ("- *.pdf\n!\n+ *.pdf\n- **\n", "report.pdf", False, True),
+            ("+ *.part\n- **\n", "report.part", False, True),
+            ("; comment\n# comment\n- report?.txt\n", "nested/report1.txt", False, False),
+            ("- report?.txt\n", "nested/report10.txt", False, True),
+            ("- /A/*/secret.txt\n", "A/B/C/secret.txt", False, True),
+            ("- /A/**/secret.txt\n", "A/B/C/secret.txt", False, False),
+            ("- /A/*\n", "A/B", True, True),
+            ("- *\n", "A/B", True, False),
+            ("-  secret.txt\n", "secret.txt", False, True),
+            ("-  secret.txt\n", " secret.txt", False, False),
+            ("- secret.txt # literal\n", "secret.txt", False, True),
+        )
+        for text, relative, is_dir, included in cases:
+            with self.subTest(filters=text, relative=relative, is_dir=is_dir):
+                filters.write_text(text)
+                refusal = explorer.link_refusal(self.pair, relative, is_dir, default_excluded, paths)
+                self.assertEqual(refusal == "", included)
+
+    def test_share_filters_refuse_unsupported_or_malformed_syntax_explicitly(self):
+        paths = Paths(Path(self.tmp.name) / "c", Path(self.tmp.name) / "s", Path(self.tmp.name) / "d")
+        filters = paths.filters_file(self.pair.id)
+        filters.parent.mkdir(parents=True)
+        for text in ("- *.{{pdf}}\n", "- *.[pt]df\n", "- *.{pdf,txt}\n", "- report\\?.pdf\n",
+                     "- ***\n", "invalid\n", "+ **\n- *.[pt]df\n"):
+            with self.subTest(filters=text):
+                filters.write_text(text)
+                refusal = explorer.link_refusal(self.pair, "report.pdf", False, default_excluded, paths)
+                self.assertIn("unsupported", refusal.lower())
+
+    @unittest.skipUnless(_setup.rclone_binary(), "rclone is needed to compare filter semantics")
+    def test_share_filter_subset_matches_rclone_listings(self):
+        paths = Paths(Path(self.tmp.name) / "c", Path(self.tmp.name) / "s", Path(self.tmp.name) / "d")
+        filters = paths.filters_file(self.pair.id)
+        filters.parent.mkdir(parents=True)
+        for relative in ("report.pdf", "report.txt", "secret.txt", "report.part", "A/B/secret.txt",
+                         "A/B/report.pdf", "nested/secret.txt", "nested/report.pdf", "private/report.pdf",
+                         "allowed/report.pdf", "nested/private/report.pdf"):
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("fixture")
+        for text in ("+ *.pdf\n- **\n", "- /secret.txt\n", "- /A/B/**\n", "- A/B/**\n",
+                     "- private/\n", "- /private/\n+ *.pdf\n- **\n", "+ *.pdf\n- /private/\n- **\n",
+                     "+ /allowed/report.pdf\n- **\n", "+ /allowed/\n- **\n", "- *.pdf\n!\n",
+                     "+ *.part\n- **\n", "- /A/*/secret.txt\n", "- /A/**/secret.txt\n", "- *\n"):
+            with self.subTest(filters=text):
+                filters.write_text(text)
+                result = subprocess.run([_setup.rclone_binary(), "lsf", "-R", str(self.root),
+                                         "--config", os.devnull, "--filter-from", str(filters)],
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                listed = set(result.stdout.splitlines())
+                for item in self.root.rglob("*"):
+                    relative = item.relative_to(self.root).as_posix()
+                    is_dir = item.is_dir()
+                    refusal = explorer.link_refusal(self.pair, relative, is_dir, default_excluded, paths)
+                    self.assertEqual(refusal == "", relative + ("/" if is_dir else "") in listed,
+                                     (text, relative, is_dir))
+
+    def test_share_menu_opens_the_dialog(self):
+        entries = explorer.verbs(r"C:\Spola\Spola.exe")
+        share = next(entry for entry in entries if entry[0] == "Spola.CopyKoofrLink")
+        self.assertEqual(share[1], "Share…")
+        self.assertEqual(share[2], '"C:\\Spola\\Spola.exe" --share "%1"')
 
     def test_link_errors_in_words(self):
         rclone_400 = ("2026/10/14 23:19:23 NOTICE: Failed to link: Invalid response status! Got 400, "
@@ -83,7 +178,7 @@ class RegistryTest(unittest.TestCase):
                     self.assertIn("System.ParsingPath", winreg.QueryValueEx(key, "AppliesTo")[0])
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                                     rf"{classes}\*\shell\Spola.CopyKoofrLink\command") as key:
-                    self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --copy-link "%1"')
+                    self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --share "%1"')
                 # the kept copies: a file's previous versions, a folder's deleted files
                 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, rf"{classes}\*\shell\Spola.Versions\command") as key:
                     self.assertEqual(winreg.QueryValueEx(key, "")[0], f'"{exe}" --versions "%1"')

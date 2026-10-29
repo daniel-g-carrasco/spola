@@ -187,7 +187,7 @@ class SpolaProvider(GObject.GObject, *_providers()):
         self._pending_folders = set()
         self._schedule = 0
         self._roots_retry = 0
-        self.spola_version = 0      # Sync1's version: 2 brings the previous versions
+        self.spola_version = 0      # Sync1: 2 brings previous versions, 3 explicit sharing
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION,
                                   Gio.DBusProxyFlags.DO_NOT_AUTO_START | Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES,
                                   None, APP_ID, OBJECT_PATH, INTERFACE, None, self._proxy_ready)
@@ -380,13 +380,22 @@ class SpolaProvider(GObject.GObject, *_providers()):
             web = FM.MenuItem(name=f"{prefix}::OpenOnKoofr", label=_("Open on Koofr"))
             web.connect("activate", lambda *_: self._call("GetWebUrl", GLib.Variant("(s)", (uri_of(target),)), self._open_url))
             items.append(web)
-            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Copy Koofr Share Link"))
-            link.connect("activate", lambda *_: self._call("CreateShareLink", GLib.Variant("(s)", (uri_of(target),)),
-                                                           self._copy_url))
+            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Share…"))
+            link.connect("activate", lambda *_: self._share(target))
             items.append(link)
             if self.spola_version >= 2:
                 items += self._version_items(prefix, target, background or os.path.isdir(target))
         return items
+
+    def _share(self, target):
+        if self.spola_version >= 3:
+            self._call("Share", GLib.Variant("(s)", (uri_of(target),)), lambda r: None)
+        else:
+            # Older link methods publish immediately. Open the pair instead
+            # until the running Spola has the explicit sharing dialog.
+            root = self.cache.root_of(target)
+            pair_id = next((pid for path, pid in self.cache.roots if path == root), "")
+            self._call("ShowWindow", GLib.Variant("(s)", (pair_id,)), lambda r: None)
 
     def _version_items(self, prefix, target, folder):
         """"Previous Versions…" on a file with kept copies; "Recently Deleted
