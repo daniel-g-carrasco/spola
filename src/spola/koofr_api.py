@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from . import KOOFR_WEB, __version__
 
 TIMEOUT = 30
+TRASH_TIMEOUT = 10              # a slow page can be retried without a minute-long apparent freeze
 ACTIVITY_LIMIT = 100
 
 
@@ -87,14 +88,14 @@ def _open(request: urllib.request.Request, timeout: float):
     return opener.open(request, timeout=timeout)
 
 
-def _get(user: str, password: str, path: str, params: dict | None = None) -> dict:
+def _get(user: str, password: str, path: str, params: dict | None = None, *, timeout: float = TIMEOUT) -> dict:
     url = KOOFR_WEB + path + ("?" + urllib.parse.urlencode(params) if params else "")
     token = base64.b64encode(f"{user}:{password}".encode()).decode()
     request = urllib.request.Request(url, headers={
         "Authorization": f"Basic {token}", "Accept": "application/json",
         "User-Agent": f"Spola/{__version__}"})
     try:
-        with _open(request, TIMEOUT) as response:
+        with _open(request, timeout) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as e:
         raise ApiError(f"HTTP {e.code} for {path}") from None
@@ -151,7 +152,7 @@ def trash_page(user: str, password: str, cursor: str | None = None):
     params = {"pageSize": 1000, "sortField": "deleted", "sortDir": "desc"}
     if cursor:
         params["cursor"] = cursor
-    data = _get(user, password, "/api/v2/trash", params)
+    data = _get(user, password, "/api/v2/trash", params, timeout=TRASH_TIMEOUT)
     entries = []
     for f in data.get("files") or []:
         try:

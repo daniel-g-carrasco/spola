@@ -21,6 +21,8 @@ from .grouping import expected_remote, group_pairs  # noqa: E402
 from .i18n import _, count, ngettext, pgettext  # noqa: E402
 from .rclone import Mode, Outcome, Result, describe, windows_reserved_names_matter  # noqa: E402
 from .runner import newest_log  # noqa: E402
+from . import trash as trash_mod  # noqa: E402
+from .trash_search import TrashSearchRow  # noqa: E402
 from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread,  # noqa: E402
                  pair_status_text, place_name, status_badge, status_css, status_detail, status_icon, status_line,
                  status_text, syncing_for_real, when)
@@ -1224,7 +1226,7 @@ class TrashDialog(Adw.Dialog):
         self.window, self.engine, self.pair_id = window, window.engine, pair_id
         self.chosen = None
         self.running = self.closed = False
-        self.connect("closed", lambda *_: setattr(self, "closed", True))
+        self.connect("closed", lambda *_: (setattr(self, "closed", True), self.trash_search.close()))
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
         self.restore = Gtk.Button(label=_("Restore"), css_classes=["suggested-action"], sensitive=False)
@@ -1235,12 +1237,25 @@ class TrashDialog(Adw.Dialog):
         self.toasts = Adw.ToastOverlay(child=self.page)
         view.set_content(self.toasts)
         self.set_child(view)
+        self.search_group = Adw.PreferencesGroup(description=_(
+            "Koofr's trash is searched across the whole account. Results arrive a page at a time; "
+            "you can stop and continue the search."))
+        self.trash_search = TrashSearchRow(self.engine, self._trash_updated)
+        self.search_group.add(self.trash_search)
+        self.page.add(self.search_group)
         self.group = Adw.PreferencesGroup()
-        row = Adw.ActionRow(title=_("Reading Koofr's trash…"))
-        row.add_prefix(Adw.Spinner())
-        self.group.add(row)
         self.page.add(self.group)
-        self.engine.trash_deletions(pair_id, self._listed)
+        self.trash_search.start()
+
+    def _trash_updated(self, entries: list, done: bool, error: str) -> None:
+        if not done or error or self.closed:
+            return
+        pair = self.engine.cfg.pair(self.pair_id)
+        if pair is None:
+            return
+        mine = [e for e in entries if e.mount_id == self.engine.cfg.mount_id and trash_mod.under(e.path, pair.remote)]
+        self.search_group.set_visible(False)
+        self._listed(trash_mod.deletions(mine), "")
 
     def _replace(self, group: Adw.PreferencesGroup) -> None:
         self.page.remove(self.group)
@@ -1432,8 +1447,7 @@ class VersionsDialog(Adw.Dialog):
         self._back: dict[str, bool] = {}
         self._trash_group = None
         self._trash_shown = None                # what the trash group shows: refilled only when it changes
-        self._reading_row = None
-        self._stop_trash = lambda: None
+        self.trash_search = TrashSearchRow(self.engine, self._trash_update)
         self.query = ""
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
@@ -1453,10 +1467,10 @@ class VersionsDialog(Adw.Dialog):
         self.set_child(self.nav)
         self._handler = self.engine.connect("versions-changed",
                                             lambda _e, pid: self._fill(fresh=True) if pid == pair_id else None)
-        self.connect("closed", lambda *_: (self.engine.disconnect(self._handler), self._stop_trash()))
+        self.connect("closed", lambda *_: (self.engine.disconnect(self._handler), self.trash_search.close()))
         self._fill()
         if kind == "deleted":
-            self._stop_trash = self.engine.trash_entries(self._trash_update)
+            self.trash_search.start()
 
     def _search(self, text: str) -> None:
         self.query = text.strip().casefold()
@@ -1471,6 +1485,8 @@ class VersionsDialog(Adw.Dialog):
         pair = self.engine.cfg.pair(self.pair_id)
         if pair is None:
             return
+        if self._trash_group is not None:
+            self._trash_group.remove(self.trash_search)
         for group in self.groups:
             self.page.remove(group)
         self.groups = []
@@ -1513,15 +1529,18 @@ class VersionsDialog(Adw.Dialog):
         """The trash group alone, built again (a page of the trash leaves the
         copies kept here as they are)."""
         if self._trash_group is not None:
+            self._trash_group.remove(self.trash_search)
             self.page.remove(self._trash_group)
             self.groups.remove(self._trash_group)
         trash = self._trash_group = Adw.PreferencesGroup(title=_("In Koofr's Trash"), description=escape(_(
             "Files deleted on any computer or on the web, kept by Koofr for 30 days. A file you deleted here "
             "is first in this computer's wastebasket, and reaches Koofr's trash with the next sync. "
-            "A restored file comes back here with the sync after the restore.")))
+            "A restored file comes back here with the sync after the restore.") + " " + _(
+            "Koofr's trash is searched across the whole account. Results arrive a page at a time; "
+            "you can stop and continue the search.")))
         entries = self._here
         self._trash_shown = (min(len(entries), self.TRASH_ROWS), self.trash_done, self.trash_error)
-        self._reading_row = None
+        trash.add(self.trash_search)
         remote = pair.remote.rstrip("/") + ("/" + self.rel.strip("/") if self.rel else "")
         if self.trash_done and not entries and not self.trash_error:
             trash.add(Adw.ActionRow(title=_("Nothing of this folder is in Koofr's trash.")))
@@ -1534,16 +1553,6 @@ class VersionsDialog(Adw.Dialog):
             row.add_suffix(Gtk.Image(icon_name="go-next-symbolic", accessible_role=Gtk.AccessibleRole.PRESENTATION))
             row.connect("activated", lambda _r, e=entry: self._restore_from_trash(e))
             trash.add(row)
-        if not self.trash_done:
-            # Koofr gives the whole account's trash, a page at a time: what
-            # belongs here shows as it comes, the newest deletions first
-            row = Adw.ActionRow(title=_("Reading Koofr's trash…"), subtitle=escape(self._read_so_far()))
-            row.add_prefix(Adw.Spinner())
-            trash.add(row)
-            self._reading_row = row
-        elif self.trash_error:
-            trash.add(Adw.ActionRow(title=_("Koofr's trash could not be read entirely"), subtitle_lines=0,
-                                    subtitle=escape(self.trash_error)))
         self._add(trash)
 
     def _scan_trash(self, pair, again: bool = False) -> None:
@@ -1629,15 +1638,9 @@ class VersionsDialog(Adw.Dialog):
             return
         self._scan_trash(pair, again=again)
         # a page that changes none of the rows shown only updates the count
-        if (min(len(self._here), self.TRASH_ROWS), done, error) == self._trash_shown and self._reading_row is not None:
-            self._reading_row.set_subtitle(escape(self._read_so_far()))
+        if not again and (min(len(self._here), self.TRASH_ROWS), done, error) == self._trash_shown:
             return
         self._fill_trash(pair)
-
-    def _read_so_far(self) -> str:
-        n = len(self.trash_entries)
-        return ngettext("{n} file of the account read so far", "{n} files of the account read so far",
-                        n).format(n=count(n))
 
     def _restore_from_trash(self, entry) -> None:
         dialog = Adw.AlertDialog(
@@ -1662,7 +1665,8 @@ class VersionsDialog(Adw.Dialog):
             tell(self.toasts, _("Restored from Koofr's trash: the next sync brings it here."), [])
             self.trash_entries, self.trash_done, self.trash_error = [], False, ""
             self._fill(fresh=True)
-            self._stop_trash = self.engine.trash_entries(self._trash_update)
+            if not self.trash_search.closed:
+                self.trash_search.start()
         dialog.connect("response", chosen)
         dialog.present(self)
 
@@ -2025,6 +2029,9 @@ class PreferencesDialog(Adw.PreferencesDialog):
     def __init__(self, window: MainWindow):
         super().__init__(title=_("Preferences"))
         self.engine, self.window = window.engine, window
+        if WINDOWS:
+            self.set_content_height(640)
+            self.connect("realize", self._prepare_window)
         cfg = self.engine.cfg
         page = Adw.PreferencesPage()
 
@@ -2152,6 +2159,14 @@ class PreferencesDialog(Adw.PreferencesDialog):
         group.add(combo)
         page.add(group)
         self.add(page)
+
+    def _prepare_window(self, _dialog) -> None:
+        # AdwDialog creates a fixed-size window for the native Windows
+        # parent. Preferences needs a bounded size and room to resize.
+        root = self.get_root()
+        if isinstance(root, Gtk.Window) and root is not self.window:
+            root.set_resizable(True)
+            root.set_default_size(self.get_content_width(), self.get_content_height())
 
     def _refresh_quota(self) -> None:
         creds = self.engine.creds
