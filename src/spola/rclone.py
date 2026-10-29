@@ -250,10 +250,10 @@ def confirmed_max_changes(plan: Plan, bases, seen: int = 0) -> int:
     """The files changed here a confirmed preview showed (its uploads of
     files this computer's listing already had, and its conflicts: changed
     here and on Koofr both), plus a small margin: what the run that carries
-    it out may find changed, no more. `seen` is what the check counted when
-    it stopped the run (jobs.changed_here): a file changed here the same way
-    as on Koofr is in neither list of the plan, but counts for the check all
-    the same, and the confirmed run would stop again for it."""
+    it out may find changed, no more. `seen` is the preliminary size/date
+    count taken with the preview (jobs.changed_here): a file changed here
+    the same way as on Koofr is in neither list of the plan, but counts for
+    the check all the same, and the confirmed run would stop again for it."""
     known = bases[0] if bases else {}
     changed = sum(1 for path in plan.upload if path in known) + len(plan.conflicts)
     changed = max(changed, int(seen or 0))

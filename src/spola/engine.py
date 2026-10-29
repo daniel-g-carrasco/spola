@@ -182,6 +182,7 @@ class Preview:
     # counted once, in the preparing thread, for every list of the preview
     base_counts: tuple | None = None
     counts: tuple[int, int] | None = None       # entries of those listings, each side
+    changed_count: int = 0         # preliminary size/date check when this preview was prepared
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
     seen: bool = False                  # its answer reached a dialog
@@ -1115,12 +1116,13 @@ class Engine(GObject.Object):
             rt.ahead_source = 0
         max_delete = max_changes = None
         if mode is Mode.SYNC and force:
-            # what the checks counted when they stopped the run: files gone
-            # from both sides, or changed the same way on both, which the
-            # preview does not list, count for them all the same
+            # Files gone from both sides, or changed the same way on both,
+            # count for the checks even when the preview has no action for
+            # them. Use the local count taken with this preview, not only
+            # the count from a previous run stopped by that check.
             stopped = rt.last_outcome if rt.last_outcome is not None and rt.last_outcome.safety == "deletes" else None
             max_delete = confirmed_max_delete(kept.outcome.plan, kept.counts, stopped.excess if stopped else None)
-            max_changes = confirmed_max_changes(kept.outcome.plan, kept.bases, rt.safety_changed)
+            max_changes = confirmed_max_changes(kept.outcome.plan, kept.bases, kept.changed_count)
         rt.before_run = (rt.status, rt.message)     # what this answers: back to it if the run is dropped
         rt.preview = None               # what it said is about to happen
         self._enqueue(Task(pair_id, mode, max_delete=max_delete, max_changes=max_changes, reason="confirmed",
@@ -1834,6 +1836,7 @@ class Engine(GObject.Object):
             if rt.preview is not None and rt.preview.task is task:
                 rt.preview.free_bytes, rt.preview.bases, rt.preview.counts = free, task.bases, task.counts
                 rt.preview.base_counts = task.base_counts
+                rt.preview.changed_count = job.changed_count
             self.emit("pair-changed", pair.id)
             return False
         rt.stats, rt.transferring = None, []

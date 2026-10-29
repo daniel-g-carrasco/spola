@@ -724,6 +724,68 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(len(self.engine.conflicts("p1")), 20)
         self.assertEqual((self.remote / "f30.txt").read_text(), "changed here 30")
 
+    def test_a_deletion_preview_counts_identical_files_with_changed_dates(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        self.engine.set_paused("p1", True)
+        for i in range(10):
+            (self.remote / f"f{i:02}.txt").unlink()
+        # Both copies still contain the same bytes. Their dates changed by
+        # fractions of a second: the preliminary check counts the local
+        # files, but bisync finds nothing to copy for them in the preview.
+        for i in range(10, 20):
+            for root, drift in ((self.local, 200_000_000), (self.remote, 400_000_000)):
+                path = root / f"f{i:02}.txt"
+                st = path.stat()
+                os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + drift))
+        self.engine.set_paused("p1", False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 60))
+        self.assertEqual(self.engine.runtime["p1"].safety, "deletes")
+        _kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual(got[0][1], "")
+        self.assertEqual(len(got[0][0].plan.delete_local), 10)
+        self.assertEqual(got[0][0].plan.upload + got[0][0].plan.conflicts, [])
+        results = []
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True,
+                                            lambda out, err: results.append((out, err))))
+        self.assertTrue(spin_until(lambda: results, 60))
+        outcome, error = results[0]
+        self.assertEqual(error, "")
+        self.assertIsNotNone(outcome)
+        self.assertIs(outcome.result, Result.OK, outcome.message)
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
+        self.assertEqual(sorted(p.name for p in self.local.glob("f*.txt")), self.remote_files())
+        self.assertEqual(len(self.remote_files()), 20)
+        for i in range(10, 20):
+            self.assertEqual((self.local / f"f{i:02}.txt").read_text(), str(i))
+            self.assertEqual((self.remote / f"f{i:02}.txt").read_text(), str(i))
+
+    def test_new_changes_after_a_deletion_preview_still_need_confirmation(self):
+        self.align()
+        self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
+        self.engine.set_paused("p1", True)
+        for i in range(10):
+            (self.remote / f"f{i:02}.txt").unlink()
+        self.engine.set_paused("p1", False)
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 60))
+        _kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        results = []
+        # More changes arrive after the preview, before the folder monitor
+        # has delivered them: confirmation must use the preview's snapshot.
+        for i in range(10, 15):
+            (self.local / f"f{i:02}.txt").write_text(f"new change {i}")
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True,
+                                            lambda out, err: results.append((out, err))))
+        self.assertTrue(spin_until(lambda: results, 60))
+        self.assertIsNone(results[0][0])
+        self.assertIs(self.status(), Status.NEEDS_CONFIRMATION)
+        self.assertEqual(self.engine.runtime["p1"].safety, "changes")
+        self.assertEqual(len(list(self.local.glob("f*.txt"))), 30)
+        for i in range(10, 15):
+            self.assertEqual((self.remote / f"f{i:02}.txt").read_text(), str(i))
+
     def test_every_file_changed_is_confirmed_in_two_steps(self):
         self.align()
         self.assertTrue(spin_until(lambda: self.engine.active is None and not self.engine.queue, 30))
