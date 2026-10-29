@@ -8,7 +8,7 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
-## [0.3.35] - 2026-10-29
+## [0.3.36] - 2026-10-29
 
 ### Added
 - A **Share…** window from the desktop file manager, on Linux and Windows:
@@ -626,8 +626,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.35...main
-[0.3.35]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.35
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.36...main
+[0.3.36]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.36
 [0.3.34]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.34
 [0.3.33]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.33
 [0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32

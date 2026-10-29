@@ -8,7 +8,7 @@ tests/. The GTK side (app, window, tray) only displays and triggers.
 
 import sys
 
-__version__ = "0.3.35"
+__version__ = "0.3.36"
 
 WINDOWS = sys.platform == "win32"
 
