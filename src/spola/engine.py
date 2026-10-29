@@ -205,8 +205,12 @@ class TrashRead:
     read_at: float = 0.0            # time.time() of the last complete reading
     loading: bool = False
     error: str = ""
-    generation: int = 0             # a reading superseded (signed out, invalidated) is ignored
+    generation: int = 0             # a reading superseded (signed out, stopped) is ignored
     listeners: list = field(default_factory=list)   # listener(entries, done, error)
+    cursor: str | None = None       # first page not yet delivered to the main loop
+    resumable: bool = False
+    invalidated: bool = False
+    cancelled: threading.Event = field(default_factory=threading.Event)
 
 
 @dataclass
@@ -573,6 +577,8 @@ class Engine(GObject.Object):
     def shutdown(self, done: Callable[[], None]) -> None:
         """Stop gracefully: no new runs, SIGINT to the running one, then done()."""
         self._closing = True            # a run still being prepared will not start
+        self._stop_trash_read(self.trash_read)
+        self.trash_read.listeners.clear()
         if self.windows_conditions is not None:
             self.windows_conditions.stop()
         self.queue.clear()
@@ -748,6 +754,7 @@ class Engine(GObject.Object):
         # pages and its end unheard, its loop stopped), its listeners told once
         old = self.trash_read
         listeners, old.listeners = old.listeners, []
+        old.cancelled.set()
         old.generation += 1
         self.trash_read = TrashRead(generation=old.generation)
         for listener in listeners:
@@ -1138,33 +1145,76 @@ class Engine(GObject.Object):
         done, error)` on the main loop: at once with a reading less than
         TRASH_TTL_S old, else page by page as it is read (done=False) and
         once more at the end. A page that times out is asked again. Returns
-        a function that stops the calls (a dialog closed)."""
+        a function that stops the calls (a dialog closed). The last listener
+        leaving stops further requests; retry resumes at the unread page."""
         state = self.trash_read
+        active = True
+
+        def deliver(entries, done, error):
+            nonlocal active
+            if not active:
+                return False
+            if done:
+                active = False
+                if deliver in state.listeners:
+                    state.listeners.remove(deliver)
+            listener(entries, done, error)
+            return False
+
+        def stop():
+            nonlocal active
+            active = False
+            if deliver in state.listeners:
+                state.listeners.remove(deliver)
+            if state.loading and not state.listeners:
+                self._stop_trash_read(state)
+
         if self.creds is None:
-            GLib.idle_add(lambda: listener([], True, _("Sign in to Koofr first.")) and False)
-            return lambda: None
+            GLib.idle_add(deliver, [], True, _("Sign in to Koofr first."))
+            return stop
+        state.listeners.append(deliver)
         fresh = not state.loading and not state.error and time.time() - state.read_at < TRASH_TTL_S
         if fresh:
-            GLib.idle_add(lambda: listener(list(state.entries), True, "") and False)
-            return lambda: None
-        state.listeners.append(listener)
-        if state.loading:
-            entries = list(state.entries)
-            GLib.idle_add(lambda: listener(entries, False, "") and False if listener in state.listeners else False)
+            def cached():
+                if not active or self.trash_read is not state:
+                    return False
+                if state.read_at:
+                    deliver(list(state.entries), True, "")
+                elif not state.loading:
+                    self._read_trash()       # invalidated before the cached callback ran
+                else:
+                    deliver(list(state.entries), False, "")
+                return False
+            GLib.idle_add(cached)
+        elif state.loading:
+            GLib.idle_add(lambda: deliver(list(state.entries), False, "")
+                          if deliver in state.listeners else False)
         else:
             self._read_trash()
-        return lambda: state.listeners.remove(listener) if listener in state.listeners else None
+        return stop
+
+    @staticmethod
+    def _stop_trash_read(state: TrashRead) -> None:
+        state.cancelled.set()
+        state.generation += 1
+        state.loading = False
 
     def invalidate_trash(self) -> None:
         """The trash changed (a restore, a sync that deleted on Koofr): the
         next look reads it again."""
         self.trash_read.read_at = 0.0
+        self.trash_read.resumable = False
+        self.trash_read.invalidated = True
 
     def _read_trash(self) -> None:
         state = self.trash_read
         state.generation += 1
         generation = state.generation
-        state.loading, state.error, state.entries = True, "", []
+        if not state.resumable:
+            state.entries, state.cursor = [], None
+        state.loading, state.error, state.read_at = True, "", 0.0
+        state.resumable, state.invalidated = True, False
+        cancelled = state.cancelled = threading.Event()
         api = self.koofr_trash(self.creds)
 
         def tell(entries, done, error):
@@ -1174,39 +1224,67 @@ class Engine(GObject.Object):
                 except Exception as e:      # one dialog's trouble must not stop the others
                     complain("showing Koofr's trash", e)
 
-        def page(found: list) -> bool:
+        def page(found: list, cursor: str | None) -> bool:
             if state.generation == generation:
                 state.entries.extend(found)
+                state.cursor = cursor
+                if not cursor:
+                    return finished("")    # last page and completion are one main-loop update
                 tell(list(state.entries), False, "")
+            return False
+
+        def retrying() -> bool:
+            if state.generation == generation:
+                tell(list(state.entries), False, _("Koofr is taking longer to respond. Retrying…"))
             return False
 
         def finished(error: str) -> bool:
             if state.generation != generation:
                 return False
+            if state.invalidated:
+                error = _("The trash changed during the search. Search again to refresh the results.")
             state.loading, state.error = False, error
+            state.resumable = bool(error) and not state.invalidated
             if not error:
                 state.read_at = time.time()
             tell(list(state.entries), True, error)
-            state.listeners.clear()
             return False
 
+        def initial() -> bool:
+            if state.generation == generation and state.loading:
+                tell(list(state.entries), False, "")
+            return False
+
+        GLib.idle_add(initial)       # kept pages are visible even while the next request waits
+
         def work():
-            cursor = None
+            cursor = state.cursor
             try:
                 for _page in range(trash_mod.MAX_PAGES):
                     for attempt in range(TRASH_TRIES):
+                        if cancelled.is_set():
+                            return
                         try:
                             entries, cursor_next = api.page(cursor)
                             break
                         except Exception:
+                            if cancelled.is_set():
+                                return
                             if attempt == TRASH_TRIES - 1:
                                 raise
-                            time.sleep(TRASH_RETRY_S)
-                    GLib.idle_add(page, entries)
-                    if not entries or not cursor_next or cursor_next == cursor or state.generation != generation:
-                        break
+                            GLib.idle_add(retrying)
+                            if cancelled.wait(TRASH_RETRY_S):
+                                return
+                    if cancelled.is_set():
+                        return
+                    if cursor_next and (cursor_next == cursor or not entries):
+                        raise ValueError(_("Koofr did not advance to the next page. Try again."))
+                    GLib.idle_add(page, entries, cursor_next)
+                    if not cursor_next:
+                        return              # the last page delivers completion atomically
                     cursor = cursor_next
-                error = ""
+                else:
+                    raise ValueError(_("The trash is large. Continue searching to read the remaining files."))
             except Exception as e:          # shown to the user, with what was read so far
                 error = str(e)
             GLib.idle_add(finished, error)
@@ -1224,7 +1302,7 @@ class Engine(GObject.Object):
         def listener(entries, finished, error):
             if finished:
                 mine = [e for e in entries if e.mount_id == mount_id and trash_mod.under(e.path, root)]
-                done(trash_mod.deletions(mine), error if not mine else "")
+                done(trash_mod.deletions(mine), error)
         self.trash_entries(listener)
 
     def restore_from_trash(self, pair_id: str, entries: list, progress: Callable[[int, int], None],

@@ -69,6 +69,7 @@ jobs:
         run: |
           cd tests
           xvfb-run -a python3 -W default -W "ignore::DeprecationWarning:gi.events" \
-            -m unittest -v test_add_folder test_import_dialog test_update_dialog 2>&1 | tee ../gtk-tests.log
+            -m unittest -v test_add_folder test_import_dialog test_update_dialog \
+            test_preferences_dialog test_trash_dialog 2>&1 | tee ../gtk-tests.log
           test "${PIPESTATUS[0]}" -eq 0
           if grep -q "skipped=" ../gtk-tests.log; then echo "the GTK tests were skipped"; exit 1; fi

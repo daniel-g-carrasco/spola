@@ -3210,3 +3210,31 @@ msgstr "Motore di sincronizzazione"
 #: src/spola/window.py:2562
 msgid "Measuring the space taken by the logs and backups…"
 msgstr "Misurazione dello spazio occupato da log e backup…"
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "Koofr is taking longer to respond. Retrying…"
+msgstr "Koofr sta impiegando più tempo a rispondere. Nuovo tentativo…"
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "The trash changed during the search. Search again to refresh the results."
+msgstr "Il cestino è cambiato durante la ricerca. Ripeti la ricerca per aggiornare i risultati."
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "Koofr did not advance to the next page. Try again."
+msgstr "Koofr non ha restituito la pagina successiva. Riprova."
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "The trash is large. Continue searching to read the remaining files."
+msgstr "Il cestino è molto grande. Continua la ricerca per leggere i file rimanenti."
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "Continue Searching"
+msgstr "Continua ricerca"
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "Search paused"
+msgstr "Ricerca in pausa"
+
+#: src/spola/engine.py src/spola/trash_search.py src/spola/window.py
+msgid "Koofr's trash is searched across the whole account. Results arrive a page at a time; you can stop and continue the search."
+msgstr "La ricerca nel cestino Koofr riguarda tutto l'account. I risultati arrivano una pagina alla volta; puoi interrompere e riprendere la ricerca."
