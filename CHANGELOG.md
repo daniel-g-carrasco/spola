@@ -8,7 +8,15 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.34] - 2026-10-29
+
 ### Fixed
+- Confirming a deletion preview no longer asks for confirmation again when
+  identical files have different modification dates. The confirmation uses
+  the preliminary count captured with the preview; later changes still
+  need confirmation.
+- Windows: Preferences opens at a manageable height and can be resized,
+  with the settings accessible by scrolling.
 - The conflicts window, Resolve All, Preferences and the notification of a
   folder's rule still said that the version not kept goes to the
   wastebasket: since 0.3.27 it stays among the folder's kept copies, where
@@ -16,6 +24,14 @@ shorter, are in the app's metainfo, which software centres show.
 - Translations: the name of a restored copy ("report (version of …).odt")
   and of the conflict copies could drop out of the Italian catalogue when
   it was refreshed.
+
+### Changed
+- Both Koofr trash dialogs show search progress and let you stop and
+  continue. A failed page resumes where it stopped, keeping the entries
+  already read; closing the last interested dialog stops further requests.
+- Slow trash pages use a shorter timeout and show when they are retried.
+  Incomplete searches are clearly marked; restoring a whole deletion group
+  waits until the search is complete.
 
 ## [0.3.33] - 2026-10-20
 
@@ -588,7 +604,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.33...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.34...main
+[0.3.34]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.34
 [0.3.33]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.33
 [0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32
 [0.3.31]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.31
