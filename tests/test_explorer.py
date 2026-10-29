@@ -116,6 +116,9 @@ class LocateTest(unittest.TestCase):
         paths = Paths(Path(self.tmp.name) / "c", Path(self.tmp.name) / "s", Path(self.tmp.name) / "d")
         filters = paths.filters_file(self.pair.id)
         filters.parent.mkdir(parents=True)
+        # Windows rclone rejects NUL (os.devnull) as a configuration path.
+        config = Path(self.tmp.name) / "rclone.conf"
+        config.write_text("", encoding="utf-8")
         for relative in ("report.pdf", "report.txt", "secret.txt", "report.part", "A/B/secret.txt",
                          "A/B/report.pdf", "nested/secret.txt", "nested/report.pdf", "private/report.pdf",
                          "allowed/report.pdf", "nested/private/report.pdf"):
@@ -129,7 +132,7 @@ class LocateTest(unittest.TestCase):
             with self.subTest(filters=text):
                 filters.write_text(text)
                 result = subprocess.run([_setup.rclone_binary(), "lsf", "-R", str(self.root),
-                                         "--config", os.devnull, "--filter-from", str(filters)],
+                                         "--config", str(config), "--filter-from", str(filters)],
                                         capture_output=True, text=True, timeout=15, env=clean_env())
                 self.assertEqual(result.returncode, 0, result.stderr)
                 listed = set(result.stdout.splitlines())

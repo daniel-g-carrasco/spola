@@ -8,7 +8,16 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.37] - 2026-10-29
+
+### Fixed
+- The release's filter comparison test uses an ordinary temporary rclone
+  configuration file on Windows, where the null device is not accepted.
+  This lets the sharing update pass the same release checks on both platforms.
+
 ## [0.3.36] - 2026-10-29
+
+Published to the Linux Flatpak repository; Windows follows in 0.3.37.
 
 ### Added
 - A **Share…** window from the desktop file manager, on Linux and Windows:
@@ -626,8 +635,9 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.36...main
-[0.3.36]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.36
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.37...main
+[0.3.37]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.37
+[0.3.36]: https://github.com/daniel-g-carrasco/spola/tree/v0.3.36
 [0.3.34]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.34
 [0.3.33]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.33
 [0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32

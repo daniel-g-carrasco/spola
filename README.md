@@ -43,7 +43,7 @@ Every [release](https://github.com/daniel-g-carrasco/spola/releases) has an inst
 The installer and the zip have a [minisign](https://jedisct1.github.io/minisign/) signature next to them (`.minisig`). To check one by hand:
 
 ```bash
-minisign -V -P RWQnErzpJyMPROWGTtWUJRvxMHh8hdPaJU+NhzmlE7SNKlnpn8tGNYH3 -m spola-setup-v0.3.36-windows-x64.exe
+minisign -V -P RWQnErzpJyMPROWGTtWUJRvxMHh8hdPaJU+NhzmlE7SNKlnpn8tGNYH3 -m spola-setup-v0.3.37-windows-x64.exe
 ```
 
 ## Safety first
