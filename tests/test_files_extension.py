@@ -5,6 +5,8 @@ forgets everything when Spola goes away."""
 
 import importlib.util
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 if __import__("sys").platform == "win32":
     raise unittest.SkipTest("the Files extension is Linux only")
@@ -201,6 +203,26 @@ class ProviderTest(unittest.TestCase):
             self.assertEqual([i.props.name for i in items], ["Spola::SyncNow", "Spola::OpenOnKoofr", "Spola::ShareLink"])
             two = self.provider._menu_items([FakeFile("/h/data/work/a"), FakeFile("/h/data/work/b")], False)
             self.assertEqual([i.props.name for i in two], ["Spola::SyncNow"])
+
+    def test_share_menu_uses_new_service_and_a_read_only_old_service_fallback(self):
+        class MenuItem:
+            def __init__(self, **props):
+                self.props = SimpleNamespace(**props)
+
+            def connect(self, signal, handler):
+                self.activate = handler
+
+        target = "/h/data/work/a"
+        with mock.patch.object(ext, "FM", SimpleNamespace(MenuItem=MenuItem)), mock.patch.object(ext, "_", lambda s: s):
+            for version, method, argument in ((3, "Share", ext.uri_of(target)), (2, "ShowWindow", "p1"),
+                                               (1, "ShowWindow", "p1"), (0, "ShowWindow", "p1")):
+                with self.subTest(version=version):
+                    self.provider.spola_version = version
+                    items = self.provider._menu_items([FakeFile(target)], False)
+                    item = next(i for i in items if i.props.name == "Spola::ShareLink")
+                    self.assertEqual(item.props.label, "Share…")
+                    item.activate()
+                    self.assertEqual(self.provider.proxy.calls[-1], (method, (argument,)))
 
     def test_versions_asked_with_the_folder_only_from_a_newer_spola(self):
         f = FakeFile("/h/data/work/a/doc.odt")

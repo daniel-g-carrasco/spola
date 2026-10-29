@@ -111,6 +111,7 @@ class SpolaApp(Adw.Application):
                              _("Start without opening the window"), None)
         # File Explorer's entries (explorer.py), to the running Spola
         self.add_main_option("open-on-koofr", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
+        self.add_main_option("share", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.add_main_option("copy-link", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.add_main_option("versions", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
         self.add_main_option("deleted", 0, GLib.OptionFlags.HIDDEN, GLib.OptionArg.STRING, "", None)
@@ -183,7 +184,7 @@ class SpolaApp(Adw.Application):
                                             else self.activate(),
                                             open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
                                             show_link=self._show_link, tell=self._tell,
-                                            show_versions=self._show_versions)
+                                            show_versions=self._show_versions, show_share=self._share)
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
         self.engine.start()
@@ -293,7 +294,8 @@ class SpolaApp(Adw.Application):
 
     def do_command_line(self, command_line):
         options = command_line.get_options_dict()
-        for name, handler in (("open-on-koofr", self._open_on_koofr), ("copy-link", self._copy_link),
+        for name, handler in (("open-on-koofr", self._open_on_koofr), ("share", self._share),
+                              ("copy-link", self._copy_link),
                               ("versions", lambda path: self._versions_of(path, "file")),
                               ("deleted", lambda path: self._versions_of(path, "deleted"))):
             value = options.lookup_value(name, GLib.VariantType.new("s"))
@@ -345,37 +347,27 @@ class SpolaApp(Adw.Application):
                 self._show_versions(pair.id, relative, "file")
 
     def _copy_link(self, path: str) -> None:
+        """Compatibility for installed menu entries from earlier releases."""
+        self._share(path)
+
+    def _share(self, path: str) -> None:
         from . import explorer
-        from .rclone import default_excluded, koofr_env, share_link
+        from .rclone import default_excluded
         found = self._in_pair(path)
-        creds, rclone = self.engine.creds, self.engine.rclone
         if found is None:
             return
-        if creds is None or rclone is None:
+        if self.engine.creds is None:
             self._tell(_("Not signed in to Koofr"))
             return
         pair, relative = found
-        refusal = explorer.link_refusal(pair, relative, os.path.isdir(path), default_excluded)
+        refusal = explorer.link_refusal(pair, relative, os.path.isdir(path), default_excluded, self.engine.paths)
         if refusal:
             self._tell(refusal)
             return
-        remote, config = explorer.remote_path(pair, relative), self.engine.paths.rclone_config
-        name = os.path.basename(path.rstrip("\\/")) or path
-
-        def work() -> str:
-            url, said = share_link(rclone, koofr_env(creds.user, creds.obscured), config, remote)
-            if not url:
-                raise OSError(explorer.link_error(name, said))
-            return url
-
-        def done(url, error) -> None:
-            if error:
-                self._tell(str(error))
-                return
-            Gdk.Display.get_default().get_clipboard().set(url)
-            self._tell(url, title=_("Koofr link copied"))
-
-        run_in_thread(work, done)
+        from .sharing_dialog import SharingDialog
+        window = self._window()
+        window.present()
+        SharingDialog(window, explorer.remote_path(pair, relative)).present(window)
 
     def do_activate(self):
         self._window().present()

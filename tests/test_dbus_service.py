@@ -4,7 +4,10 @@ menus of Dolphin and Thunar can only pass a path), and the actions that do
 their whole job in Spola."""
 
 import tempfile
+import threading
+import time
 import unittest
+from unittest import mock
 
 if __import__("sys").platform == "win32":
     raise unittest.SkipTest("the file managers' D-Bus service is Linux only")
@@ -15,6 +18,7 @@ import _setup  # noqa: F401
 
 from spola.config import Pair
 from spola.dbus_service import SyncService, path_for, uri_for
+from spola.sharing import Link, Snapshot
 
 
 class FakeInvocation:
@@ -35,14 +39,15 @@ class ServiceTest(unittest.TestCase):
         (self.root / "sub").mkdir(parents=True)
         (self.root / "sub" / "doc.odt").write_text("x")
         pair = Pair("p1", str(self.root), "/data/work", initialized=True)
-        self.synced, self.opened, self.told = [], [], []
+        self.synced, self.opened, self.told, self.shared = [], [], [], []
         engine = SimpleNamespace(
             cfg=SimpleNamespace(pairs=[pair], mount_id="m-1", pair=lambda pid: pair if pid == "p1" else None),
             runtime={}, creds=None, rclone=None, paths=None,
             request_sync=lambda pid, reason: self.synced.append((pid, reason)),
             connect=lambda *args: 0)
         self.service = SyncService(engine, lambda what: None, open_url=self.opened.append,
-                                   show_link=lambda name, url: None, tell=self.told.append)
+                                   show_link=lambda name, url: None, tell=self.told.append,
+                                   show_share=self.shared.append)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -88,6 +93,138 @@ class ServiceTest(unittest.TestCase):
         inv = self.call("CreateShareLink", uri_for(str(self.root)))
         self.assertEqual(inv.error[0], "io.github.daniel_g_carrasco.spola.Sync1.NotSynced")
 
+    def test_new_and_old_share_actions_only_open_the_dialog(self):
+        self.service.engine.creds = SimpleNamespace(user="u", password="p")
+        path = str(self.root / "sub" / "doc.odt")
+        for method in ("Share", "ShowShareLink"):
+            with self.subTest(method=method):
+                inv = self.call(method, uri_for(path))
+                self.assertIsNone(inv.error)
+                self.assertIsNone(inv.value)
+        self.assertEqual(self.shared, [path, path])
+
+    def test_every_share_route_refuses_excluded_and_uninitialized_items(self):
+        self.service.engine.creds = SimpleNamespace(user="u", password="p")
+        self.service.engine.rclone = "/unused/rclone"
+        for method in ("Share", "ShowShareLink", "CreateShareLink"):
+            for initialized, relative in ((True, ".spola-root"), (True, "node_modules/a.js"),
+                                          (False, "sub/doc.odt")):
+                with self.subTest(method=method, initialized=initialized, relative=relative):
+                    self.service.engine.cfg.pairs[0].initialized = initialized
+                    with mock.patch("spola.dbus_service.threading.Thread") as worker:
+                        inv = self.call(method, str(self.root / relative))
+                    worker.assert_not_called()
+                    self.assertFalse(self.shared)
+                    if method == "CreateShareLink":
+                        self.assertIsNotNone(inv.error)
+                        self.assertEqual(inv.error[0], "io.github.daniel_g_carrasco.spola.Sync1.NotSynced")
+                    else:
+                        self.assertIsNone(inv.error)
+                        self.assertTrue(self.told)
+                    self.told.clear()
+
+    def test_every_share_route_respects_custom_exclusions(self):
+        from spola.paths import Paths
+        base = Path(self.tmp.name)
+        paths = Paths(base / "config", base / "state", base / "data")
+        filters = paths.filters_file("p1")
+        filters.parent.mkdir(parents=True)
+        filters.write_text("- confidential/**\n")
+        self.service.engine.paths = paths
+        self.service.engine.creds = SimpleNamespace(user="u", password="p")
+        for method in ("Share", "ShowShareLink", "CreateShareLink"):
+            with self.subTest(method=method), mock.patch("spola.dbus_service.threading.Thread") as worker:
+                self.shared.clear()
+                inv = self.call(method, str(self.root / "confidential" / "secret.txt"))
+                self.assertFalse(self.shared)
+                worker.assert_not_called()
+                if method == "CreateShareLink":
+                    self.assertIsNotNone(inv.error)
+                    self.assertEqual(inv.error[0], "io.github.daniel_g_carrasco.spola.Sync1.NotSynced")
+                else:
+                    self.assertTrue(self.told)
+                self.told.clear()
+
+    def _existing_link(self, link, before_reply=lambda: None):
+        """The HTTP client is the external boundary; the service still runs its worker."""
+        from spola import sharing
+        reads = []
+        main_thread = threading.get_ident()
+
+        class Client:
+            def __init__(_client, user, password, mount_id):
+                self.assertEqual((user, password, mount_id), ("u", "p", "m-1"))
+
+            def load(_client, path):
+                self.assertNotEqual(threading.get_ident(), main_thread)
+                reads.append(path)
+                if isinstance(link, Exception):
+                    raise link
+                return Snapshot(path=path, link=link)
+
+        self.service.engine.creds = SimpleNamespace(user="u", password="p")
+        with mock.patch.object(sharing, "Client", Client):
+            inv = self.call("CreateShareLink", str(self.root / "sub" / "doc.odt"))
+            before_reply()
+            from gi.repository import GLib
+            end = time.monotonic() + 2
+            while inv.value == "unset" and inv.error is None and time.monotonic() < end:
+                GLib.MainContext.default().iteration(False)
+                time.sleep(.001)
+        self.assertEqual(reads, ["/data/work/sub/doc.odt"])
+        return inv
+
+    def test_legacy_read_failure_replies_without_disclosing_exception_secrets(self):
+        inv = self._existing_link(OSError("request failed with password top-secret"))
+        self.assertIsNotNone(inv.error)
+        self.assertNotIn("top-secret", inv.error[1])
+        self.assertIn("Share", inv.error[1])
+        self.assertEqual(self.shared, [str(self.root / "sub" / "doc.odt")])
+
+    def test_legacy_read_reply_is_discarded_after_account_changes(self):
+        def sign_out():
+            self.service.engine.creds = None
+        inv = self._existing_link(Link(url="https://example.com/old-account"), sign_out)
+        self.assertIsNotNone(inv.error)
+        self.assertEqual(inv.value, "unset")
+        self.assertFalse(self.shared)
+
+    def test_legacy_retrieval_only_reads_an_existing_unprotected_link(self):
+        inv = self._existing_link(Link(url="https://example.com/existing"))
+        self.assertIsNone(inv.error)
+        self.assertEqual(inv.value.unpack(), ("https://example.com/existing",))
+        self.assertFalse(self.shared)
+
+    def test_legacy_link_expiring_before_the_reply_is_not_returned(self):
+        from gi.repository import GLib
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
+        with mock.patch("spola.sharing.time.time", return_value=1000) as now:
+            def wait_for_reply():
+                end = time.monotonic() + 2
+                while not context.pending() and time.monotonic() < end:
+                    time.sleep(.001)
+                self.assertTrue(context.pending())
+                now.return_value = 2000
+            inv = self._existing_link(Link(url="https://example.com/expiring", valid_to=1500000), wait_for_reply)
+        self.assertIsNotNone(inv.error)
+        self.assertEqual(inv.value, "unset")
+        self.assertEqual(self.shared, [str(self.root / "sub" / "doc.odt")])
+
+    def test_legacy_retrieval_opens_dialog_when_explicit_sharing_is_needed(self):
+        now = int(time.time() * 1000)
+        for link in (None, Link(url="https://example.com/protected", has_password=True),
+                     Link(url="https://example.com/mandatory", password_required=True),
+                     Link(url="https://example.com/expired", valid_to=now - 1000),
+                     Link(url="https://example.com/future", valid_from=now + 60000)):
+            with self.subTest(link=link):
+                self.shared.clear()
+                inv = self._existing_link(link)
+                self.assertEqual(inv.error[0], "io.github.daniel_g_carrasco.spola.Sync1.ExplicitSharingRequired")
+                self.assertIn("Share", inv.error[1])
+                self.assertEqual(self.shared, [str(self.root / "sub" / "doc.odt")])
+
 
 
 class VersionsServiceTest(unittest.TestCase):
@@ -130,7 +267,7 @@ class VersionsServiceTest(unittest.TestCase):
         return inv
 
     def test_version_and_menu_names(self):
-        self.assertEqual(self.call("GetVersion", "()").value.unpack(), (2,))
+        self.assertEqual(self.call("GetVersion", "()").value.unpack(), (3,))
         self.assertEqual(self.call("GetFolderVersions", "(s)", uri_for(str(self.root))).value.unpack(), (["relazione.odt"],))
         self.assertEqual(self.call("GetFolderVersions", "(s)", str(self.root / "docs")).value.unpack(), (["via.txt"],))
         self.assertEqual(self.call("GetFolderVersions", "(s)", "/elsewhere").value.unpack(), ([],))

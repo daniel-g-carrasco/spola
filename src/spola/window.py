@@ -2095,7 +2095,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
             status.connect("notify::active", lambda r, _p: self._set_explorer_status(r.get_active()))
             group.add(status)
             menu = Adw.SwitchRow(title=_("Koofr entries in File Explorer's menu"),
-                                 subtitle=_("“Open on Koofr” and “Copy Koofr Share Link”, in the synced folders"),
+                                 subtitle=_("“Open on Koofr” and “Share…”, in the synced folders"),
                                  active=cfg.explorer_menu)
             menu.connect("notify::active", lambda r, _p: self._set_explorer_menu(r.get_active()))
             group.add(menu)

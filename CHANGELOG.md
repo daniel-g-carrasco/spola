@@ -8,6 +8,28 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.35] - 2026-10-29
+
+### Added
+- A **Share…** window from the desktop file manager, on Linux and Windows:
+  see who has access, invite people by email, change view/edit/custom
+  permissions, and remove access. Permissions inherited from parent folders
+  show their source and are managed there.
+- Create, copy and revoke public links; manage passwords, expiration with a
+  calendar and time selector, and the download button. The window explains
+  whether a link needs a password or account and shows Koofr plan restrictions.
+
+### Changed
+- Opening sharing or copying an existing link never creates public access
+  or resets its settings. Older menu commands open the same window; legacy
+  D-Bus link retrieval only returns an existing active, unprotected link.
+- Sharing changes reload the settings from Koofr, including after partial
+  failures. Incomplete access information leaves changes unavailable until
+  a successful reload. Owners and inherited members cannot be edited here.
+- Sharing respects ordered folder exclusions. Advanced rclone filter syntax
+  that cannot be checked locally redirects users to sharing on Koofr.
+- Complete Italian translations for the new sharing controls.
+
 ## [0.3.34] - 2026-10-29
 
 ### Fixed
@@ -604,7 +626,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.34...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.35...main
+[0.3.35]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.35
 [0.3.34]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.34
 [0.3.33]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.33
 [0.3.32]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.32
