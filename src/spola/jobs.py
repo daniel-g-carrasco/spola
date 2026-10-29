@@ -113,6 +113,7 @@ class Job:
     path2: str
     refused: list[Refused]
     busy: list[str] = field(default_factory=list)     # new files left out: still being written
+    changed_count: int = 0         # preliminary size/date count, including for a preview
 
 
 def being_written(root: str, previous: list[listings.Entry], now: float,
@@ -309,12 +310,15 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         busy, known_busy = being_written(pair.local, previous or [], time.time() if now is None else now)
         if known_busy:
             raise Busy(known_busy)
-    if mode is Mode.SYNC and not dry_run and previous:
-        # too many files changed here at once: not over Koofr's copies unasked
+    changed_count = 0
+    if mode is Mode.SYNC and previous:
+        # Keep the same count for a preview: identical files with changed
+        # dates may need no transfer, but this check counts them all the same.
         changed = changed_here(pair.local, previous)
+        changed_count = len(changed)
         allowed = max_changes if max_changes is not None else allowed_changes(pair.max_delete_percent, len(previous))
-        if len(changed) > allowed:
-            raise TooManyChanges(len(changed), sum(1 for e in previous if not e.is_dir), changed[:5])
+        if not dry_run and changed_count > allowed:
+            raise TooManyChanges(changed_count, sum(1 for e in previous if not e.is_dir), changed[:5])
     exclude_file = None
     # the files being written as the refused names: a control character (a
     # newline in a Linux name) becomes "?", or it would split the rule in two
@@ -347,7 +351,7 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         bwlimit=os.environ.get("SPOLA_DEV_BWLIMIT") or cfg.bwlimit,   # the env is a developer aid
         user_agent=user_agent(cfg.instance_id) if cfg.instance_id else None,
     )
-    return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused, busy)
+    return Job(pair, request, pair.local.rstrip("/") + "/", path2, refused, busy, changed_count)
 
 
 def listed_files(paths: Paths, pair: Pair) -> tuple[dict[str, int], dict[str, int]] | None:
