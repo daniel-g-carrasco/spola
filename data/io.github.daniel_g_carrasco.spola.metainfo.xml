@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.38" date="2026-10-30" type="development">
+      <description>
+        <p>The Koofr trash dialogs can finish again: a trash page now has 40 seconds instead of 10 (the first and last pages of a large trash take 10 and 15), and an empty page is the end of the list. Share on Koofr finds every public link to an item, says how many there are and revokes them all; a folder's link is described for the files under it, with its password and expiry; names that differ from Koofr's only in case no longer fail; the wording of hidden download buttons and required passwords is exact. The file manager entry is "Share on Koofr…".</p>
+      </description>
+    </release>
     <release version="0.3.37" date="2026-10-29" type="development">
       <description>
         <p>The sharing update for Linux and Windows: manage public links, passwords, expiration dates and invitations from Share in the file manager. Windows release checks use a portable temporary configuration file for rclone.</p>

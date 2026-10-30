@@ -832,3 +832,13 @@ Restano gli strutturali: M-07 (lavoro pesante sul main loop della finestra), un 
 **M-09:** i nomi non UTF-8 restano fuori dalle risposte D-Bus (`sendable`); le estensioni, dopo una risposta fallita, considerano la cartella nota per 30 secondi invece di chiedere a ogni ridisegno.
 
 Della verifica restano B-14, B-15 e B-17 (teorici o voluti), la firma del bundle `.flatpak` e un piano di rotazione della chiave minisign.
+
+## Appendice AP. La verifica del lavoro di Codex (2026-10-30, 0.3.38)
+
+Le versioni dalla 0.3.34 alla 0.3.37 le ha scritte Codex il 29/10 (conferma della review di `work`, impostazioni su Windows, cestino di Koofr, condivisione; specifiche in `docs/superpowers/`). Verificate il 30/10 contro le richieste di Daniel e le specifiche, con due revisori indipendenti sul codice: nessun difetto che tocchi i file, le regole di sicurezza della conferma intatte (stesso `changed_here` del giro vero, tetti e margine invariati, anteprima superata ancora invalidata). Di procedura: v0.3.35 taggata su un build rosso (ritirata di fatto, mai pubblicata, ora detta nel CHANGELOG); la 0.3.36 è arrivata a Linux mentre Windows falliva, allineata dalla 0.3.37.
+
+**Il cestino, misurato** (lettura di sola consultazione dalla sandbox, con il via di Daniel): 88 pagine, 87.790 voci, quasi tutte sotto 1 s, la prima 9,8 s, l'ultima 14,9 s; l'elenco finisce con una pagina piena senza cursore. Il `TRASH_TIMEOUT` di 10 s della 0.3.34 avrebbe fatto fallire l'ultima pagina a ogni tentativo: ora 40 s. Una pagina vuota o un cursore che non avanza sono la fine dell'elenco (com'era prima), non un errore. Una lettura fermata si riprende entro `TRASH_TTL_S`; più tardi riparte dalla prima pagina, perché le eliminazioni più recenti stanno in testa.
+
+**La condivisione:** il bundle di Koofr nomina un solo link per elemento, ma `GET /mounts/{id}/links` li ha tutti, e le versioni prima della 0.3.36 ne creavano uno a ogni "Copy Koofr Share Link": lo snapshot ha `other_links`, la finestra dice quanti sono e Revoke Link (`revoke_links`) li toglie tutti. Il link di una cartella superiore è descritto come quello proprio (`_link_description`: password, scadenza, pulsante download). I percorsi si confrontano senza maiuscole (`_same`, come `places.py`). Voce di menu "Share on Koofr…". Tolto `rclone.share_link`, `app._show_link`, `explorer.link_error`: nulla li usava più.
+
+Restano dalla verifica, non fatti: i limiti del piano Koofr in parole generiche (`passwordRequiredReason` non usato); un invito fallito lascia una condivisione vuota su Koofr; una pagina `/bundle` per livello all'apertura; "Request files" e la panoramica delle condivisioni (seconda consegna).

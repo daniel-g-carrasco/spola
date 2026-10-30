@@ -8,6 +8,40 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.38] - 2026-10-30
+
+A review of 0.3.34 to 0.3.37 against what they were asked to do.
+
+### Fixed
+- "Recently Deleted Files" and "Restore from Koofr's Trash" could never
+  finish: a trash page was given 10 seconds, and on a trash of 88 pages
+  (87,790 files) the first page takes 10 seconds and the last one 15. A
+  page now has 40 seconds, still asked again on a timeout; an empty page,
+  or a cursor that does not move, is the end of the list, not an error.
+- Share on Koofr: an item could have more than one public link (every
+  "Copy Koofr Share Link" of the versions before 0.3.36 made a new one), and
+  the window showed one, so Revoke Link could leave the others alive. Every
+  link to the item is found now, the window says how many, and Revoke Link
+  removes them all.
+- Share on Koofr: a file under a folder that has a public link only said
+  that the folder "also provides access". The window now says that the
+  folder's link opens this item too, whether it needs a password, and when
+  it expires: the question a sharing window exists to answer.
+- Share on Koofr: a name that differs from Koofr's only in upper and lower
+  case made the window fail with "incomplete sharing information". Paths are
+  compared as Koofr does, ignoring case.
+- Share on Koofr: a link whose download button is hidden no longer says
+  "view and download"; a link for which Koofr requires a password, with
+  none set yet, says so instead of "no account is needed".
+
+### Changed
+- A stopped or failed trash search can be continued for five minutes;
+  later it starts again from the newest deletions, which it would miss.
+- The file manager entry is "Share on Koofr…", next to the file manager's
+  own Share.
+- The old code that created a public link on its own (the previous "Copy
+  Koofr Share Link") is gone for good; nothing used it any more.
+
 ## [0.3.37] - 2026-10-29
 
 ### Fixed
@@ -17,7 +51,9 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [0.3.36] - 2026-10-29
 
-Published to the Linux Flatpak repository; Windows follows in 0.3.37.
+Published to the Linux Flatpak repository; Windows follows in 0.3.37. The
+tag v0.3.35 was put on a build whose tests failed: nothing was published
+under that number.
 
 ### Added
 - A **Share…** window from the desktop file manager, on Linux and Windows:
@@ -635,7 +671,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.37...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.38...main
+[0.3.38]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.38
 [0.3.37]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.37
 [0.3.36]: https://github.com/daniel-g-carrasco/spola/tree/v0.3.36
 [0.3.34]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.34
