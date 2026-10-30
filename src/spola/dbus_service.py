@@ -115,14 +115,12 @@ def path_for(uri: str) -> str | None:
 class SyncService:
     def __init__(self, engine: Engine, show_window: Callable[[str], None],
                  open_url: Callable[[str], None] = lambda url: None,
-                 show_link: Callable[[str, str], None] = lambda name, url: None,
                  tell: Callable[[str], None] = lambda message: None,
                  show_versions: Callable[[str, str, str], None] = lambda pair_id, rel, kind: None,
                  show_share: Callable[[str], None] | None = None):
         self.engine = engine
         self.show_window = show_window
         self.open_url = open_url          # the browser, from Spola
-        self.show_link = show_link        # (file name, link): a window with a Copy button
         self.tell = tell                  # a notification: what went wrong
         self.show_versions = show_versions   # (pair id, relative path, "file" or "deleted"): the window
         self.show_share = show_share or (lambda path: self.show_window(""))  # local path: sharing dialog

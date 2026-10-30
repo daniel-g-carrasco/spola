@@ -187,20 +187,6 @@ def no_window() -> dict:
     return {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
 
-def share_link(rclone: str, env: dict, rclone_config, remote: str) -> tuple[str, str]:
-    """Koofr's share page of a path on Koofr (rclone link; the page, not
-    the direct download): (url, "") or ("", what rclone said). For the
-    file managers' and File Explorer's "Copy Koofr Link"."""
-    from .koofr_api import share_page
-    try:
-        proc = subprocess.run([rclone, "link", remote_spec(remote), "--config", str(rclone_config)], env=env,
-                              capture_output=True, text=True, timeout=60, **no_window())
-    except (OSError, subprocess.SubprocessError) as e:
-        return "", str(e)
-    url = share_page(proc.stdout.strip()) if proc.returncode == 0 else ""
-    return (url, "") if url else ("", proc.stderr.strip() or "rclone link failed")
-
-
 def obscure(password: str, rclone: str) -> str:
     """rclone's reversible obfuscation, required for passwords given through
     the environment. Passed on stdin so it never shows in a command line."""

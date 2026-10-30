@@ -183,7 +183,7 @@ class SpolaApp(Adw.Application):
             self.sync_service = SyncService(self.engine, lambda what: self._review(what) if self.engine.cfg.pair(what)
                                             else self.activate(),
                                             open_url=lambda url: Gtk.UriLauncher.new(url).launch(None, None, None, None),
-                                            show_link=self._show_link, tell=self._tell,
+                                            tell=self._tell,
                                             show_versions=self._show_versions, show_share=self._share)
             self.sync_service.start(self.get_dbus_connection())
         self._refresh_tray()
@@ -572,21 +572,6 @@ class SpolaApp(Adw.Application):
             path = os.path.dirname(path)
         if path:
             Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(None, None, None, None)
-
-    def _show_link(self, name: str, url: str) -> None:
-        """A share link asked from a file manager that can only run a command
-        (Dolphin, Thunar): shown with a Copy button, in front, so the copy
-        works on Wayland too."""
-        window = self._window()
-        window.present()
-        entry = Gtk.Entry(text=url, editable=False, hexpand=True)
-        dialog = Adw.AlertDialog(heading=_("Koofr Share Link"), body=name, extra_child=entry)
-        dialog.add_response("close", _("Close"))
-        dialog.add_response("copy", _("Copy"))
-        dialog.set_response_appearance("copy", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("copy")
-        dialog.connect("response", lambda _d, r: window.get_clipboard().set(url) if r == "copy" else None)
-        dialog.present(window)
 
     def _tell(self, message: str, title: str = APP_NAME) -> None:
         if WINDOWS:

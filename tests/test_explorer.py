@@ -146,16 +146,8 @@ class LocateTest(unittest.TestCase):
     def test_share_menu_opens_the_dialog(self):
         entries = explorer.verbs(r"C:\Spola\Spola.exe")
         share = next(entry for entry in entries if entry[0] == "Spola.CopyKoofrLink")
-        self.assertEqual(share[1], "Share…")
+        self.assertEqual(share[1], "Share on Koofr…")
         self.assertEqual(share[2], '"C:\\Spola\\Spola.exe" --share "%1"')
-
-    def test_link_errors_in_words(self):
-        rclone_400 = ("2026/10/14 23:19:23 NOTICE: Failed to link: Invalid response status! Got 400, "
-                      "expected [200 201]; headers: map[Cache-Control:[no-cache]]")
-        self.assertIn("a.txt", explorer.link_error("a.txt", rclone_400))
-        self.assertNotIn("Cache-Control", explorer.link_error("a.txt", rclone_400))
-        other = explorer.link_error("a.txt", "line one\nconnection refused")
-        self.assertIn("connection refused", other)
 
     def test_applies_to(self):
         condition = explorer.applies_to([Pair("p1", "C:/Users/me/Work", "/w"), Pair("p2", "D:\\Photos\\", "/p")])

@@ -220,7 +220,7 @@ class ProviderTest(unittest.TestCase):
                     self.provider.spola_version = version
                     items = self.provider._menu_items([FakeFile(target)], False)
                     item = next(i for i in items if i.props.name == "Spola::ShareLink")
-                    self.assertEqual(item.props.label, "Share…")
+                    self.assertEqual(item.props.label, "Share on Koofr…")
                     item.activate()
                     self.assertEqual(self.provider.proxy.calls[-1], (method, (argument,)))
 

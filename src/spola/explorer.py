@@ -1,4 +1,4 @@
-"""Spola in File Explorer: "Open on Koofr" and "Share…" on the
+"""Spola in File Explorer: "Open on Koofr" and "Share on Koofr…" on the
 files and folders of the synced folders, "Previous Versions…" on the files
 and "Recently Deleted Files…" on the folders (Windows; on Linux the file
 managers' extensions do it, over D-Bus).
@@ -145,16 +145,6 @@ def link_refusal(pair: Pair, relative: str, is_dir: bool, excluded, paths: Paths
     return ""
 
 
-def link_error(name: str, stderr: str) -> str:
-    """What to tell when rclone link fails: not on Koofr (yet), in words;
-    anything else, its last line."""
-    text = stderr.lower()
-    if "not found" in text or "got 400" in text or "got 404" in text:
-        return _("“{name}” is not on Koofr yet: it will be after the next sync.").format(name=name)
-    last = (stderr.strip().splitlines() or ["rclone link failed"])[-1]
-    return _("The link could not be made: {error}").format(error=last[:200])
-
-
 def applies_to(pairs: list[Pair]) -> str:
     """The Advanced Query Syntax condition: an item in a synced folder, or
     the synced folder itself. System.ParsingPath: the context menu has no
@@ -176,7 +166,7 @@ def verbs(exe: str) -> list[tuple[str, str, str, tuple[str, ...]]]:
     there is none."""
     return [
         (VERBS[0], _("Open on Koofr"), f'"{exe}" --open-on-koofr "%1"', TARGETS),
-        (VERBS[1], _("Share…"), f'"{exe}" --share "%1"', TARGETS),
+        (VERBS[1], _("Share on Koofr…"), f'"{exe}" --share "%1"', TARGETS),
         (VERBS[2], _("Previous Versions…"), f'"{exe}" --versions "%1"', ("*",)),
         (VERBS[3], _("Recently Deleted Files…"), f'"{exe}" --deleted "%1"', ("Directory",)),
     ]

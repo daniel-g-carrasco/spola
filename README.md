@@ -100,9 +100,9 @@ Preferences has a switch, *Show sync status in the file manager*. Spola sets up 
 | Dolphin | with the plugin below | yes | a service menu |
 | Thunar | no (Thunar has no emblem API for extensions) | yes | custom actions in `uca.xml` |
 
-The emblems are synced, syncing, changed here and waiting, error, conflict, left out. The menu gives *Sync Now with Koofr*, *Open on Koofr*, *Share…*, *Previous Versions…* on a file that has kept copies and *Recently Deleted Files…* on a folder. The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so the file manager stays as fast as it is; with Spola not running it does nothing. The Python bindings must be installed (Fedora: `nautilus-python`, `nemo-python`, `python3-caja`), and the file manager restarted (`nautilus -q`, `nemo -q`, `caja -q`).
+The emblems are synced, syncing, changed here and waiting, error, conflict, left out. The menu gives *Sync Now with Koofr*, *Open on Koofr*, *Share on Koofr…*, *Previous Versions…* on a file that has kept copies and *Recently Deleted Files…* on a folder. The extension only ever reads from a cache and asks Spola, over D-Bus, once per folder, so the file manager stays as fast as it is; with Spola not running it does nothing. The Python bindings must be installed (Fedora: `nautilus-python`, `nemo-python`, `python3-caja`), and the file manager restarted (`nautilus -q`, `nemo -q`, `caja -q`).
 
-*Share…* opens the same sharing window in every file manager. Opening it only reads the current settings. Create a public link explicitly, then copy it, manage its password and expiration, hide its download button, or revoke it. The window shows passwords required by Koofr and explains who can open the link; copying preserves the existing settings. Hiding a download button does not prevent saving or recording content. Available options depend on the Koofr account's plan.
+*Share on Koofr…* opens the same sharing window in every file manager. Opening it only reads the current settings. Create a public link explicitly, then copy it, manage its password and expiration, hide its download button, or revoke it. The window shows passwords required by Koofr and explains who can open the link; copying preserves the existing settings. Hiding a download button does not prevent saving or recording content. Available options depend on the Koofr account's plan.
 
 Sharing respects the folder's ordered exclusions, including `+`/`-` rules, anchored paths and `*`, `**`, `?` patterns. If advanced rclone filters use character classes, alternatives, escapes or regular expressions, Spola asks you to manage sharing on Koofr instead of guessing whether the item is synced.
 
@@ -118,7 +118,7 @@ The D-Bus interface (`io.github.daniel_g_carrasco.spola.Sync1` at `/io/github/da
 
 ## On Windows
 
-The same window and the same safety checks. The status sits in the notification area, in colour, and File Explorer shows each synced folder's status as cloud apps do, each file turning green when copied (it can be turned off in Preferences). Explorer's menu on a synced folder or file gives *Open on Koofr*, *Share…*, *Previous Versions…* and *Recently Deleted Files…*. `spola forget-windows` takes Spola's entries out of Explorer (the uninstaller does it).
+The same window and the same safety checks. The status sits in the notification area, in colour, and File Explorer shows each synced folder's status as cloud apps do, each file turning green when copied (it can be turned off in Preferences). Explorer's menu on a synced folder or file gives *Open on Koofr*, *Share on Koofr…*, *Previous Versions…* and *Recently Deleted Files…*. `spola forget-windows` takes Spola's entries out of Explorer (the uninstaller does it).
 
 ## Noctalia
 

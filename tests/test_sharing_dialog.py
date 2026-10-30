@@ -32,8 +32,10 @@ def link(**changes):
 
 def snapshot(**changes):
     values = dict(path="/work", name="work", is_dir=True, link=None, access=None, inherited=(),
-                  inherited_links=(), can_create_link=True, can_invite=True)
-    return NS(**(values | changes))
+                  inherited_links=(), can_create_link=True, can_invite=True, other_links=())
+    values |= changes
+    values["links"] = ((values["link"],) if values["link"] else ()) + tuple(values["other_links"])
+    return NS(**values)
 
 
 class SharingDialogTest(unittest.TestCase):
@@ -263,6 +265,30 @@ class SharingDialogTest(unittest.TestCase):
         dialog = self.dialog()
         self.finish()
         self.assertTrue(all(not row.get_activatable() for row in dialog.member_rows))
+
+    def test_a_parent_links_access_is_described_like_the_items_own(self):
+        self.client.load.return_value = snapshot(inherited_links=(link(path="/", has_password=True, valid_to=4102444800000),))
+        dialog = self.dialog()
+        self.finish()
+        text = dialog.inherited_link_rows[0].get_subtitle()
+        self.assertIn("opens this item too", text)
+        self.assertIn("password", text)
+        self.assertIn("Expires", text)
+
+    def test_other_links_to_the_item_are_said_and_revoked_together(self):
+        self.client.load.return_value = snapshot(link=link(), other_links=(link(id="old"),))
+        dialog = self.dialog()
+        self.finish()
+        self.assertIn("1 other link", dialog.link_summary.get_subtitle())
+        self.assertEqual([l.id for l in dialog.snapshot.links], ["link", "old"])
+
+    def test_a_link_without_download_button_does_not_promise_downloads(self):
+        self.client.load.return_value = snapshot(link=link(downloadable=False))
+        dialog = self.dialog()
+        self.finish()
+        text = dialog.link_summary.get_subtitle()
+        self.assertIn("Anyone with the link can view.", text)
+        self.assertNotIn("view and download", text)
 
     def test_expired_parent_link_is_not_described_as_providing_access(self):
         self.client.load.return_value = snapshot(inherited_links=(link(path="/", active=False, valid_to=1000),))

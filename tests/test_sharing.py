@@ -59,9 +59,12 @@ class HTTP:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.calls = []
+        self.links = {"links": []}      # the mount's link list, asked at every load: set by the tests that need links
 
     def __call__(self, request, timeout):
         self.calls.append((request, timeout))
+        if request.get_method() == "GET" and urllib.parse.urlsplit(request.full_url).path.endswith("/links"):
+            return io.BytesIO(json.dumps(self.links).encode())
         if not self.responses:
             raise AssertionError("Unexpected request: " + request.get_method() + " " + request.full_url)
         data = self.responses.pop(0)
@@ -156,6 +159,32 @@ class ClientTest(unittest.TestCase):
         self.assertEqual(snapshot.inherited[0].members[0].id, "owner")
         self.assertTrue(snapshot.inherited[0].members[0].owner)
         self.assertEqual([link.path for link in snapshot.inherited_links], ["/Team"])
+
+    def test_every_link_to_the_item_is_found_and_revoked_together(self):
+        # older Spolas made a new link at every "Copy link": the bundle names one,
+        # the mount's list has them all, and revoking must end public access
+        fake = self.http(mount(), bundle("/Team/report.txt", directory=False, link=link_data()),
+                         bundle("/Team"), bundle("/", share=mount(), mount_path="/"), None, None)
+        fake.links = {"links": [link_data(), link_data(id="link-2", url="https://app.koofr.net/links/def"),
+                                link_data(id="link-3", path="/Team", url="https://app.koofr.net/links/ghi"),
+                                link_data(id="elsewhere", path="/Other", url="https://app.koofr.net/links/jkl")]}
+        snapshot = self.client.load("/Team/report.txt")
+        self.assertEqual(snapshot.link.id, "link-1")
+        self.assertEqual([link.id for link in snapshot.other_links], ["link-2"])
+        self.assertEqual([link.id for link in snapshot.links], ["link-1", "link-2"])
+        self.assertEqual([link.path for link in snapshot.inherited_links], ["/Team"])
+        self.client.revoke_links(snapshot.links)
+        self.assertEqual(fake.writes(), [("DELETE", "/api/v2.1/mounts/root/links/link-1", None),
+                                         ("DELETE", "/api/v2.1/mounts/root/links/link-2", None)])
+
+    def test_paths_are_compared_the_way_koofr_does_ignoring_case(self):
+        fake = self.http(mount(), bundle("/Team/report.txt", directory=False,
+                                         link=link_data(path="/team/Report.txt")),
+                         bundle("/Team"), bundle("/", share=mount(), mount_path="/"))
+        fake.links = {"links": [link_data(id="link-2", path="/TEAM", url="https://app.koofr.net/links/def")]}
+        snapshot = self.client.load("/Team/report.txt")
+        self.assertEqual(snapshot.link.id, "link-1")
+        self.assertEqual([link.id for link in snapshot.inherited_links], ["link-2"])
 
     def test_exact_share_is_distinct_from_an_ancestor_share(self):
         exact = mount("file-share", "/Team/report.txt", shared=True)
