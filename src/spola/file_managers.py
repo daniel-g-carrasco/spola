@@ -59,7 +59,7 @@ def N_(text: str) -> str:
 ACTIONS = (
     ("sync-now", "SyncNow", N_("Sync Now with Koofr")),
     ("open-on-koofr", "OpenOnKoofr", N_("Open on Koofr")),
-    ("share-link", "Share", N_("Share…")),
+    ("share-link", "Share", N_("Share on Koofr…")),
     ("versions", "ShowVersions", N_("Previous Versions…")),
     ("deleted", "ShowDeleted", N_("Recently Deleted Files…")),
 )

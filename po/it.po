@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: spola\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-29 21:32+0100\n"
+"POT-Creation-Date: 2026-10-29 23:17+0100\n"
 "PO-Revision-Date: 2026-10-10 16:00+0200\n"
 "Last-Translator: Daniel Grasso <code@danielgrasso.com>\n"
 "Language-Team: Italian\n"
@@ -17,23 +17,23 @@ msgstr ""
 msgid "Sync Now with Koofr"
 msgstr "Sincronizza ora con Koofr"
 
-#: extensions/spola-files.py:380 src/spola/explorer.py:178
+#: extensions/spola-files.py:380 src/spola/explorer.py:168
 #: src/spola/file_managers.py:61 src/spola/window.py:826
 #: src/spola/window.py:1852 src/spola/window.py:2487
 msgid "Open on Koofr"
 msgstr "Apri su Koofr"
 
-#: extensions/spola-files.py:383 src/spola/explorer.py:179
+#: extensions/spola-files.py:383 src/spola/explorer.py:169
 #: src/spola/file_managers.py:62
-msgid "Share…"
-msgstr "Condividi…"
+msgid "Share on Koofr…"
+msgstr "Condividi su Koofr…"
 
-#: extensions/spola-files.py:405 src/spola/explorer.py:181
+#: extensions/spola-files.py:405 src/spola/explorer.py:171
 #: src/spola/file_managers.py:64
 msgid "Recently Deleted Files…"
 msgstr "File eliminati di recente…"
 
-#: extensions/spola-files.py:411 src/spola/explorer.py:180
+#: extensions/spola-files.py:411 src/spola/explorer.py:170
 #: src/spola/file_managers.py:63
 msgid "Previous Versions…"
 msgstr "Versioni precedenti…"
@@ -77,8 +77,8 @@ msgid "The app password is not in the keyring: sign in again."
 msgstr "La password per applicazioni non è nel portachiavi: accedi di nuovo."
 
 #: src/spola/add_folder.py:85 src/spola/add_folder.py:368
-#: src/spola/import_dialog.py:60 src/spola/sharing_dialog.py:352
-#: src/spola/sharing_dialog.py:367 src/spola/sharing_dialog.py:520
+#: src/spola/import_dialog.py:60 src/spola/sharing_dialog.py:373
+#: src/spola/sharing_dialog.py:388 src/spola/sharing_dialog.py:543
 #: src/spola/window.py:341 src/spola/window.py:406 src/spola/window.py:1042
 #: src/spola/window.py:1156 src/spola/window.py:1606 src/spola/window.py:1613
 #: src/spola/window.py:1649 src/spola/window.py:1946 src/spola/window.py:1993
@@ -164,7 +164,7 @@ msgstr "Scegli"
 msgid "Cannot Open This Folder"
 msgstr "Impossibile aprire questa cartella"
 
-#: src/spola/add_folder.py:312 src/spola/sharing_dialog.py:124
+#: src/spola/add_folder.py:312 src/spola/sharing_dialog.py:148
 #: src/spola/window.py:575
 msgid "Try Again"
 msgstr "Riprova"
@@ -256,14 +256,14 @@ msgstr "È disponibile Spola {version}"
 msgid "Click to see what is new and update."
 msgstr "Clicca per vedere le novità e aggiornare."
 
-#: src/spola/app.py:325 src/spola/dbus_service.py:328
-#: src/spola/dbus_service.py:335
+#: src/spola/app.py:325 src/spola/dbus_service.py:326
+#: src/spola/dbus_service.py:333
 #, python-brace-format
 msgid "“{name}” is not in a folder synced with Koofr."
 msgstr "«{name}» non è in una cartella sincronizzata con Koofr."
 
-#: src/spola/app.py:360 src/spola/app.py:486 src/spola/dbus_service.py:337
-#: src/spola/engine.py:810
+#: src/spola/app.py:360 src/spola/app.py:486 src/spola/dbus_service.py:335
+#: src/spola/engine.py:811
 msgid "Not signed in to Koofr"
 msgstr "Accesso a Koofr non effettuato"
 
@@ -308,78 +308,66 @@ msgstr "Apri Spola"
 msgid "Quit"
 msgstr "Esci"
 
-#: src/spola/app.py:583
-msgid "Koofr Share Link"
-msgstr "Link di condivisione Koofr"
-
-#: src/spola/app.py:584
-msgid "Close"
-msgstr "Chiudi"
-
-#: src/spola/app.py:585 src/spola/window.py:479
-msgid "Copy"
-msgstr "Copia"
-
-#: src/spola/app.py:621 src/spola/app.py:628 src/spola/window.py:549
+#: src/spola/app.py:606 src/spola/app.py:613 src/spola/window.py:549
 #, python-brace-format
 msgid "The preview of “{name}” is ready"
 msgstr "L'anteprima di “{name}” è pronta"
 
-#: src/spola/app.py:622
+#: src/spola/app.py:607
 #, python-brace-format
 msgid "“{name}”: {what}"
 msgstr "“{name}”: {what}"
 
-#: src/spola/app.py:626 src/spola/window.py:569
+#: src/spola/app.py:611 src/spola/window.py:569
 #, python-brace-format
 msgid "Conflicts in “{name}”"
 msgstr "Conflitti in «{name}»"
 
-#: src/spola/app.py:627
+#: src/spola/app.py:612
 #, python-brace-format
 msgid "Conflicts resolved in “{name}”"
 msgstr "Conflitti risolti in “{name}”"
 
-#: src/spola/app.py:629 src/spola/window.py:567
+#: src/spola/app.py:614 src/spola/window.py:567
 #, python-brace-format
 msgid "“{name}” is waiting for your confirmation"
 msgstr "«{name}» aspetta una tua conferma"
 
-#: src/spola/app.py:630 src/spola/window.py:566
+#: src/spola/app.py:615 src/spola/window.py:566
 #, python-brace-format
 msgid "“{name}” needs a repair"
 msgstr "«{name}» va riparata"
 
-#: src/spola/app.py:631
+#: src/spola/app.py:616
 #, python-brace-format
 msgid "“{name}” stopped to keep your files safe"
 msgstr "“{name}” si è fermata per proteggere i tuoi file"
 
-#: src/spola/app.py:632 src/spola/window.py:571
+#: src/spola/app.py:617 src/spola/window.py:571
 #, python-brace-format
 msgid "“{name}” cannot be synced"
 msgstr "«{name}» non si riesce a sincronizzare"
 
-#: src/spola/app.py:633 src/spola/window.py:570
+#: src/spola/app.py:618 src/spola/window.py:570
 #, python-brace-format
 msgid "Some files in “{name}” are not synced"
 msgstr "Alcuni file di «{name}» non sono sincronizzati"
 
-#: src/spola/app.py:634
+#: src/spola/app.py:619
 msgid "A word about Spola's settings"
 msgstr "Una parola sulle impostazioni di Spola"
 
-#: src/spola/app.py:635
+#: src/spola/app.py:620
 #, python-brace-format
 msgid "“{name}”: differences between this computer and Koofr"
 msgstr "“{name}”: differenze tra questo computer e Koofr"
 
-#: src/spola/app.py:636
+#: src/spola/app.py:621
 #, python-brace-format
 msgid "“{name}” verified"
 msgstr "“{name}” verificata"
 
-#: src/spola/app.py:659 src/spola/ui.py:104 src/spola/window.py:933
+#: src/spola/app.py:644 src/spola/ui.py:104 src/spola/window.py:933
 msgid "Stopping…"
 msgstr "Arresto in corso…"
 
@@ -429,7 +417,7 @@ msgid "Left out: Koofr does not accept these names (rename them to sync them)"
 msgstr ""
 "Lasciati fuori: Koofr non accetta questi nomi (rinominali per sincronizzarli)"
 
-#: src/spola/cli.py:91 src/spola/engine.py:1062 src/spola/window.py:2444
+#: src/spola/cli.py:91 src/spola/engine.py:1063 src/spola/window.py:2444
 msgid "Nothing to do: the two folders already match."
 msgstr "Niente da fare: le due cartelle sono già allineate."
 
@@ -441,12 +429,12 @@ msgid_plural "{n} files"
 msgstr[0] "{n} file"
 msgstr[1] "{n} file"
 
-#: src/spola/cli.py:107 src/spola/engine.py:628
+#: src/spola/cli.py:107 src/spola/engine.py:629
 #, python-brace-format
 msgid "The settings could not be saved: {error}"
 msgstr "Impossibile salvare le impostazioni: {error}"
 
-#: src/spola/cli.py:126 src/spola/engine.py:1857
+#: src/spola/cli.py:126 src/spola/engine.py:1862
 #, python-brace-format
 msgid "{n} of {total} files changed on this computer at once"
 msgstr "{n} file su {total} cambiati su questo computer tutti insieme"
@@ -460,7 +448,7 @@ msgstr ""
 "Guarda l'anteprima (spola preview {id} --force) e conferma con: spola sync "
 "{id} --force"
 
-#: src/spola/cli.py:149 src/spola/cli.py:339 src/spola/engine.py:1899
+#: src/spola/cli.py:149 src/spola/cli.py:339 src/spola/engine.py:1904
 msgid "This folder is being synced by another Spola process."
 msgstr ""
 "Questa cartella è già in sincronizzazione da un altro processo di Spola."
@@ -549,7 +537,7 @@ msgstr "supera i controlli di sicurezza (solo dopo aver guardato l'anteprima)"
 msgid "Settings: {what}"
 msgstr "Impostazioni: {what}"
 
-#: src/spola/cli.py:236 src/spola/engine.py:1715 src/spola/window.py:302
+#: src/spola/cli.py:236 src/spola/engine.py:1720 src/spola/window.py:302
 msgid "rclone was not found."
 msgstr "rclone non è stato trovato."
 
@@ -757,7 +745,7 @@ msgstr "Impossibile spostare “{name}” nel cestino: {error}"
 msgid "That version is no longer there."
 msgstr "Quella versione non c'è più."
 
-#: src/spola/conflicts.py:180 src/spola/engine.py:1568
+#: src/spola/conflicts.py:180 src/spola/engine.py:1573
 #, python-brace-format
 msgid "A file named “{name}” exists now: rename it first."
 msgstr "Adesso esiste un file di nome «{name}»: prima rinominalo."
@@ -772,17 +760,17 @@ msgstr "{stem} (questo computer {date}){ext}"
 msgid "{stem} (Koofr {date}){ext}"
 msgstr "{stem} (Koofr {date}){ext}"
 
-#: src/spola/dbus_service.py:360
+#: src/spola/dbus_service.py:358
 msgid "Sharing could not be checked. Open Share… to try again."
 msgstr ""
 "Non è stato possibile verificare la condivisione. Apri «Condividi…» per "
 "riprovare."
 
-#: src/spola/dbus_service.py:364
+#: src/spola/dbus_service.py:362
 msgid "The Koofr account changed. Open Share… again."
 msgstr "L’account Koofr è cambiato. Apri di nuovo «Condividi…»."
 
-#: src/spola/dbus_service.py:371
+#: src/spola/dbus_service.py:369
 msgid ""
 "Open Share… to explicitly create or manage a link. No usable unprotected "
 "link exists."
@@ -817,21 +805,21 @@ msgstr ""
 "Il disco che contiene i file di Spola è quasi pieno ({free} liberi): libera "
 "un po' di spazio e la sincronizzazione riprende"
 
-#: src/spola/engine.py:239
+#: src/spola/engine.py:240
 #, python-brace-format
 msgid "{n} of {total} files are gone from this computer at once"
 msgstr "{n} file su {total} spariti da questo computer tutti insieme"
 
-#: src/spola/engine.py:240
+#: src/spola/engine.py:241
 #, python-brace-format
 msgid "{n} of {total} files are gone from Koofr at once"
 msgstr "{n} file su {total} spariti da Koofr tutti insieme"
 
-#: src/spola/engine.py:242
+#: src/spola/engine.py:243
 msgid "Every file of one side changed at once"
 msgstr "Tutti i file di un lato sono cambiati insieme"
 
-#: src/spola/engine.py:249
+#: src/spola/engine.py:250
 msgid ""
 "The folder is no longer on Koofr: deleted or moved there. The files here are "
 "untouched."
@@ -839,7 +827,7 @@ msgstr ""
 "La cartella non c'è più su Koofr: è stata eliminata o spostata lì. I file "
 "qui sono intatti."
 
-#: src/spola/engine.py:250
+#: src/spola/engine.py:251
 msgid ""
 "The folder on Koofr is empty: everything in it was deleted there. The files "
 "here are untouched."
@@ -847,7 +835,7 @@ msgstr ""
 "La cartella su Koofr è vuota: tutto quello che conteneva è stato eliminato "
 "lì. I file qui sono intatti."
 
-#: src/spola/engine.py:252
+#: src/spola/engine.py:253
 msgid ""
 "The folder on this computer is empty: everything in it was deleted or moved. "
 "The files on Koofr are untouched."
@@ -855,128 +843,124 @@ msgstr ""
 "La cartella su questo computer è vuota: tutto quello che conteneva è stato "
 "eliminato o spostato. I file su Koofr sono intatti."
 
-#: src/spola/engine.py:487 src/spola/engine.py:906 src/spola/engine.py:1113
+#: src/spola/engine.py:488 src/spola/engine.py:907 src/spola/engine.py:1114
 msgid "This folder is no longer synced."
 msgstr "Questa cartella non è più sincronizzata."
 
-#: src/spola/engine.py:489 src/spola/engine.py:1589
+#: src/spola/engine.py:490 src/spola/engine.py:1594
 msgid "Wait for the current sync to finish."
 msgstr "Aspetta che finisca la sincronizzazione in corso."
 
-#: src/spola/engine.py:761 src/spola/engine.py:1173 src/spola/engine.py:1298
-#: src/spola/engine.py:1467 src/spola/engine.py:1713 src/spola/engine.py:1884
+#: src/spola/engine.py:762 src/spola/engine.py:1174 src/spola/engine.py:1303
+#: src/spola/engine.py:1472 src/spola/engine.py:1718 src/spola/engine.py:1889
 #: src/spola/window.py:231
 msgid "Sign in to Koofr first."
 msgstr "Prima accedi a Koofr."
 
-#: src/spola/engine.py:812
+#: src/spola/engine.py:813
 msgid "rclone is missing"
 msgstr "manca rclone"
 
-#: src/spola/engine.py:814 src/spola/engine.py:853 src/spola/ui.py:82
+#: src/spola/engine.py:815 src/spola/engine.py:854 src/spola/ui.py:82
 #: src/spola/window.py:661 src/spola/window.py:665
 msgid "Paused"
 msgstr "In pausa"
 
-#: src/spola/engine.py:816
+#: src/spola/engine.py:817
 msgid "Offline"
 msgstr "Non in linea"
 
-#: src/spola/engine.py:818
+#: src/spola/engine.py:819
 msgid "Paused on a metered connection"
 msgstr "In pausa su una connessione a consumo"
 
-#: src/spola/engine.py:820
+#: src/spola/engine.py:821
 msgid "Paused in power saver mode"
 msgstr "In pausa con il risparmio energetico"
 
-#: src/spola/engine.py:855 src/spola/ui.py:83
+#: src/spola/engine.py:856 src/spola/ui.py:83
 msgid "First alignment to confirm"
 msgstr "Primo allineamento da confermare"
 
-#: src/spola/engine.py:955
+#: src/spola/engine.py:956
 #, python-brace-format
 msgid "Syncing from the state known at {time}"
 msgstr "Sincronizzazione dallo stato noto alle {time}"
 
-#: src/spola/engine.py:983 src/spola/engine.py:1026 src/spola/engine.py:1718
-#: src/spola/engine.py:1840
+#: src/spola/engine.py:984 src/spola/engine.py:1027 src/spola/engine.py:1723
+#: src/spola/engine.py:1845
 msgid "Stopped."
 msgstr "Fermato."
 
-#: src/spola/engine.py:1028 src/spola/window.py:2414
+#: src/spola/engine.py:1029 src/spola/window.py:2414
 msgid "The preview failed"
 msgstr "L'anteprima non è riuscita"
 
-#: src/spola/engine.py:1049
+#: src/spola/engine.py:1050
 #, python-brace-format
 msgid "{n} difference between this computer and Koofr"
 msgid_plural "{n} differences between this computer and Koofr"
 msgstr[0] "{n} differenza tra questo computer e Koofr"
 msgstr[1] "{n} differenze tra questo computer e Koofr"
 
-#: src/spola/engine.py:1055 src/spola/window.py:1829
+#: src/spola/engine.py:1056 src/spola/window.py:1829
 #, python-brace-format
 msgid "{n} file, the same on both sides"
 msgid_plural "{n} files, the same on both sides"
 msgstr[0] "{n} file, uguale sui due lati"
 msgstr[1] "{n} file, uguali sui due lati"
 
-#: src/spola/engine.py:1119
+#: src/spola/engine.py:1120
 msgid "The preview is no longer current."
 msgstr "L'anteprima non è più attuale."
 
-#: src/spola/engine.py:1238
+#: src/spola/engine.py:1242
 msgid "Koofr is taking longer to respond. Retrying…"
 msgstr "Koofr sta impiegando più tempo a rispondere. Nuovo tentativo…"
 
-#: src/spola/engine.py:1245
+#: src/spola/engine.py:1249
 msgid ""
 "The trash changed during the search. Search again to refresh the results."
 msgstr ""
 "Il cestino è cambiato durante la ricerca. Ripeti la ricerca per aggiornare i "
 "risultati."
 
-#: src/spola/engine.py:1281
-msgid "Koofr did not advance to the next page. Try again."
-msgstr "Koofr non ha restituito la pagina successiva. Riprova."
-
-#: src/spola/engine.py:1287
+#: src/spola/engine.py:1292
 msgid "The trash is large. Continue searching to read the remaining files."
 msgstr ""
 "Il cestino è molto grande. Continua la ricerca per leggere i file rimanenti."
 
-#: src/spola/engine.py:1329
+#: src/spola/engine.py:1334
 msgid "Restoring from Koofr's trash…"
 msgstr "Ripristino dal cestino di Koofr…"
 
-#: src/spola/engine.py:1338
+#: src/spola/engine.py:1343
 #, python-brace-format
 msgid "Restoring from Koofr's trash: {n} of {total}"
 msgstr "Ripristino dal cestino di Koofr: {n} di {total}"
 
-#: src/spola/engine.py:1380
+#: src/spola/engine.py:1385
 #, python-brace-format
 msgid "Koofr could not be listed after the restore: {error}"
 msgstr "Impossibile elencare Koofr dopo il ripristino: {error}"
 
-#: src/spola/engine.py:1509 src/spola/engine.py:2136 src/spola/engine.py:2159
+#: src/spola/engine.py:1514 src/spola/engine.py:2141 src/spola/engine.py:2164
 msgid "The exclusions changed"
 msgstr "Le esclusioni sono cambiate"
 
-#: src/spola/engine.py:1566
+#: src/spola/engine.py:1571
 #, python-brace-format
 msgid "“{name}” is no longer there."
 msgstr "“{name}” non c'è più."
 
-#: src/spola/engine.py:1629
+#: src/spola/engine.py:1634
 #, python-brace-format
 msgid "{n} conflict resolved: both versions are kept, renamed."
 msgid_plural "{n} conflicts resolved: both versions are kept, renamed."
 msgstr[0] "{n} conflitto risolto: restano entrambe le versioni, rinominate."
 msgstr[1] "{n} conflitti risolti: restano entrambe le versioni, rinominate."
 
-#: src/spola/engine.py:1632
+#: src/spola/engine.py:1637
 #, python-brace-format
 msgid ""
 "{n} conflict resolved by the folder's rule: the version not kept is among "
@@ -991,7 +975,7 @@ msgstr[1] ""
 "{n} conflitti risolti con la regola della cartella: le versioni scartate "
 "sono tra le copie conservate della cartella."
 
-#: src/spola/engine.py:1640
+#: src/spola/engine.py:1645
 #, python-brace-format
 msgid "{n} file was changed both here and on Koofr: both versions are kept."
 msgid_plural ""
@@ -1001,50 +985,50 @@ msgstr[0] ""
 msgstr[1] ""
 "{n} file sono cambiati sia qui sia su Koofr: restano entrambe le versioni."
 
-#: src/spola/engine.py:1731
+#: src/spola/engine.py:1736
 msgid "Preparing…"
 msgstr "Preparazione…"
 
-#: src/spola/engine.py:1848
+#: src/spola/engine.py:1853
 #, python-brace-format
 msgid "Waiting for a file still being written: {name}"
 msgstr "In attesa di un file ancora in scrittura: {name}"
 
-#: src/spola/engine.py:1869
+#: src/spola/engine.py:1874
 msgid "The record of the last synced state is damaged"
 msgstr "Il registro dell'ultimo stato sincronizzato è danneggiato"
 
-#: src/spola/engine.py:1924
+#: src/spola/engine.py:1929
 msgid "Syncing with Koofr"
 msgstr "Sincronizzazione con Koofr"
 
-#: src/spola/engine.py:1925
+#: src/spola/engine.py:1930
 msgid "Syncing…"
 msgstr "Sincronizzazione…"
 
-#: src/spola/engine.py:2044
+#: src/spola/engine.py:2049
 #, python-brace-format
 msgid "The outcome of the sync could not be read: {error}"
 msgstr "Impossibile leggere l'esito della sincronizzazione: {error}"
 
-#: src/spola/engine.py:2087
+#: src/spola/engine.py:2092
 #, python-brace-format
 msgid "{n} file is not synced: Koofr does not accept its name."
 msgid_plural "{n} files are not synced: Koofr does not accept their names."
 msgstr[0] "{n} file non è sincronizzato: Koofr non accetta il suo nome."
 msgstr[1] "{n} file non sono sincronizzati: Koofr non accetta i loro nomi."
 
-#: src/spola/engine.py:2175
+#: src/spola/engine.py:2180
 msgid "The sync stopped with an error."
 msgstr "La sincronizzazione si è fermata per un errore."
 
-#: src/spola/engine.py:2179
+#: src/spola/engine.py:2184
 #, python-brace-format
 msgid "A previous sync was interrupted: trying again in {n} min."
 msgstr ""
 "Una sincronizzazione precedente è stata interrotta: riprovo tra {n} min."
 
-#: src/spola/engine.py:2181
+#: src/spola/engine.py:2186
 #, python-brace-format
 msgid "Koofr cannot be reached right now: trying again in {n} min."
 msgstr ""
@@ -1063,24 +1047,16 @@ msgstr "Non è stato possibile leggere le esclusioni della cartella."
 msgid ""
 "Sharing cannot check this folder’s exclusions because they contain "
 "unsupported filter syntax. Open the item on Koofr to manage sharing."
-msgstr "Non è possibile verificare le esclusioni di questa cartella per la condivisione: contengono una sintassi di filtro non supportata. Apri l’elemento su Koofr per gestirne la condivisione."
+msgstr ""
+"Non è possibile verificare le esclusioni di questa cartella per la "
+"condivisione: contengono una sintassi di filtro non supportata. Apri "
+"l’elemento su Koofr per gestirne la condivisione."
 
 #: src/spola/explorer.py:144
 #, python-brace-format
 msgid "“{name}” is not synced with Koofr: it has no share link."
 msgstr ""
 "«{name}» non è sincronizzato con Koofr: non ha un link di condivisione."
-
-#: src/spola/explorer.py:153
-#, python-brace-format
-msgid "“{name}” is not on Koofr yet: it will be after the next sync."
-msgstr ""
-"«{name}» non è ancora su Koofr: ci sarà dopo la prossima sincronizzazione."
-
-#: src/spola/explorer.py:155
-#, python-brace-format
-msgid "The link could not be made: {error}"
-msgstr "Non è stato possibile creare il link: {error}"
 
 #: src/spola/filetree.py:112
 msgid "the whole folder"
@@ -1433,42 +1409,42 @@ msgid_plural "about {n} hours left"
 msgstr[0] "manca circa {n} ora"
 msgstr[1] "mancano circa {n} ore"
 
-#: src/spola/rclone.py:614
+#: src/spola/rclone.py:600
 #, python-brace-format
 msgid "{n} file to Koofr"
 msgid_plural "{n} files to Koofr"
 msgstr[0] "{n} file su Koofr"
 msgstr[1] "{n} file su Koofr"
 
-#: src/spola/rclone.py:617
+#: src/spola/rclone.py:603
 #, python-brace-format
 msgid "{n} file from Koofr"
 msgid_plural "{n} files from Koofr"
 msgstr[0] "{n} file da Koofr"
 msgstr[1] "{n} file da Koofr"
 
-#: src/spola/rclone.py:620
+#: src/spola/rclone.py:606
 #, python-brace-format
 msgid "{n} moved"
 msgid_plural "{n} moved"
 msgstr[0] "{n} spostato"
 msgstr[1] "{n} spostati"
 
-#: src/spola/rclone.py:623
+#: src/spola/rclone.py:609
 #, python-brace-format
 msgid "{n} deleted"
 msgid_plural "{n} deleted"
 msgstr[0] "{n} eliminato"
 msgstr[1] "{n} eliminati"
 
-#: src/spola/rclone.py:625
+#: src/spola/rclone.py:611
 #, python-brace-format
 msgid "{n} conflict"
 msgid_plural "{n} conflicts"
 msgstr[0] "{n} conflitto"
 msgstr[1] "{n} conflitti"
 
-#: src/spola/rclone.py:798
+#: src/spola/rclone.py:784
 #, python-brace-format
 msgid ""
 "The preview could not be read: rclone counts {t} transfers, {d} deletions, "
@@ -1477,7 +1453,7 @@ msgstr ""
 "Impossibile leggere l'anteprima: rclone conta {t} trasferimenti, {d} "
 "eliminazioni, {r} rinomine"
 
-#: src/spola/rclone.py:804
+#: src/spola/rclone.py:790
 msgid "A disk of this computer is full: free some space, and the sync goes on"
 msgstr ""
 "Un disco di questo computer è pieno: libera un po' di spazio e la "
@@ -1515,264 +1491,315 @@ msgstr "Stesso percorso che su questo computer, da creare su Koofr"
 msgid "Same name"
 msgstr "Stesso nome"
 
-#: src/spola/sharing.py:100
+#: src/spola/sharing.py:107
 msgid "Choose a valid access role."
 msgstr "Scegli un ruolo di accesso valido."
 
-#: src/spola/sharing.py:120
+#: src/spola/sharing.py:127
 msgid "Choose a valid Koofr path."
 msgstr "Scegli un percorso Koofr valido."
 
-#: src/spola/sharing.py:129
+#: src/spola/sharing.py:145
 msgid "Koofr returned incomplete sharing information. Please reload."
 msgstr ""
 "Koofr ha restituito informazioni incomplete sulla condivisione. Aggiorna le "
 "impostazioni."
 
-#: src/spola/sharing.py:189
+#: src/spola/sharing.py:205
 msgid "Choose valid sharing permissions."
 msgstr "Scegli permessi di condivisione validi."
 
-#: src/spola/sharing.py:191 src/spola/sharing.py:403
+#: src/spola/sharing.py:207 src/spola/sharing.py:437
 msgid "Owner access cannot be assigned or changed here."
 msgstr "Non puoi assegnare o modificare l’accesso del proprietario da qui."
 
-#: src/spola/sharing.py:193
+#: src/spola/sharing.py:209
 msgid "Files shared individually can only be viewed."
 msgstr "I file condivisi singolarmente sono di sola lettura."
 
-#: src/spola/sharing.py:231
+#: src/spola/sharing.py:247
 msgid ""
 "Koofr requires a password for this link or rejected the chosen password."
 msgstr ""
 "Koofr richiede una password per questo link oppure ha rifiutato quella "
 "scelta."
 
-#: src/spola/sharing.py:233
+#: src/spola/sharing.py:249
 msgid "Your Koofr plan does not allow this sharing option."
 msgstr "Il tuo piano Koofr non consente questa opzione di condivisione."
 
-#: src/spola/sharing.py:235
+#: src/spola/sharing.py:251
 msgid ""
 "Koofr could not authenticate this request. Check your connection settings."
 msgstr ""
 "Koofr non ha potuto autenticare la richiesta. Controlla le impostazioni di "
 "connessione."
 
-#: src/spola/sharing.py:237
+#: src/spola/sharing.py:253
 msgid ""
 "Koofr does not allow this sharing change. Check your permissions and plan."
 msgstr ""
 "Koofr non consente questa modifica alla condivisione. Controlla i tuoi "
 "permessi e il tuo piano."
 
-#: src/spola/sharing.py:239
+#: src/spola/sharing.py:255
 msgid "This item or share was not found on Koofr. It may not have synced yet."
 msgstr ""
 "Questo elemento o questa condivisione non è stato trovato su Koofr. Potrebbe "
 "non essere ancora sincronizzato."
 
-#: src/spola/sharing.py:241
+#: src/spola/sharing.py:257
 msgid ""
 "Koofr could not choose a unique recipient. Manage this invitation in Koofr."
 msgstr ""
 "Koofr non ha potuto identificare un unico destinatario. Gestisci questo "
 "invito su Koofr."
 
-#: src/spola/sharing.py:243
+#: src/spola/sharing.py:259
 msgid "A Koofr sharing limit was reached. Check your plan or try again later."
 msgstr ""
 "È stato raggiunto un limite di condivisione di Koofr. Controlla il tuo piano "
 "o riprova più tardi."
 
-#: src/spola/sharing.py:245
+#: src/spola/sharing.py:261
 msgid ""
 "Koofr rejected these sharing settings. Check the recipient and link options."
 msgstr ""
 "Koofr ha rifiutato queste impostazioni di condivisione. Controlla il "
 "destinatario e le opzioni del link."
 
-#: src/spola/sharing.py:247
+#: src/spola/sharing.py:263
 msgid ""
 "Koofr could not complete the sharing request. Please reload and try again."
 msgstr ""
 "Koofr non ha potuto completare la richiesta di condivisione. Aggiorna le "
 "impostazioni e riprova."
 
-#: src/spola/sharing.py:250
+#: src/spola/sharing.py:266
 msgid "Could not reach Koofr. Check your connection and reload sharing."
 msgstr ""
 "Non è stato possibile raggiungere Koofr. Controlla la connessione e aggiorna "
 "le impostazioni di condivisione."
 
-#: src/spola/sharing.py:332
+#: src/spola/sharing.py:361
 msgid "You do not have permission to create a link for this item."
 msgstr "Non hai il permesso di creare un link per questo elemento."
 
-#: src/spola/sharing.py:340
+#: src/spola/sharing.py:369
 msgid "Choose a valid password option."
 msgstr "Scegli un’opzione valida per la password."
 
-#: src/spola/sharing.py:342 src/spola/sharing_dialog.py:304
+#: src/spola/sharing.py:371 src/spola/sharing_dialog.py:57
 msgid "Koofr requires a password for this link."
 msgstr "Koofr richiede una password per questo link."
 
-#: src/spola/sharing.py:344
+#: src/spola/sharing.py:373
 msgid "Enter a password for this link."
 msgstr "Inserisci una password per questo link."
 
-#: src/spola/sharing.py:348
+#: src/spola/sharing.py:377
 msgid "The expiry must be after the link's start time."
 msgstr "La scadenza deve essere successiva all’inizio della validità del link."
 
-#: src/spola/sharing.py:350
+#: src/spola/sharing.py:379
 msgid "Choose a valid download setting."
 msgstr "Scegli un’impostazione di download valida."
 
-#: src/spola/sharing.py:377
+#: src/spola/sharing.py:411
 msgid "Enter a valid email address."
 msgstr "Inserisci un indirizzo e-mail valido."
 
-#: src/spola/sharing.py:381
+#: src/spola/sharing.py:415
 msgid "You do not have permission to invite people to this item."
 msgstr "Non hai il permesso di invitare persone ad accedere a questo elemento."
 
-#: src/spola/sharing.py:384 src/spola/sharing.py:398
+#: src/spola/sharing.py:418 src/spola/sharing.py:432
 msgid "You do not have permission to change this shared access."
 msgstr "Non hai il permesso di modificare questo accesso condiviso."
 
-#: src/spola/sharing.py:396
+#: src/spola/sharing.py:430
 msgid "This access is inherited. Open the parent folder to change it."
 msgstr ""
 "Questo accesso è ereditato. Apri la cartella di origine per modificarlo."
 
-#: src/spola/sharing.py:401
+#: src/spola/sharing.py:435
 msgid "This member is no longer listed. Reload sharing."
 msgstr ""
 "Questa persona non è più nell’elenco. Aggiorna le impostazioni di "
 "condivisione."
 
-#: src/spola/sharing.py:405
+#: src/spola/sharing.py:439
 msgid "Manage group access in Koofr."
 msgstr "Gestisci l’accesso dei gruppi su Koofr."
 
-#: src/spola/sharing_dialog.py:42 src/spola/sharing_dialog.py:56
+#: src/spola/sharing_dialog.py:41
+msgid "This link has expired."
+msgstr "Questo link è scaduto."
+
+#: src/spola/sharing_dialog.py:42
+msgid "This link is not active yet."
+msgstr "Questo link non è ancora attivo."
+
+#: src/spola/sharing_dialog.py:44
+msgid "Koofr requires a password for this link: set one before sharing it."
+msgstr ""
+"Koofr richiede una password per questo link: impostane una prima di "
+"condividerlo."
+
+#: src/spola/sharing_dialog.py:46
+msgid "Anyone with the link and password can view and download."
+msgstr ""
+"Chiunque abbia il link e la password può visualizzare e scaricare i "
+"contenuti."
+
+#: src/spola/sharing_dialog.py:48
+msgid "Anyone with the link and password can view."
+msgstr "Chiunque abbia il link e la password può visualizzare i contenuti."
+
+#: src/spola/sharing_dialog.py:50
+msgid "Anyone with the link can view and download. No account is needed."
+msgstr ""
+"Chiunque abbia il link può visualizzare e scaricare i contenuti. Non serve "
+"un account."
+
+#: src/spola/sharing_dialog.py:52
+msgid "Anyone with the link can view. No account is needed."
+msgstr ""
+"Chiunque abbia il link può visualizzare i contenuti. Non serve un account."
+
+#: src/spola/sharing_dialog.py:54
+msgid ""
+"The download button is hidden; recipients can still save or record content."
+msgstr ""
+"Il pulsante di download è nascosto; i destinatari possono comunque salvare o "
+"registrare i contenuti."
+
+#: src/spola/sharing_dialog.py:55
+#, python-brace-format
+msgid "Expires: {date}"
+msgstr "Scadenza: {date}"
+
+#: src/spola/sharing_dialog.py:55
+msgid "No expiration date."
+msgstr "Nessuna data di scadenza."
+
+#: src/spola/sharing_dialog.py:66 src/spola/sharing_dialog.py:80
 msgid "Can view"
 msgstr "Può visualizzare"
 
-#: src/spola/sharing_dialog.py:42 src/spola/sharing_dialog.py:56
+#: src/spola/sharing_dialog.py:66 src/spola/sharing_dialog.py:80
 msgid "Can edit"
 msgstr "Può modificare"
 
-#: src/spola/sharing_dialog.py:42 src/spola/sharing_dialog.py:43
-#: src/spola/sharing_dialog.py:56 src/spola/sharing_dialog.py:61
+#: src/spola/sharing_dialog.py:66 src/spola/sharing_dialog.py:67
+#: src/spola/sharing_dialog.py:80 src/spola/sharing_dialog.py:85
 msgid "Custom permissions"
 msgstr "Permessi personalizzati"
 
-#: src/spola/sharing_dialog.py:54
+#: src/spola/sharing_dialog.py:78
 msgid ""
 "Editing allows adding, replacing and deleting files throughout this folder."
 msgstr ""
 "Il permesso di modifica consente di aggiungere, sostituire ed eliminare file "
 "in tutta questa cartella."
 
-#: src/spola/sharing_dialog.py:55
+#: src/spola/sharing_dialog.py:79
 msgid ""
 "A file shared individually is read-only. Share its folder to allow editing."
 msgstr ""
 "Un file condiviso singolarmente è di sola lettura. Condividi la sua cartella "
 "per consentire le modifiche."
 
-#: src/spola/sharing_dialog.py:56
+#: src/spola/sharing_dialog.py:80
 msgid "Permission"
 msgstr "Permesso"
 
-#: src/spola/sharing_dialog.py:63
+#: src/spola/sharing_dialog.py:87
 msgid "View and download files"
 msgstr "Visualizzare e scaricare file"
 
-#: src/spola/sharing_dialog.py:63
+#: src/spola/sharing_dialog.py:87
 msgid "Modify and delete files"
 msgstr "Modificare ed eliminare file"
 
-#: src/spola/sharing_dialog.py:63
+#: src/spola/sharing_dialog.py:87
 msgid "Comment and label"
 msgstr "Commentare e aggiungere etichette"
 
-#: src/spola/sharing_dialog.py:64
+#: src/spola/sharing_dialog.py:88
 msgid "Create download links"
 msgstr "Creare link per scaricare file"
 
-#: src/spola/sharing_dialog.py:64
+#: src/spola/sharing_dialog.py:88
 msgid "Create upload links"
 msgstr "Creare link per caricare file"
 
-#: src/spola/sharing_dialog.py:65
+#: src/spola/sharing_dialog.py:89
 msgid "Manage people and permissions"
 msgstr "Gestire persone e permessi"
 
-#: src/spola/sharing_dialog.py:65
+#: src/spola/sharing_dialog.py:89
 msgid "Create actions"
 msgstr "Creare azioni"
 
-#: src/spola/sharing_dialog.py:94 src/spola/sharing_dialog.py:109
+#: src/spola/sharing_dialog.py:118 src/spola/sharing_dialog.py:133
 msgid "Share"
 msgstr "Condividi"
 
-#: src/spola/sharing_dialog.py:112
+#: src/spola/sharing_dialog.py:136
 msgid "Refresh sharing settings"
 msgstr "Aggiorna le impostazioni di condivisione"
 
-#: src/spola/sharing_dialog.py:120
+#: src/spola/sharing_dialog.py:144
 msgid "Loading sharing settings…"
 msgstr "Caricamento delle impostazioni di condivisione…"
 
-#: src/spola/sharing_dialog.py:129
+#: src/spola/sharing_dialog.py:153
 msgid "People with access"
 msgstr "Persone con accesso"
 
-#: src/spola/sharing_dialog.py:130
+#: src/spola/sharing_dialog.py:154
 msgid "Add People…"
 msgstr "Aggiungi persone…"
 
-#: src/spola/sharing_dialog.py:134
+#: src/spola/sharing_dialog.py:158
 msgid "Access via link"
 msgstr "Accesso tramite link"
 
-#: src/spola/sharing_dialog.py:135 src/spola/sharing_dialog.py:289
+#: src/spola/sharing_dialog.py:159 src/spola/sharing_dialog.py:313
 msgid "No sharing link"
 msgstr "Nessun link di condivisione"
 
-#: src/spola/sharing_dialog.py:136
+#: src/spola/sharing_dialog.py:160
 msgid "Create Link"
 msgstr "Crea link"
 
-#: src/spola/sharing_dialog.py:141
+#: src/spola/sharing_dialog.py:165
 msgid "Copy Link"
 msgstr "Copia link"
 
-#: src/spola/sharing_dialog.py:145 src/spola/sharing_dialog.py:396
+#: src/spola/sharing_dialog.py:169 src/spola/sharing_dialog.py:417
 msgid "Password"
 msgstr "Password"
 
-#: src/spola/sharing_dialog.py:149
+#: src/spola/sharing_dialog.py:173
 msgid "Copy Password"
 msgstr "Copia password"
 
-#: src/spola/sharing_dialog.py:153
+#: src/spola/sharing_dialog.py:177
 msgid "Link Settings…"
 msgstr "Impostazioni del link…"
 
-#: src/spola/sharing_dialog.py:154
+#: src/spola/sharing_dialog.py:178
 msgid "Revoke Link…"
 msgstr "Revoca link…"
 
-#: src/spola/sharing_dialog.py:197 src/spola/sharing_dialog.py:207
-#: src/spola/sharing_dialog.py:240
+#: src/spola/sharing_dialog.py:221 src/spola/sharing_dialog.py:231
+#: src/spola/sharing_dialog.py:264
 msgid "The account changed. Close this window and open sharing again."
 msgstr "L’account è cambiato. Chiudi questa finestra e riapri la condivisione."
 
-#: src/spola/sharing_dialog.py:248
+#: src/spola/sharing_dialog.py:272
 msgid ""
 "The current sharing settings could not be verified. Refresh before copying a "
 "link."
@@ -1780,68 +1807,41 @@ msgstr ""
 "Non è stato possibile verificare le impostazioni di condivisione attuali. "
 "Aggiornale prima di copiare un link."
 
-#: src/spola/sharing_dialog.py:254
+#: src/spola/sharing_dialog.py:278
 msgid "Sharing settings are not available yet."
 msgstr "Le impostazioni di condivisione non sono ancora disponibili."
 
-#: src/spola/sharing_dialog.py:259
+#: src/spola/sharing_dialog.py:283
 msgid "Only people you invite receive account-based access."
 msgstr "Solo le persone che inviti ricevono l’accesso tramite account."
 
-#: src/spola/sharing_dialog.py:263
+#: src/spola/sharing_dialog.py:287
 msgid "No other people have been added here."
 msgstr "Qui non sono state aggiunte altre persone."
 
-#: src/spola/sharing_dialog.py:267
+#: src/spola/sharing_dialog.py:291
 msgid "Owner"
 msgstr "Proprietario"
 
-#: src/spola/sharing_dialog.py:272
+#: src/spola/sharing_dialog.py:296
 #, python-brace-format
 msgid "Access from {path}"
 msgstr "Accesso tramite {path}"
 
-#: src/spola/sharing_dialog.py:289
+#: src/spola/sharing_dialog.py:313
 msgid "Sharing link"
 msgstr "Link di condivisione"
 
-#: src/spola/sharing_dialog.py:292
-msgid "This link has expired."
-msgstr "Questo link è scaduto."
-
-#: src/spola/sharing_dialog.py:293
-msgid "This link is not active yet."
-msgstr "Questo link non è ancora attivo."
-
-#: src/spola/sharing_dialog.py:295
-msgid "Anyone with the link and password can view and download."
-msgstr ""
-"Chiunque abbia il link e la password può visualizzare e scaricare i "
-"contenuti."
-
-#: src/spola/sharing_dialog.py:296
-msgid "Anyone with the link can view and download. No account is needed."
-msgstr ""
-"Chiunque abbia il link può visualizzare e scaricare i contenuti. Non serve "
-"un account."
-
-#: src/spola/sharing_dialog.py:298
-msgid ""
-"The download button is hidden; recipients can still save or record content."
-msgstr ""
-"Il pulsante di download è nascosto; i destinatari possono comunque salvare o "
-"registrare i contenuti."
-
-#: src/spola/sharing_dialog.py:300
+#: src/spola/sharing_dialog.py:318
 #, python-brace-format
-msgid "Expires: {date}"
-msgstr "Scadenza: {date}"
+msgid "{n} other link leads to this item; Revoke Link removes it too."
+msgid_plural "{n} other links lead to this item; Revoke Link removes them too."
+msgstr[0] ""
+"{n} altro link porta a questo elemento; Revoca link toglie anche quello."
+msgstr[1] ""
+"{n} altri link portano a questo elemento; Revoca link toglie anche quelli."
 
-#: src/spola/sharing_dialog.py:302
-msgid "No expiration date."
-msgstr "Nessuna data di scadenza."
-
-#: src/spola/sharing_dialog.py:307
+#: src/spola/sharing_dialog.py:323
 msgid ""
 "Create a link for viewing and downloading without an account. Koofr may "
 "require a password."
@@ -1849,31 +1849,28 @@ msgstr ""
 "Crea un link per visualizzare e scaricare i contenuti senza un account. "
 "Koofr potrebbe richiedere una password."
 
-#: src/spola/sharing_dialog.py:313
+#: src/spola/sharing_dialog.py:330
 #, python-brace-format
-msgid "{path} also provides access. Manage that folder to change its link."
+msgid ""
+"The link on {path} opens this item too. Manage that folder to change it."
 msgstr ""
-"L’accesso è consentito anche tramite {path}. Gestisci quella cartella per "
-"modificarne il link."
+"Il link di {path} apre anche questo elemento. Per cambiarlo gestisci quella "
+"cartella."
 
-#: src/spola/sharing_dialog.py:314
+#: src/spola/sharing_dialog.py:333
 #, python-brace-format
 msgid "The link on {path} is inactive. Manage it from that folder."
 msgstr "Il link di {path} non è attivo. Gestiscilo da quella cartella."
 
-#: src/spola/sharing_dialog.py:315
+#: src/spola/sharing_dialog.py:334
 msgid "Link on a parent folder"
 msgstr "Link di una cartella superiore"
 
-#: src/spola/sharing_dialog.py:324
+#: src/spola/sharing_dialog.py:342
 msgid "Copied"
 msgstr "Copiato"
 
-#: src/spola/sharing_dialog.py:350
-msgid "Revoke this link?"
-msgstr "Revocare questo link?"
-
-#: src/spola/sharing_dialog.py:351
+#: src/spola/sharing_dialog.py:368
 msgid ""
 "People will no longer be able to use this link. Access through invitations "
 "or other shared folders remains."
@@ -1881,147 +1878,158 @@ msgstr ""
 "Non sarà più possibile usare questo link. Resta l’accesso tramite inviti o "
 "altre cartelle condivise."
 
-#: src/spola/sharing_dialog.py:353
+#: src/spola/sharing_dialog.py:370
+#, python-brace-format
+msgid "{n} link leads to this item: all are revoked."
+msgid_plural "{n} links lead to this item: all are revoked."
+msgstr[0] "{n} link porta a questo elemento: vengono revocati tutti."
+msgstr[1] "{n} link portano a questo elemento: vengono revocati tutti."
+
+#: src/spola/sharing_dialog.py:372
+msgid "Revoke this link?"
+msgstr "Revocare questo link?"
+
+#: src/spola/sharing_dialog.py:374
 msgid "Revoke Link"
 msgstr "Revoca link"
 
-#: src/spola/sharing_dialog.py:394
+#: src/spola/sharing_dialog.py:415
 msgid "Link Settings"
 msgstr "Impostazioni del link"
 
-#: src/spola/sharing_dialog.py:394 src/spola/sharing_dialog.py:481
+#: src/spola/sharing_dialog.py:415 src/spola/sharing_dialog.py:504
 #: src/spola/window.py:1996
 msgid "Save"
 msgstr "Salva"
 
-#: src/spola/sharing_dialog.py:397
+#: src/spola/sharing_dialog.py:418
 msgid "Koofr requires password protection for this link."
 msgstr "Koofr richiede che questo link sia protetto da password."
 
-#: src/spola/sharing_dialog.py:398
+#: src/spola/sharing_dialog.py:419
 msgid ""
 "A password protects the link, but does not restrict it to specific people."
 msgstr ""
 "La password protegge il link, ma non limita l’accesso a persone specifiche."
 
-#: src/spola/sharing_dialog.py:399
+#: src/spola/sharing_dialog.py:420
 msgid "Keep current password setting"
 msgstr "Mantieni l’impostazione attuale della password"
 
-#: src/spola/sharing_dialog.py:399
+#: src/spola/sharing_dialog.py:420
 msgid "Generate a new password"
 msgstr "Genera una nuova password"
 
-#: src/spola/sharing_dialog.py:399
+#: src/spola/sharing_dialog.py:420
 msgid "Set a custom password"
 msgstr "Imposta una password personalizzata"
 
-#: src/spola/sharing_dialog.py:401
+#: src/spola/sharing_dialog.py:422
 msgid "Remove password"
 msgstr "Rimuovi password"
 
-#: src/spola/sharing_dialog.py:402
+#: src/spola/sharing_dialog.py:423
 msgid "Password protection"
 msgstr "Protezione con password"
 
-#: src/spola/sharing_dialog.py:404
+#: src/spola/sharing_dialog.py:425
 msgid "Custom password"
 msgstr "Password personalizzata"
 
-#: src/spola/sharing_dialog.py:408
+#: src/spola/sharing_dialog.py:429
 msgid "Expiration"
 msgstr "Scadenza"
 
-#: src/spola/sharing_dialog.py:408
+#: src/spola/sharing_dialog.py:429
 msgid "Dates and times use this computer’s time zone."
 msgstr "Le date e gli orari usano il fuso orario di questo computer."
 
-#: src/spola/sharing_dialog.py:409
+#: src/spola/sharing_dialog.py:430
 msgid "Expires"
 msgstr "Scade"
 
-#: src/spola/sharing_dialog.py:409
+#: src/spola/sharing_dialog.py:430
 msgid "Keep current expiration"
 msgstr "Mantieni la scadenza attuale"
 
-#: src/spola/sharing_dialog.py:409
+#: src/spola/sharing_dialog.py:430
 msgid "In one hour"
 msgstr "Tra un’ora"
 
-#: src/spola/sharing_dialog.py:409
+#: src/spola/sharing_dialog.py:430
 msgid "In one day"
 msgstr "Tra un giorno"
 
-#: src/spola/sharing_dialog.py:410
+#: src/spola/sharing_dialog.py:431
 msgid "In one week"
 msgstr "Tra una settimana"
 
-#: src/spola/sharing_dialog.py:410
+#: src/spola/sharing_dialog.py:431
 msgid "Choose date and time"
 msgstr "Scegli data e ora"
 
-#: src/spola/sharing_dialog.py:410
+#: src/spola/sharing_dialog.py:431
 msgid "Never"
 msgstr "Mai"
 
-#: src/spola/sharing_dialog.py:417
+#: src/spola/sharing_dialog.py:438
 msgid "Time"
 msgstr "Orario"
 
-#: src/spola/sharing_dialog.py:420
+#: src/spola/sharing_dialog.py:441
 msgid "Hour"
 msgstr "Ora"
 
-#: src/spola/sharing_dialog.py:420
+#: src/spola/sharing_dialog.py:441
 msgid "Minute"
 msgstr "Minuto"
 
-#: src/spola/sharing_dialog.py:432
+#: src/spola/sharing_dialog.py:455
 msgid "Koofr may restrict some options according to your account plan."
 msgstr ""
 "Koofr potrebbe limitare alcune opzioni in base al piano del tuo account."
 
-#: src/spola/sharing_dialog.py:433
+#: src/spola/sharing_dialog.py:456
 msgid "Hide download button"
 msgstr "Nascondi il pulsante di download"
 
-#: src/spola/sharing_dialog.py:434
+#: src/spola/sharing_dialog.py:457
 msgid "This does not prevent saving or recording the content."
 msgstr "Questo non impedisce di salvare o registrare i contenuti."
 
-#: src/spola/sharing_dialog.py:444
+#: src/spola/sharing_dialog.py:467
 msgid "Use 6–16 letters and numbers for the password."
 msgstr "Usa da 6 a 16 lettere e numeri per la password."
 
-#: src/spola/sharing_dialog.py:460
+#: src/spola/sharing_dialog.py:483
 msgid "Choose a future date and time in this computer’s time zone."
 msgstr "Scegli una data e un’ora future nel fuso orario di questo computer."
 
-#: src/spola/sharing_dialog.py:481
+#: src/spola/sharing_dialog.py:504
 msgid "Change Access"
 msgstr "Modifica accesso"
 
-#: src/spola/sharing_dialog.py:481
+#: src/spola/sharing_dialog.py:504
 msgid "Add People"
 msgstr "Aggiungi persone"
 
-#: src/spola/sharing_dialog.py:481
+#: src/spola/sharing_dialog.py:504
 msgid "Send Invitation"
 msgstr "Invia invito"
 
-#: src/spola/sharing_dialog.py:484
+#: src/spola/sharing_dialog.py:507
 msgid "Permissions apply to the whole shared folder."
 msgstr "I permessi si applicano a tutta la cartella condivisa."
 
-#: src/spola/sharing_dialog.py:485
+#: src/spola/sharing_dialog.py:508
 msgid "This invitation grants read-only access to this file."
 msgstr "Questo invito consente l’accesso in sola lettura a questo file."
 
-#: src/spola/sharing_dialog.py:486
+#: src/spola/sharing_dialog.py:509
 msgid "Email address"
 msgstr "Indirizzo e-mail"
 
-#: src/spola/sharing_dialog.py:498
+#: src/spola/sharing_dialog.py:521
 msgid ""
 "Koofr sends an invitation. The recipient needs a Koofr account to access "
 "this item."
@@ -2029,19 +2037,19 @@ msgstr ""
 "Koofr invia un invito. Il destinatario deve avere un account Koofr per "
 "accedere a questo elemento."
 
-#: src/spola/sharing_dialog.py:501
+#: src/spola/sharing_dialog.py:524
 msgid "Remove Access…"
 msgstr "Rimuovi accesso…"
 
-#: src/spola/sharing_dialog.py:507
+#: src/spola/sharing_dialog.py:530
 msgid "Enter the recipient’s email address."
 msgstr "Inserisci l’indirizzo e-mail del destinatario."
 
-#: src/spola/sharing_dialog.py:518
+#: src/spola/sharing_dialog.py:541
 msgid "Remove this person’s access?"
 msgstr "Rimuovere l’accesso di questa persona?"
 
-#: src/spola/sharing_dialog.py:519
+#: src/spola/sharing_dialog.py:542
 msgid ""
 "Access through this invitation will end. Public links and access through "
 "other folders remain available."
@@ -2049,7 +2057,7 @@ msgstr ""
 "L’accesso tramite questo invito terminerà. Restano disponibili i link "
 "pubblici e l’accesso tramite altre cartelle."
 
-#: src/spola/sharing_dialog.py:521
+#: src/spola/sharing_dialog.py:544
 msgid "Remove Access"
 msgstr "Rimuovi accesso"
 
@@ -2501,6 +2509,10 @@ msgid ""
 msgstr ""
 "I file su Koofr vengono copiati di nuovo su questo computer. Non viene "
 "eliminato niente."
+
+#: src/spola/window.py:479
+msgid "Copy"
+msgstr "Copia"
 
 #: src/spola/window.py:481
 msgid "Upload This Computer's Files"
@@ -3808,9 +3820,3 @@ msgstr "Motore di sincronizzazione"
 #: src/spola/window.py:2577
 msgid "Measuring the space taken by the logs and backups…"
 msgstr "Misurazione dello spazio occupato da log e backup…"
-
-#~ msgid "Copy Koofr Share Link"
-#~ msgstr "Copia il link di condivisione Koofr"
-
-#~ msgid "Koofr link copied"
-#~ msgstr "Link di Koofr copiato"

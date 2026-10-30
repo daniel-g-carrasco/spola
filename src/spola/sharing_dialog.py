@@ -16,7 +16,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gtk  # noqa: E402
 
 from . import WINDOWS, sharing  # noqa: E402
-from .i18n import _  # noqa: E402
+from .i18n import _, ngettext  # noqa: E402
 from .ui import escape, run_in_thread  # noqa: E402
 
 
@@ -32,6 +32,30 @@ def _button(label, callback, *, suggested=False, destructive=False):
 
 def _combo(title, choices):
     return Adw.ComboRow(title=title, model=Gtk.StringList.new(choices))
+
+
+def _link_description(link):
+    """Who can open this link and what it allows, in words a recipient would
+    also understand; every fact comes from Koofr's own answer."""
+    if not link.active:
+        return (_("This link has expired.") if link.valid_to and link.valid_to <= time.time() * 1000 else
+                _("This link is not active yet."))
+    if link.password_required and not link.has_password:
+        text = _("Koofr requires a password for this link: set one before sharing it.")
+    elif link.has_password and link.downloadable:
+        text = _("Anyone with the link and password can view and download.")
+    elif link.has_password:
+        text = _("Anyone with the link and password can view.")
+    elif link.downloadable:
+        text = _("Anyone with the link can view and download. No account is needed.")
+    else:
+        text = _("Anyone with the link can view. No account is needed.")
+    if not link.downloadable:
+        text += "\n" + _("The download button is hidden; recipients can still save or record content.")
+    text += "\n" + (_("Expires: {date}").format(date=_date(link.valid_to)) if link.valid_to else _("No expiration date."))
+    if link.password_required and link.has_password:
+        text += "\n" + _("Koofr requires a password for this link.")
+    return text
 
 
 def _date(timestamp):
@@ -288,20 +312,12 @@ class SharingDialog(Adw.Dialog):
         self.url_entry.set_text(link.url if link else "")
         self.link_summary.set_title(_("Sharing link") if link else _("No sharing link"))
         if link:
-            if not link.active:
-                description = (_("This link has expired.") if link.valid_to and link.valid_to <= time.time() * 1000 else
-                               _("This link is not active yet."))
-            else:
-                description = (_("Anyone with the link and password can view and download.") if link.has_password else
-                               _("Anyone with the link can view and download. No account is needed."))
-            if not link.downloadable:
-                description += "\n" + _("The download button is hidden; recipients can still save or record content.")
-            if link.valid_to:
-                description += "\n" + _("Expires: {date}").format(date=_date(link.valid_to))
-            else:
-                description += "\n" + _("No expiration date.")
-            if link.password_required:
-                description += "\n" + _("Koofr requires a password for this link.")
+            description = _link_description(link)
+            others = len(state.other_links)
+            if others:
+                description += "\n" + ngettext("{n} other link leads to this item; Revoke Link removes it too.",
+                                               "{n} other links lead to this item; Revoke Link removes them too.",
+                                               others).format(n=others)
             self.link_summary.set_subtitle(escape(description))
         else:
             self.link_summary.set_subtitle(_("Create a link for viewing and downloading without an account. Koofr may require a password."))
@@ -310,11 +326,13 @@ class SharingDialog(Adw.Dialog):
         self.inherited_link_rows.clear()
         if state:
             for inherited_link in state.inherited_links:
-                description = (_("{path} also provides access. Manage that folder to change its link.")
-                               if inherited_link.active else _("The link on {path} is inactive. Manage it from that folder."))
-                row = Adw.ActionRow(title=_("Link on a parent folder"), subtitle=escape(
-                    description.format(path=inherited_link.path)),
-                    subtitle_lines=0)
+                if inherited_link.active:
+                    description = (_("The link on {path} opens this item too. Manage that folder to change it.")
+                                   .format(path=inherited_link.path) + "\n" + _link_description(inherited_link))
+                else:
+                    description = _("The link on {path} is inactive. Manage it from that folder.").format(path=inherited_link.path)
+                row = Adw.ActionRow(title=_("Link on a parent folder"), subtitle=escape(description),
+                                    subtitle_lines=0)
                 self.link_group.add(row)
                 self.inherited_link_rows.append(row)
         self._set_busy(self._busy)
@@ -346,14 +364,17 @@ class SharingDialog(Adw.Dialog):
     def _revoke(self):
         if not self.snapshot or not self.snapshot.link or not self.snapshot.can_create_link:
             return
-        link = self.snapshot.link
-        dialog = Adw.AlertDialog(heading=_("Revoke this link?"), body=_(
-            "People will no longer be able to use this link. Access through invitations or other shared folders remains."))
+        links = self.snapshot.links
+        body = _("People will no longer be able to use this link. Access through invitations or other shared folders remains.")
+        if len(links) > 1:
+            body = ngettext("{n} link leads to this item: all are revoked.", "{n} links lead to this item: all are revoked.",
+                            len(links)).format(n=len(links)) + " " + body
+        dialog = Adw.AlertDialog(heading=_("Revoke this link?"), body=body)
         dialog.add_response("cancel", _("Cancel"))
         dialog.add_response("revoke", _("Revoke Link"))
         dialog.set_response_appearance("revoke", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_close_response("cancel")
-        dialog.connect("response", lambda _d, response: self._change(lambda: self.client.revoke_link(link))
+        dialog.connect("response", lambda _d, response: self._change(lambda: self.client.revoke_links(links))
                        if response == "revoke" else None)
         dialog.present(self)
 

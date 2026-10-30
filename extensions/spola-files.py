@@ -380,7 +380,7 @@ class SpolaProvider(GObject.GObject, *_providers()):
             web = FM.MenuItem(name=f"{prefix}::OpenOnKoofr", label=_("Open on Koofr"))
             web.connect("activate", lambda *_: self._call("GetWebUrl", GLib.Variant("(s)", (uri_of(target),)), self._open_url))
             items.append(web)
-            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Share…"))
+            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Share on Koofr…"))
             link.connect("activate", lambda *_: self._share(target))
             items.append(link)
             if self.spola_version >= 2:

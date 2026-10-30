@@ -46,7 +46,7 @@ class ServiceTest(unittest.TestCase):
             request_sync=lambda pid, reason: self.synced.append((pid, reason)),
             connect=lambda *args: 0)
         self.service = SyncService(engine, lambda what: None, open_url=self.opened.append,
-                                   show_link=lambda name, url: None, tell=self.told.append,
+                                   tell=self.told.append,
                                    show_share=self.shared.append)
 
     def tearDown(self):

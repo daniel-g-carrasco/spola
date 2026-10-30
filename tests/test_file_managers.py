@@ -80,7 +80,7 @@ class InstallTest(unittest.TestCase):
         self.assertIn("Exec=gdbus call --session --dest io.github.daniel_g_carrasco.spola", text)
         self.assertIn(".Sync1.SyncNow %f", text)
         self.assertIn(".Sync1.Share %f", text)
-        self.assertIn("Name=Share…", text)
+        self.assertIn("Name=Share on Koofr…", text)
         self.assertIn("Name[it]=", text)
         self.assertEqual(uca_ids(self.env), ["1-1", "spola-sync-now", "spola-open-on-koofr", "spola-share-link", "spola-versions", "spola-deleted"])
         # a newer Spola installs again at start-up: no duplicates
@@ -90,7 +90,7 @@ class InstallTest(unittest.TestCase):
         self.assertIn(".Sync1.ShowDeleted %f", text)
         root = ET.parse(fm._uca_file(self.env)).getroot()
         share = next(a for a in root.findall("action") if a.findtext("unique-id") == "spola-share-link")
-        self.assertEqual(share.findtext("name"), "Share…")
+        self.assertEqual(share.findtext("name"), "Share on Koofr…")
         self.assertIn(".Sync1.Share %f", share.findtext("command"))
         kinds = {a.findtext("unique-id"): {c.tag for c in a if c.tag.endswith("files") or c.tag == "directories"}
                  for a in root.findall("action")}

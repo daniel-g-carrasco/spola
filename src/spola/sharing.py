@@ -89,10 +89,17 @@ class Snapshot:
     inherited_links: tuple[Link, ...] = ()
     can_create_link: bool = False
     can_invite: bool = False
+    other_links: tuple[Link, ...] = ()      # more links to this very item (older Spolas made one per copy)
 
     def __post_init__(self):
         object.__setattr__(self, "inherited", tuple(self.inherited))
         object.__setattr__(self, "inherited_links", tuple(self.inherited_links))
+        object.__setattr__(self, "other_links", tuple(self.other_links))
+
+    @property
+    def links(self) -> tuple[Link, ...]:
+        """Every link to this item: revoking public access means all of them."""
+        return ((self.link,) if self.link else ()) + self.other_links
 
 
 def permissions_for_role(role: str, existing: Mapping[str, bool] | None = None) -> dict[str, bool]:
@@ -119,6 +126,15 @@ def _path(path: str) -> str:
     if not isinstance(path, str) or not path.startswith("/") or "\0" in path or ".." in path.split("/"):
         raise SharingError(_("Choose a valid Koofr path."))
     return "/" + posixpath.normpath(path).lstrip("/")
+
+
+def _same(a: str, b: str) -> bool:
+    """Koofr ignores case in paths (places.py): so does every comparison here."""
+    return a.casefold() == b.casefold()
+
+
+def _among(path: str, paths) -> bool:
+    return any(_same(path, other) for other in paths)
 
 
 def _mount_url(mount_id: str) -> str:
@@ -292,7 +308,7 @@ class Client:
                     effective = current_mount
             if current_mount:
                 source = self._source(current_mount, source_path, current.get("mountPath"))
-                if source not in paths:
+                if not _among(source, paths):
                     raise _bad_response()
                 # Unshared mount metadata and its owner apply to all files;
                 # their presence must never turn a child into a named share.
@@ -314,17 +330,30 @@ class Client:
                     link_source = _path(posixpath.join(source, raw_link.get("path", "").lstrip("/")))
                 else:
                     raise _bad_response()
-                if link_source not in paths:
+                if not _among(link_source, paths):
                     raise _bad_response()
                 links[raw_link["id"]] = _link(raw_link, link_source)
+        # the bundle names one link per item; the mount's list has them all
+        # (older Spolas made a new link at every "Copy link"), on this item or above it
+        listed = self._request("GET", _mount_url(self.mount_id) + "/links").get("links")
+        if not isinstance(listed, list):
+            raise _bad_response()
+        for raw_link in listed:
+            if not isinstance(raw_link, dict) or raw_link.get("mountId") != self.mount_id:
+                continue
+            link_source = _path(raw_link.get("path", ""))
+            if _among(link_source, paths) and raw_link.get("id") not in links:
+                links[raw_link["id"]] = _link(raw_link, link_source)
+        own = [link for link in links.values() if _same(link.path, path)]
+        main = next((link for link in own if link.active), own[0] if own else None)
         permissions = _permission_data(effective.get("permissions"))
         return Snapshot(path, file.get("name") or posixpath.basename(path) or base.get("name") or "/",
-                        file["type"] == "dir",
-                        next((link for link in links.values() if link.path == path), None),
-                        next((access for access in shares.values() if access.path == path), None),
-                        tuple(access for access in shares.values() if access.path != path),
-                        tuple(link for link in links.values() if link.path != path),
-                        bool(permissions.get("CREATE_LINK")), bool(permissions.get("MOUNT")))
+                        file["type"] == "dir", main,
+                        next((access for access in shares.values() if _same(access.path, path)), None),
+                        tuple(access for access in shares.values() if not _same(access.path, path)),
+                        tuple(link for link in links.values() if not _same(link.path, path)),
+                        bool(permissions.get("CREATE_LINK")), bool(permissions.get("MOUNT")),
+                        other_links=tuple(link for link in own if link is not main))
 
     def create_link(self, path: str) -> Link:
         snapshot = self.load(path)
@@ -370,6 +399,11 @@ class Client:
 
     def revoke_link(self, link: Link) -> None:
         self._request("DELETE", _mount_url(link.mount_id) + "/links/" + urllib.parse.quote(link.id, safe=""))
+
+    def revoke_links(self, links) -> None:
+        """Every link to an item, so that revoking ends its public access."""
+        for link in links:
+            self.revoke_link(link)
 
     def invite(self, path: str, email: str, permissions: Mapping[str, bool]) -> None:
         email = email.strip()
