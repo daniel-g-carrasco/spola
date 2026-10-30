@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from . import KOOFR_WEB, __version__
 
 TIMEOUT = 30
-TRASH_TIMEOUT = 10              # a slow page can be retried without a minute-long apparent freeze
+TRASH_TIMEOUT = 40              # measured on 2026-10-30: 88 pages, most under 1 s, the first 10 s, the last 15 s
 ACTIVITY_LIMIT = 100
 
 

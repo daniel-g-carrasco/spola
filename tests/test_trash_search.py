@@ -173,6 +173,7 @@ class TrashSearchTest(unittest.TestCase):
         self.engine.trash_read.entries = [self.first]
         self.engine.trash_read.cursor = "next"
         self.engine.trash_read.resumable = True
+        self.engine.trash_read.paused_at = time.time()
         gate = threading.Event()
         self.addCleanup(gate.set)
 
@@ -202,6 +203,43 @@ class TrashSearchTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: again and again[-1][1]))
         self.assertEqual(again[-1], ([self.first], True, ""))
         self.assertEqual(calls, [None])
+
+    def test_an_empty_page_with_a_cursor_is_the_end_of_the_list(self):
+        # Koofr ends with a full page and no cursor (88 pages on 2026-10-30); an empty
+        # page, or a cursor that does not move, must be the end too, never an error
+        def page(cursor):
+            if cursor is None:
+                return [self.first], "next"
+            return [], "more"
+
+        self.engine.koofr_trash = lambda creds: type("Api", (), {"page": staticmethod(page)})()
+        seen, stop = self.read()
+        self.addCleanup(stop)
+        self.assertTrue(spin_until(lambda: seen and seen[-1][1]))
+        self.assertEqual(seen[-1], ([self.first], True, ""))
+        self.assertTrue(self.engine.trash_read.read_at)
+
+    def test_a_stopped_read_older_than_the_cache_starts_from_the_first_page(self):
+        calls, broken = [], [True]
+
+        def page(cursor):
+            calls.append(cursor)
+            if cursor is None:
+                return [self.first], "next"
+            if broken[0]:
+                raise TimeoutError("slow page")
+            return [self.second], None
+
+        self.engine.koofr_trash = lambda creds: type("Api", (), {"page": staticmethod(page)})()
+        seen, _stop = self.read()
+        self.assertTrue(spin_until(lambda: seen and seen[-1][1]))
+        broken[0] = False
+        self.engine.trash_read.paused_at -= engine_mod.TRASH_TTL_S + 1
+        calls.clear()
+        again, _stop = self.read()
+        self.assertTrue(spin_until(lambda: again and again[-1][1]))
+        self.assertEqual(calls, [None, "next"])
+        self.assertEqual(again[-1], ([self.first, self.second], True, ""))
 
     def test_an_empty_cursor_finishes_the_read(self):
         self.engine.koofr_trash = lambda creds: type("Api", (), {"page": staticmethod(
