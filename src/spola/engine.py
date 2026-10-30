@@ -209,6 +209,7 @@ class TrashRead:
     listeners: list = field(default_factory=list)   # listener(entries, done, error)
     cursor: str | None = None       # first page not yet delivered to the main loop
     resumable: bool = False
+    paused_at: float = 0.0          # when a stopped or failed reading became resumable
     invalidated: bool = False
     cancelled: threading.Event = field(default_factory=threading.Event)
 
@@ -1198,6 +1199,7 @@ class Engine(GObject.Object):
         state.cancelled.set()
         state.generation += 1
         state.loading = False
+        state.paused_at = time.time()
 
     def invalidate_trash(self) -> None:
         """The trash changed (a restore, a sync that deleted on Koofr): the
@@ -1210,6 +1212,8 @@ class Engine(GObject.Object):
         state = self.trash_read
         state.generation += 1
         generation = state.generation
+        if state.resumable and time.time() - state.paused_at > TRASH_TTL_S:
+            state.resumable = False      # too old to continue: the newest deletions would be missed
         if not state.resumable:
             state.entries, state.cursor = [], None
         state.loading, state.error, state.read_at = True, "", 0.0
@@ -1245,6 +1249,7 @@ class Engine(GObject.Object):
                 error = _("The trash changed during the search. Search again to refresh the results.")
             state.loading, state.error = False, error
             state.resumable = bool(error) and not state.invalidated
+            state.paused_at = time.time()
             if not error:
                 state.read_at = time.time()
             tell(list(state.entries), True, error)
@@ -1277,8 +1282,8 @@ class Engine(GObject.Object):
                                 return
                     if cancelled.is_set():
                         return
-                    if cursor_next and (cursor_next == cursor or not entries):
-                        raise ValueError(_("Koofr did not advance to the next page. Try again."))
+                    if not entries or cursor_next == cursor:
+                        cursor_next = None       # the end of the list, however Koofr says it (an empty page, a cursor that does not move)
                     GLib.idle_add(page, entries, cursor_next)
                     if not cursor_next:
                         return              # the last page delivers completion atomically
