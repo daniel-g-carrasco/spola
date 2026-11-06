@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.41" date="2026-11-06" type="development">
+      <description>
+        <p>Windows: dragging a maximized window down by its title bar made it jump between its sizes; the workaround of 0.3.39 now waits until Windows is done with the window.</p>
+      </description>
+    </release>
     <release version="0.3.40" date="2026-11-06" type="development">
       <description>
         <p>Windows: a window maximized with Windows' own button went back to its normal size as soon as the main menu opened, still counted as maximized. The third quirk of GTK 4.24, worked around like the other two.</p>
