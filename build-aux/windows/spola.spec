@@ -46,7 +46,7 @@ a = Analysis(
     pathex=[str(ROOT / 'src')],
     binaries=binaries,
     datas=datas,
-    hiddenimports=['spola.wintray', 'spola.win32', 'spola.winwatch', 'spola.minisign'],
+    hiddenimports=['spola.wintray', 'spola.win32', 'spola.winwatch', 'spola.winquirks', 'spola.minisign'],
     hooksconfig={'gi': {'module-versions': {'Gtk': '4.0', 'Gdk': '4.0', 'Adw': '1', 'GdkPixbuf': '2.0',
                                             'Graphene': '1.0', 'Gsk': '4.0'}}},
     excludes=['tkinter'],
