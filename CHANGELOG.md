@@ -8,6 +8,23 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.39] - 2026-11-06
+
+Two quirks of GTK 4.24 on Windows, worked around in Spola (and in the other
+apps of the same family) until GTK fixes them.
+
+### Fixed
+- Windows: a window restored from maximized with Windows' own button (or
+  Win+Down, or a double click on the title bar) stayed as big as the
+  screen, a floating window, and from then on could not be resized: the
+  borders dragged wrong or not at all. It happened every time Spola
+  started maximized (as remembered) and was then restored. The window now
+  gets its remembered size back at once.
+- Windows: the main menu (or any popover) left open when the window was
+  minimized came back with the window and could not be closed by a click
+  outside it, only by choosing an item or with Escape. It is closed when
+  the window comes back.
+
 ## [0.3.38] - 2026-10-30
 
 A review of 0.3.34 to 0.3.37 against what they were asked to do.
