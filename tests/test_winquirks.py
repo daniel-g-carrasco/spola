@@ -81,6 +81,20 @@ class QuirksTest(unittest.TestCase):
         self.assertFalse(self.window.is_maximized())
         self.assertFalse(self.user32.IsZoomed(self.hwnd()))
 
+    def test_a_maximize_made_by_windows_survives_the_first_popover(self):
+        small = self.surface_size()
+        self.user32.ShowWindow(self.hwnd(), SW_MAXIMIZE)         # the title bar's button
+        self.assertTrue(spin_until(lambda: self.window.is_maximized()))
+        spin(0.6)
+        big = self.surface_size()
+        self.assertGreater(big[0], small[0] + 100)
+        self.button.activate()                                   # the main menu, as a click opens it
+        spin(0.9)
+        # without the workaround the surface is back to `small` here, the window still "maximized"
+        self.assertGreater(self.surface_size()[0], small[0] + 100, self.surface_size())
+        self.assertTrue(self.window.is_maximized())
+        self.button.get_popover().popdown()
+
     def test_a_popover_open_at_a_minimize_is_closed_when_the_window_comes_back(self):
         popover = self.button.get_popover()
         popover.popup()
