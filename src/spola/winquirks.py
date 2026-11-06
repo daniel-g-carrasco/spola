@@ -1,17 +1,25 @@
-"""Two quirks of GTK 4.24 on Windows, worked around per window: a restore
-made by Windows that leaves the window at the maximized size, and a popover
-that comes back from a minimize without its grab. Imported only on Windows;
-nothing here is needed once GTK fixes them (GTK 4.24.1 has both).
+"""Three quirks of GTK 4.24 on Windows, worked around per window: a maximize
+made by Windows that a popover then undoes, a restore made by Windows that
+leaves the window at the maximized size, and a popover that comes back from
+a minimize without its grab. Imported only on Windows; nothing here is
+needed once GTK fixes them (GTK 4.24.1 has all three).
 
-The restore (measured 2026-11-06, probe8 and probe11 of the review in
-spola-audit/prove/gtk-windows): after `maximize()` from GTK, a restore made
-by Windows (the title bar's button, Win+Down, a double click on the title
-bar) leaves the window as big as the screen, a floating window, while GTK
-keeps its surface at the maximized size and `get_default_size` at the old
-one; from there `SetWindowPos` and `set_default_size` do nothing and a drag
-of a border goes wrong (GTK issue 7695, fixed in 4.20 for the path through
-GTK, not for this one). Done again through GTK, `maximize()` then
-`unmaximize()`, the window gets its remembered size back.
+The maximize (measured 2026-11-06 in P7M Extractor): a window maximized by
+Windows (the title bar's button, Win+Up, a double click on the title bar)
+is put back to its normal size by the first popover that opens (the main
+menu), while GTK and Windows both still call it maximized: a floating
+window with the maximized state. Maximized by GTK, `maximize()`, it keeps
+its size. So a maximize that Windows made is made GTK's own at once.
+
+The restore (probe8 and probe11 of the review in spola-audit/prove/
+gtk-windows): after `maximize()` from GTK, a restore made by Windows (the
+title bar's button, Win+Down, a double click on the title bar) leaves the
+window as big as the screen, a floating window, while GTK keeps its surface
+at the maximized size and `get_default_size` at the old one; from there
+`SetWindowPos` and `set_default_size` do nothing and a drag of a border
+goes wrong (GTK issue 7695, fixed in 4.20 for the path through GTK, not for
+this one). Done again through GTK, `maximize()` then `unmaximize()`, the
+window gets its remembered size back.
 
 The popover: GTK hides an open popover when the window is minimized and
 shows it again when the window comes back, without the grab that closes it
@@ -53,13 +61,19 @@ def close_open_popovers(window: Gtk.Window) -> int:
 
 
 def watch(window: Gtk.Window) -> None:
-    """Connect both workarounds to the window (once, when it is created)."""
-    remembered: dict[str, tuple[int, int]] = {}
+    """Connect the workarounds to the window (once, when it is created)."""
+    remembered: dict[str, object] = {}
 
     def on_maximized(w: Gtk.Window, _pspec) -> None:
         if w.is_maximized():
-            remembered["size"] = w.get_default_size()
+            if not remembered.get("own"):
+                # made by Windows, or by GTK: either way, GTK's own from now on,
+                # or the first popover puts the window back to its normal size
+                remembered["own"] = True
+                remembered["size"] = w.get_default_size()
+                w.maximize()
             return
+        remembered.pop("own", None)
         size = remembered.get("size")
         if size is None:
             return
