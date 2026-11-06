@@ -8,6 +8,16 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.40] - 2026-11-06
+
+### Fixed
+- Windows: a window maximized with Windows' own button (or Win+Up, or a
+  double click on the title bar) went back to its normal size as soon as
+  the main menu opened, still counted as maximized: a floating window.
+  A maximize made by Windows is now made GTK's own at once, and the menu
+  leaves it alone (the third quirk of GTK 4.24, found in P7M Extractor
+  right after 0.3.39).
+
 ## [0.3.39] - 2026-11-06
 
 Two quirks of GTK 4.24 on Windows, worked around in Spola (and in the other
