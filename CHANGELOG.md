@@ -8,6 +8,15 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+## [0.3.41] - 2026-11-06
+
+### Fixed
+- Windows: dragging a maximized window down by its title bar made it jump
+  between its sizes under the pointer: the workaround of 0.3.39 acted in
+  the middle of Windows' own move. It now waits until the move is over
+  and the button is up, and looks at the window's own size, not at
+  GTK's, which lags behind during a move.
+
 ## [0.3.40] - 2026-11-06
 
 ### Fixed
