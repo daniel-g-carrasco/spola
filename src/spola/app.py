@@ -85,7 +85,7 @@ def native_windows() -> None:
     bar the content has, dark or light, and Spola.exe's icon at the sizes
     the title bar and Alt+Tab draw (a run from the sources has no icon of
     its own to give)."""
-    from . import win32
+    from . import win32, winquirks
     style = Adw.StyleManager.get_default()
     exe = os.path.normpath(sys.executable) if getattr(sys, "frozen", False) else ""
 
@@ -96,7 +96,9 @@ def native_windows() -> None:
 
     def added(model, position, _removed, count):
         for i in range(position, position + count):
-            model.get_item(i).connect("map", native)
+            window = model.get_item(i)
+            window.connect("map", native)
+            winquirks.watch(window)     # GTK 4.24's restore and popover quirks (see winquirks.py)
 
     toplevels = Gtk.Window.get_toplevels()
     added(toplevels, 0, 0, toplevels.get_n_items())
