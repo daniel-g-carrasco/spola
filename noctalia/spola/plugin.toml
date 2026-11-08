@@ -5,7 +5,7 @@
 # with gdbus, one process per click. See README.md for the install.
 id = "daniel-g-carrasco/spola"
 name = "Spola"
-version = "0.1.0"
+version = "0.1.1"
 plugin_api = 24
 author = "daniel-g-carrasco"
 license = "MIT"
