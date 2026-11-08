@@ -8,6 +8,15 @@ shorter, are in the app's metainfo, which software centres show.
 
 ## [Unreleased]
 
+### Fixed
+- Noctalia plugin: the panel's folder list stays inside the panel and
+  scrolls there; it used to run past the bottom edge. Starting a sync no
+  longer moves everything: every folder row and the status at the top keep
+  one height (a syncing folder shows its numbers on one line, without the
+  progress bar that came and went), so the scroll bar no longer appears and
+  disappears. Sync All and Pause moved next to Open Spola, which gives the
+  status its whole line.
+
 ## [0.3.41] - 2026-11-06
 
 ### Fixed

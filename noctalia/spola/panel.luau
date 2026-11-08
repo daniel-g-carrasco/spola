@@ -1,9 +1,19 @@
 --!nonstrict
--- Spola panel: the overall status with Sync All and Pause, the space on
--- Koofr, then every folder with its status, progress and two buttons (sync
--- now, open in Spola; a folder waiting for you gets Review instead).
+-- Spola panel: the title row with Sync All, Pause and Open Spola, the
+-- overall status and the space on Koofr, then every folder with its status
+-- or its progress and two buttons (sync now, open in Spola; a folder
+-- waiting for you gets Review instead).
 
 local common = require("./lib/common.luau")
+
+-- Fixed heights: a row or the header that grew when a sync started (a
+-- second line, a progress bar) moved the whole list and brought the
+-- scroll bar in and out. The whole content is held to the panel's height
+-- (540 in plugin.toml): a column sized to its content let the list run past
+-- the panel's bottom edge, and the list now scrolls in what is left.
+local PANEL_H = 540
+local HEADER_H = 76
+local ROW_H = 54
 
 local function header(s)
   local overall = common.overall(s)
@@ -52,26 +62,27 @@ local function header(s)
       end,
     }))
   end
-  return ui.row({ gap = 10, align = "center", padding = 12, fill = "surface_variant/0.4", radius = 10 }, {
+  -- The buttons sit in the title row above, so the two lines here have the
+  -- panel's whole width and stay one line each.
+  return ui.row({ gap = 10, align = "center", padding = 12, fill = "surface_variant/0.4", radius = 10, height = HEADER_H }, {
     ui.glyph({ name = common.glyph(overall), size = 24, color = common.color(overall) }),
     ui.column({ gap = 2, flexGrow = 1 }, {
-      ui.label({ text = title, fontSize = 15, fontWeight = "bold", color = common.color(overall) }),
-      ui.label({ text = detail, fontSize = 12, color = "on_surface_variant", maxLines = 2 }),
+      ui.label({ text = title, fontSize = 15, fontWeight = "bold", color = common.color(overall), maxLines = 1 }),
+      ui.label({ text = detail, fontSize = 12, color = "on_surface_variant", maxLines = 1 }),
     }),
-    ui.row({ gap = 4 }, buttons),
-  })
+  }), buttons
 end
 
 local function folderRow(p)
   local color = common.color(p.status)
   local detail = common.detail(p)
   local children = {
-    ui.label({ text = p.name, fontSize = 13, fontWeight = "bold", color = p.paused and "on_surface_variant" or "on_surface" }),
-    ui.label({ text = common.statusText(p.status) .. (detail ~= "" and (" · " .. detail) or ""), fontSize = 11, color = color, maxLines = 2 }),
+    ui.label({ text = p.name, fontSize = 13, fontWeight = "bold", color = p.paused and "on_surface_variant" or "on_surface", maxLines = 1 }),
+    -- While syncing the glyph and the colour already say so: the line keeps
+    -- the numbers only, so it stays on one line.
+    ui.label({ text = (p.syncing and detail ~= "") and detail or (common.statusText(p.status) .. (detail ~= "" and (" · " .. detail) or "")),
+               fontSize = 11, color = color, maxLines = 1 }),
   }
-  if p.syncing and p.progress and p.progress.fraction then
-    table.insert(children, ui.progress({ progress = p.progress.fraction }))
-  end
   local buttons = {}
   if p.needs_you then
     table.insert(buttons, ui.button({ text = noctalia.tr("panel.review"), variant = "primary", controlSize = "sm", onClick = function()
@@ -97,7 +108,7 @@ local function folderRow(p)
       end,
     }))
   end
-  return ui.row({ key = "pair-" .. p.id, gap = 10, align = "center", padding = 8 }, {
+  return ui.row({ key = "pair-" .. p.id, gap = 10, align = "center", padding = 8, height = ROW_H }, {
     ui.glyph({ name = common.glyph(p.status), size = 18, color = color }),
     ui.column({ gap = 2, flexGrow = 1 }, children),
     ui.row({ gap = 2 }, buttons),
@@ -115,18 +126,20 @@ local function render()
       table.insert(rows, ui.label({ text = noctalia.tr("panel.no_folders"), fontSize = 12, color = "on_surface_variant", padding = 8 }))
     end
   end
-  panel.render(ui.column({ gap = 12, padding = 16 }, {
+  local head, buttons = header(s)
+  table.insert(buttons, ui.button({ glyph = "external-link", variant = "ghost", controlSize = "sm", tooltip = noctalia.tr("panel.open_spola"), onClick = function()
+    if common.snapshot().running then
+      common.send("show", "")
+    else
+      common.send("launch")
+    end
+  end }))
+  panel.render(ui.column({ gap = 12, padding = 16, height = PANEL_H }, {
     ui.row({ align = "center", justify = "space_between" }, {
       ui.label({ text = "Spola", fontSize = 16, fontWeight = "bold", color = "primary", flexGrow = 1 }),
-      ui.button({ glyph = "external-link", variant = "ghost", controlSize = "sm", tooltip = noctalia.tr("panel.open_spola"), onClick = function()
-        if common.snapshot().running then
-          common.send("show", "")
-        else
-          common.send("launch")
-        end
-      end }),
+      ui.row({ gap = 2 }, buttons),
     }),
-    header(s),
+    head,
     ui.scroll({ flexGrow = 1, gap = 2 }, rows),
   }))
 end
