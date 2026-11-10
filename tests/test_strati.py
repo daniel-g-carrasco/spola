@@ -8,6 +8,9 @@ no toolkit is needed). The same file in every app of mine.
 
 The arrows go one way: gui uses app, app uses core and data, core and data
 know nobody. The toolkit is imported in gui only, also inside a function;
+where an app says so (WINDOWLESS), its services in app/ may import the
+parts of the toolkit's library that show nothing: a main loop, a bus, a
+keyring. Never core, data or a shared module, and never a window's part.
 core and data do not touch the network. A layer's __init__.py holds a
 docstring and nothing else (no re-exports: they hide who uses whom). An
 import between folders is absolute and names the layer (`from <package>.app
@@ -32,6 +35,15 @@ ROOT = Path(__file__).resolve().parent.parent
 LAYERS = ("core", "data", "app", "gui")
 MAY = {"core": {"core"}, "data": {"data"}, "app": {"app", "core", "data"}, "gui": set(LAYERS)}
 TOOLKIT = ("gi",)                               # the Qt apps: ("PySide6", "shiboken6")
+# The parts of the toolkit's library that show nothing, which app/ may
+# import (and the bare package with them). Spola's services live on them
+# (Daniel, 10/11/2026): the engine on GLib's main loop and GObject's signals;
+# the file managers' service, the Background portal and logind over Gio's
+# D-Bus; Gio's file monitors; libsecret for the app password. Rewriting the
+# engine that decides about the user's files to be rid of them would buy
+# nothing. Never Gtk, Adw or Gdk outside gui/, never any of it in core/.
+WINDOWLESS: tuple[str, ...] = ("gi.repository.GLib", "gi.repository.Gio", "gi.repository.GObject",
+                               "gi.repository.Secret")
 NETWORK = ("urllib.request", "http.client", "http.server", "socket", "ssl", "ftplib", "smtplib", "requests")
 ROOT_FOR_ALL = ("i18n",)                        # the one module of the root every layer may import
 # The modules every app of mine has, the same, that know no app (the
@@ -39,31 +51,13 @@ ROOT_FOR_ALL = ("i18n",)                        # the one module of the root eve
 # and still read the app's names from the package.
 SHARED: set[str] = set()
 # "file -> what it imports": "why it is still there, and when it goes".
-# All of Spola's debts are of one kind: `gi` outside gui/. None is a window:
-# it is GLib's main loop, Gio's D-Bus and file monitors, libsecret. They are
-# written here in three groups, by what paying them takes.
+# Three are left, one call each, where what shows nothing is still not
+# allowed: core/, the command line, and the versions of GTK itself.
 DEBTS: dict[str, str] = {
-    # one call each: paid by a few lines of plain Python, or by passing the value in
     "core/progress.py -> gi": "GLib.format_size for the sizes: a function of core's own, with the same words",
-    "app/conflicts.py -> gi": "Gio.File.trash, inside a function, for the copy the user discards: the trash "
-                              "passed in by who calls (the window), or a service of its own",
     "app/diagnostics.py -> gi": "the versions of GLib, GTK and libadwaita, inside a function: gui/ passes them "
                                 "in, as the template does (toolkit_versions)",
     "cli.py -> gi": "one D-Bus call, inside a function, to know whether the app is running: a service in app/",
-    # timers and callbacks brought to the main loop: paid when the service takes
-    # a scheduler as an argument (call soon, call every, cancel) that gui/ gives
-    "app/status.py -> gi": "GLib timers for status.json (a second apart, a heartbeat)",
-    "app/winconditions.py -> gi": "a GLib timer that polls Windows' network cost and power saving",
-    "app/winwatch.py -> gi": "GLib.idle_add, to bring the changes from its thread to the main loop",
-    "app/engine.py -> gi": "the scheduler lives on GLib's main loop (idle_add, timeouts) and is a GObject with "
-                           "signals; Gio's network and power monitors. The largest debt: 2,400 lines",
-    # the service IS the Gio object: paid only by another library, or kept as the
-    # one accepted exception (GLib and Gio without GTK), if Daniel says so
-    "app/dbus_service.py -> gi": "the D-Bus interface for the file managers, exported with Gio",
-    "app/portal.py -> gi": "the Background portal, called with Gio",
-    "app/sleep.py -> gi": "logind's inhibitor and sleep signal, over Gio's D-Bus",
-    "app/watcher.py -> gi": "Gio.FileMonitor, one per folder (Linux)",
-    "app/secrets.py -> gi": "libsecret for the app password (Linux); Windows goes through app/win32.py",
 }
 # gui modules that do not import the toolkit: plain logic in the wrong layer.
 # Frozen: none may be added (a new one belongs in core, data or app).
@@ -108,7 +102,7 @@ def starts(name: str, prefixes) -> bool:
     return any(name == p or name.startswith(p + ".") for p in prefixes)
 
 
-def broken(src: Path, shared=frozenset()) -> list[tuple[str, str]]:
+def broken(src: Path, shared=frozenset(), windowless=()) -> list[tuple[str, str]]:
     """(key for DEBTS, message with file, line and rule) of every import
     against the rules, and of every layer __init__ that holds code."""
     out = []
@@ -127,7 +121,11 @@ def broken(src: Path, shared=frozenset()) -> list[tuple[str, str]]:
             rule = None
             module = "/".join(parts[1:3 if theirs else 2]) + ".py"
             if starts(name, TOOLKIT) and mine != "gui":
-                rule = "the toolkit is imported in gui only"
+                shows_nothing = windowless and (name in TOOLKIT or starts(name, windowless))
+                if not (mine == "app" and shows_nothing and rel.as_posix() not in shared):
+                    rule = "the toolkit is imported in gui only"
+                    if windowless and mine == "app":
+                        rule += " (app may import what shows nothing: " + ", ".join(windowless) + ")"
             elif inside and rel.as_posix() in shared and module not in shared:
                 rule = "a shared module knows no app: its names are arguments, and it imports shared modules only"
             elif mine in ("core", "data") and starts(name, NETWORK):
@@ -178,7 +176,7 @@ class Layers(unittest.TestCase):
     def test_every_import_goes_one_way(self):
         src = package_dir()
         self.assertEqual(sorted(name for name in SHARED if not (src / name).is_file()), [], "SHARED names files that are gone")
-        found = broken(src, SHARED)
+        found = broken(src, SHARED, WINDOWLESS)
         new = [message for key, message in found if key not in DEBTS]
         self.assertEqual(new, [], "imports against the layers:\n" + "\n".join(new))
         paid = sorted(set(DEBTS) - {key for key, _message in found})
@@ -254,6 +252,21 @@ class TheCheckItself(unittest.TestCase):
         self.assertEqual(len(found), 2, found)
         self.assertIn("app/paths.py:1: pkg.SLUG: a shared module knows no app", found[0])
         self.assertIn("app/updates.py:1: pkg.app.config: a shared module knows no app", found[1])
+
+    def test_what_shows_nothing_is_let_into_app_only_where_the_app_says(self):
+        files = {"app/engine.py": "import gi\nfrom gi.repository import GLib, Gio\n",
+                 "app/about.py": "def f():\n    from gi.repository import Gtk\n",
+                 "app/paths.py": "from gi.repository import GLib\n",
+                 "core/sizes.py": "from gi.repository import GLib\n",
+                 "cli.py": "def f():\n    from gi.repository import Gio\n"}
+        loop = ("gi.repository.GLib", "gi.repository.Gio")
+        found = [message for _key, message in broken(self.tree(files), {"app/paths.py"}, loop)]
+        self.assertEqual([message.split(":")[0] for message in found],
+                         ["app/about.py", "app/paths.py", "cli.py", "core/sizes.py"], found)
+        self.assertIn("gi.repository.Gtk: the toolkit is imported in gui only (app may import what shows nothing",
+                      found[0])
+        # and without the app's word nothing of the toolkit is let in
+        self.assertEqual(len(broken(self.tree(files))), 7)
 
     def test_a_layer_init_with_code_is_seen(self):
         self.assertIn("docstring only", self.rules({"app/__init__.py": '"""Doc."""\nfrom .x import y\n', "app/x.py": "y = 1\n"})[0])

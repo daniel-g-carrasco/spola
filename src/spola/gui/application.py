@@ -234,9 +234,16 @@ class SpolaApp(Adw.Application):
                 if manual:
                     self._window().toast(_("Spola {version} is up to date").format(version=__version__))
                 return
-            if manual or (self.window is not None and self.window.is_active()):
+            # the banner in every case, in the window that is there or in
+            # the one made later (Spola may be in the tray with none). The
+            # dialog only when asked for; a notification when the window is
+            # not in front
+            self.update_found = release
+            if self.window is not None:
+                self.window.show_update(release.version, lambda: self._show_update(release))
+            if manual:
                 self._show_update(release)
-            else:
+            elif self.window is None or not self.window.is_active():
                 self.tray.notify(_("Spola {version} is available").format(version=release.version),
                                  _("Click to see what is new and update."), lambda: self._show_update(release),
                                  tag="update")
@@ -462,6 +469,9 @@ class SpolaApp(Adw.Application):
     def _window(self) -> MainWindow:
         if self.window is None:
             self.window = MainWindow(self, self.engine)
+            found = getattr(self, "update_found", None)
+            if found is not None:       # a newer version found while there was no window
+                self.window.show_update(found.version, lambda: self._show_update(found))
         return self.window
 
     # -- tray, status, notifications ------------------------------------------------------

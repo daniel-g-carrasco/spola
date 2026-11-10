@@ -6,7 +6,7 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
-## [Unreleased]
+## [0.3.42] - 2026-11-10
 
 ### Fixed
 - Noctalia plugin: the panel's folder list stays inside the panel and
@@ -18,7 +18,16 @@ shorter, are in the app's metainfo, which software centres show.
   status its whole line.
 
 ### Changed
-- Nothing in what Spola does. Its code is now in four layers (core, data,
+- Windows: a newer version shows as a banner at the top of the window, with
+  an Update button, for as long as the window is there; the notification
+  stays for when the window is not in front, and the dialog with what is
+  new opens from either, or at once when the check is asked for from the
+  menu. It used to open by itself when the window was in front.
+- A release is published only when all its files are there. 0.3.41 went out
+  with the Flatpak alone, because its Windows build had stopped on a test of
+  the build server's own shell: on Windows Spola announced a version it
+  could not install and opened a page with nothing for Windows on it.
+- Nothing else in what Spola does. Its code is now in four layers (core, data,
   app, gui) with the imports going one way only, checked by a test, as in
   my other apps: docs/progetto.md, appendix AQ.
 

@@ -861,11 +861,15 @@ Daniel sta dando la stessa struttura a tutti i suoi programmi (Meridiana, il mod
 
 Un modulo è stato messo dove dice ciò che fa, non ciò che importa oggi: il motore usa il ciclo principale di GLib ma non è una finestra, quindi sta in `app/`.
 
-**La prova**: `tests/test_strati.py`, lo stesso file degli altri programmi. Legge gli import con l'AST e fallisce con file, riga e regola. Nessun import va contro il verso degli strati. Restano **13 debiti**, tutti dello stesso tipo: `gi` fuori da `gui/`. Nessuno è una finestra (GLib, Gio, GObject, libsecret; solo `diagnostics` legge le versioni di GTK). Sono scritti nell'elenco `DEBTS` della prova, che può solo accorciarsi, in tre gruppi:
+**La prova**: `tests/test_strati.py`, lo stesso file degli altri programmi. Legge gli import con l'AST e fallisce con file, riga e regola. Nessun import va contro il verso degli strati.
 
-1. **Una chiamata ciascuno** (`core/progress`, `app/conflicts`, `app/diagnostics`, `cli`): si pagano con poche righe.
-2. **Timer e ritorni sul ciclo principale** (`app/status`, `app/winconditions`, `app/winwatch`, `app/engine`): si pagano quando il servizio riceve da fuori chi gli fa «chiama tra poco, chiama ogni tanto, annulla». Il motore è il debito grosso: 43 `GLib.idle_add`, 13 timer, i segnali di GObject.
-3. **Il servizio è l'oggetto di Gio** (`app/dbus_service`, `app/portal`, `app/sleep`, `app/watcher`, `app/secrets`): D-Bus, i monitor dei file, libsecret. Si pagano solo cambiando libreria; oppure Daniel decide che GLib e Gio senza GTK sono ammessi in `app/`, e questi cinque escono dall'elenco.
+**GLib e Gio in `app/`** (decisione di Daniel, 10/11/2026). La regola generale dice che il toolkit si importa solo in `gui/`. Ma `gi` non porta solo le finestre: porta anche GLib (il ciclo principale, i timer), GObject (i segnali), Gio (D-Bus, i monitor dei file) e libsecret (il portachiavi), e i servizi di Spola vivono lì sopra: il motore, il servizio per i file manager, il portale, logind, il monitor delle cartelle, la password. Riscrivere il motore che decide cosa succede ai file dell'utente per toglierli non porterebbe nulla. Quindi in Spola `app/` può importare ciò che non mostra nulla: l'elenco è `WINDOWLESS` nella prova (`GLib`, `Gio`, `GObject`, `Secret`). Restano vietati Gtk, Adw e Gdk fuori da `gui/`, e qualsiasi `gi` in `core/`. Il prezzo: i servizi di Spola restano legati a GLib e non si portano così come sono in un programma Qt.
+
+Restano **3 debiti**, una chiamata ciascuno, scritti nell'elenco `DEBTS` della prova, che può solo accorciarsi:
+
+1. `core/progress`: `GLib.format_size` per le dimensioni; in `core/` serve una funzione propria con le stesse parole.
+2. `app/diagnostics`: le versioni di GLib, GTK e libadwaita; gliele passa `gui/`, come nel modello.
+3. `cli`: una chiamata D-Bus per sapere se l'app sta girando; va in un servizio di `app/`.
 
 **Come è stato fatto**: uno script sposta i moduli con `git mv` e riscrive solo gli import (`tools/strati/move_flat_package.py` e `plan_spola.py` nel modello `app-template`), un secondo fa le sei correzioni a mano (`apply_spola.py`): i due moduli che trovavano il checkout dal proprio posto ora lo chiedono al pacchetto (`PACKAGE_DIR`), un import dentro una stringa di una prova, una prova che leggeva i sorgenti per percorso, gli import nascosti di PyInstaller, l'elenco dei sorgenti di `compile_po.py`, i commenti di posizione di `it.po`.
 

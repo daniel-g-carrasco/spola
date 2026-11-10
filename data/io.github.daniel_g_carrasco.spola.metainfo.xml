@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.42" date="2026-11-10" type="development">
+      <description>
+        <p>Windows: a newer version shows as a banner at the top of the window, with an Update button, for as long as the window is there. A release is now published only when all its files are there: 0.3.41 went out without its Windows installer, and on Windows Spola announced a version it could not install.</p>
+      </description>
+    </release>
     <release version="0.3.41" date="2026-11-06" type="development">
       <description>
         <p>Windows: dragging a maximized window down by its title bar made it jump between its sizes; the workaround of 0.3.39 now waits until Windows is done with the window.</p>
