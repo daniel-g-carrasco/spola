@@ -114,6 +114,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.43" date="2026-11-10" type="development">
+      <description>
+        <p>Windows: the window resizes, maximizes and drags as Windows itself does it again. The workarounds of the last versions got in the way of that and are replaced by lighter ones: opening the menu no longer shrinks a maximized window, and a menu left open when the window is minimized is closed when the window comes back.</p>
+        <p>Windows: the title bar takes the window's own colours, in the light and in the dark theme, with a thin line under it; the main menu opens under its button, without an arrow.</p>
+        <p>Windows: on a second screen with another scale, a line between the title bar and the content showed what was behind the window.</p>
+      </description>
+    </release>
     <release version="0.3.42" date="2026-11-10" type="development">
       <description>
         <p>Windows: a newer version shows as a banner at the top of the window, with an Update button, for as long as the window is there. A release is now published only when all its files are there: 0.3.41 went out without its Windows installer, and on Windows Spola announced a version it could not install.</p>

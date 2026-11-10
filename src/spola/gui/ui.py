@@ -239,3 +239,25 @@ def run_in_thread(work, done) -> None:
 
 def escape(text: str) -> str:
     return GLib.markup_escape_text(text)
+
+
+def window_colours(widget) -> tuple[tuple[int, int, int], tuple[int, int, int]] | tuple[None, None]:
+    """The window's background and text colours as the style has them now,
+    each (red, green, blue) 0-255, for what is drawn outside GTK in the
+    same colours (Windows' title bar); (None, None) when the style does
+    not name them. libadwaita's text colour is translucent: it is given as
+    it looks over the background."""
+    import warnings
+    with warnings.catch_warnings():
+        # GTK 4.10 deprecates the style context and gives no other way to
+        # read a named colour of the style
+        warnings.simplefilter("ignore", DeprecationWarning)
+        context = widget.get_style_context()
+        has_background, background = context.lookup_color("window_bg_color")
+        has_text, text = context.lookup_color("window_fg_color")
+    if not (has_background and has_text):
+        return None, None
+    back = (background.red, background.green, background.blue)
+    fore = tuple(t * text.alpha + b * (1 - text.alpha)
+                 for t, b in zip((text.red, text.green, text.blue), back, strict=True))
+    return tuple(round(c * 255) for c in back), tuple(round(c * 255) for c in fore)

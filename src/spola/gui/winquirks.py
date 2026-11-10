@@ -1,81 +1,55 @@
-"""Three quirks of GTK 4.24 on Windows, worked around per window: a maximize
-made by Windows that a popover then undoes, a restore made by Windows that
-leaves the window at the maximized size, and a popover that comes back from
-a minimize without its grab. Imported only on Windows; nothing here is
-needed once GTK fixes them (GTK 4.24.1 has all three).
+"""Two quirks of GTK 4.24 on Windows, worked around per window, and the
+window otherwise left to Windows. Imported only on Windows; nothing here is
+needed once GTK fixes them (GTK 4.24.1 has both; measured with real windows
+on 2026-11-10, probe 13 of the Spola audit).
 
-The maximize (measured 2026-11-06 in P7M Extractor): a window maximized by
-Windows (the title bar's button, Win+Up, a double click on the title bar,
-a drag to the top edge) is put back to its normal size by the first popover
-that opens (the main menu), while GTK and Windows both still call it
-maximized: a floating window with the maximized state. Maximized by GTK,
-`maximize()`, it keeps its size. So a maximize that Windows made is made
-GTK's own.
+The maximized window and the menu. A window maximized by Windows (the title
+bar's button, Win+Up, a double click on the title bar, a drag to the top
+edge) goes back to its normal size when a popover opens (the main menu),
+while GTK and Windows both still call it maximized: GTK falls back to its
+default size. So while the window is maximized its default size is the size
+it has, and the fall is to where it already stands; the normal size comes
+back with the restore, and `normal_size` gives it to whoever saves the
+window's state meanwhile.
 
-The restore (probe8, probe11 and probe12 of the review in spola-audit/
-prove/gtk-windows): after `maximize()` from GTK, a restore made by Windows
-(the title bar's button, Win+Down, a double click on the title bar, the
-title bar dragged down) leaves the window as big as the screen, a floating
-window, while GTK keeps its surface at the maximized size and
-`get_default_size` at the old one; from there `SetWindowPos` and
-`set_default_size` do nothing and a drag of a border goes wrong (GTK issue
-7695, fixed in 4.20 for the path through GTK, not for this one). Done again
-through GTK, `maximize()` then `unmaximize()`, the window gets its
-remembered size back.
+The popover and the minimize. A popover open when the window is minimized
+comes back without its grab: no click outside closes it, only Esc or one of
+its items. Closing it at the minimize does nothing (it is hidden already);
+closed on the resume, it is simply gone.
 
-Both are done only once Windows is finished with the window: not during a
-move or a resize (a restore by dragging the title bar down happens in the
-middle of one), nor with the mouse button still held. The size that decides
-is the window's own (GetWindowRect), not the surface's, which lags behind
-during an interactive move. And the restore is put right once per restore:
-a second look that still finds the window big gives up, rather than
-maximize and restore again and again (a window that pulsed, 2026-11-06).
+The maximize at the start. A window maximized by GTK (`maximize()`, as an app
+does to come back as it was left) is restored wrong by Windows from then on:
+the title bar's button, Win+Down or a drag leave it as big as the screen, a
+floating window whose borders drag wrong. Maximized by Windows instead
+(`maximize_at_start`), it restores right for good.
 
-The popover: GTK hides an open popover when the window is minimized and
-shows it again when the window comes back, without the grab that closes it
-on a click outside; only Escape or one of its items closes it. Closed on
-the resume, it is simply gone.
+What is no longer here, and why. Until 2026-11-10 a maximize made by Windows
+was made GTK's own, so that the menu would not shrink the window: that turned
+every restore into the broken kind, and a second workaround put the size
+back after it, acting after the user's drag. Tried side by side by Daniel,
+the build with no workaround at all resized, maximized and dragged best; the
+two quirks of the menu were all it lacked. A maximize that stays Windows' own
+needs no repair.
 """
 
 from __future__ import annotations
 
 import ctypes
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from ctypes import wintypes
 
 from gi.repository import GLib, Gtk
 
-SETTLE_MS = 100             # between looks at whether Windows is done with the window
-SETTLE_TRIES = 50           # at most 5 s of waiting for a move or a drag to end
-UNMAXIMIZE_MS = 60          # between the maximize() and the unmaximize() that put the size back
-JUDGE_MS = 300              # after Windows is done: GTK's own last word on the size has landed by then
-RESUME_CLOSE_MS = 150       # after notify::suspended -> False: the popover is shown again by then
-SLACK = 20                  # logical pixels: a window larger than the remembered size by more is Windows' doing
+HOLD_AGAIN_MS = 250         # the maximized size is given to GTK at once, and once more for a slow first layout
+RESUME_CLOSE_MS = (150, 600)    # after notify::suspended -> False: the popover is shown again by then; looked at twice
+SW_MAXIMIZE = 3
 
-# our own handles: argtypes set on ctypes.windll.user32 would reach every
-# other user of that shared object (win32.py, the tray) with our RECT type
+# our own handle: argtypes set on ctypes.windll.user32 would reach every
+# other user of that shared object (win32.py, the tray)
 _user32 = ctypes.WinDLL("user32", use_last_error=True)
-_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-GUI_INMOVESIZE = 0x2
-VK_LBUTTON = 0x01
-
-
-class RECT(ctypes.Structure):
-    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-
-
-class GUITHREADINFO(ctypes.Structure):
-    _fields_ = [("cbSize", wintypes.DWORD), ("flags", wintypes.DWORD), ("hwndActive", wintypes.HWND),
-                ("hwndFocus", wintypes.HWND), ("hwndCapture", wintypes.HWND), ("hwndMenuOwner", wintypes.HWND),
-                ("hwndMoveSize", wintypes.HWND), ("hwndCaret", wintypes.HWND), ("rcCaret", RECT)]
-
-
-_user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
-_user32.GetGUIThreadInfo.argtypes = [wintypes.DWORD, ctypes.POINTER(GUITHREADINFO)]
 _user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
 _user32.FindWindowW.restype = wintypes.HWND
-_user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
-_user32.GetAsyncKeyState.restype = ctypes.c_short
+_user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
 
 
 def popovers_below(widget: Gtk.Widget) -> Iterator[Gtk.Popover]:
@@ -111,100 +85,52 @@ def hwnd_of(window: Gtk.Window) -> int:
         return int(_user32.FindWindowW(None, window.get_title() or "") or 0)
 
 
-def windows_is_busy_with(window: Gtk.Window) -> bool:
-    """A move or a resize of the window in progress (Windows' own loop), or
-    the mouse button still down (a drag about to end)."""
-    info = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
-    if _user32.GetGUIThreadInfo(_kernel32.GetCurrentThreadId(), ctypes.byref(info)) and info.flags & GUI_INMOVESIZE:
-        return True
-    return bool(_user32.GetAsyncKeyState(VK_LBUTTON) & 0x8000)
+def normal_size(window: Gtk.Window) -> tuple[int, int]:
+    """The size to remember for the window: the one it had before it was
+    maximized, not the maximized one `watch` lends to GTK meanwhile."""
+    kept = getattr(window, "size_before_maximize", None)
+    return tuple(kept) if kept else tuple(window.get_default_size())
 
 
-def window_pixels(window: Gtk.Window) -> tuple[int, int]:
-    """The window's size as Windows has it (pixels), (0, 0) if unknown."""
-    hwnd = hwnd_of(window)
-    rect = RECT()
-    if not hwnd or not _user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-        return 0, 0
-    return rect.right - rect.left, rect.bottom - rect.top
-
-
-def when_settled(window: Gtk.Window, then: Callable[[], None]) -> None:
-    """Run `then` once Windows is done with the window (at once if it is)."""
-    tries = {"left": SETTLE_TRIES}
-
-    def look() -> bool:
-        tries["left"] -= 1
-        if windows_is_busy_with(window) and tries["left"] > 0:
-            return True
-        then()
-        return False
-    GLib.timeout_add(SETTLE_MS, look)
-
-
-def oversized(window: Gtk.Window, size: tuple[int, int]) -> bool:
-    """Is the window, as Windows has it, well beyond `size` (logical pixels)?"""
-    surface = window.get_surface()
-    if surface is None:
-        return False
-    scale = surface.get_scale_factor() or 1
-    width, height = size
-    pixels = window_pixels(window)
-    return pixels[0] > (width + SLACK) * scale or pixels[1] > (height + SLACK) * scale
+def maximize_at_start(window: Gtk.Window) -> None:
+    """The window maximized as it first shows, by Windows and not by GTK."""
+    def on_map(w: Gtk.Window) -> None:
+        w.disconnect(handler[0])
+        hwnd = hwnd_of(w)
+        if hwnd:
+            _user32.ShowWindow(hwnd, SW_MAXIMIZE)
+        else:               # no handle to ask Windows with: GTK's own maximize, as before
+            w.maximize()
+    handler = [window.connect("map", on_map)]
 
 
 def watch(window: Gtk.Window) -> None:
-    """Connect the workarounds to the window (once, when it is created)."""
-    # own: the maximize in force is GTK's own; size: the normal size to put
-    # back after a restore; fixing: a maximize() + unmaximize() of ours is
-    # under way (its own notifications are not Windows' doing)
-    state: dict[str, object] = {}
+    """Work around both quirks for this window, for as long as it lives."""
+    def hold(w: Gtk.Window) -> bool:
+        # while maximized, the default size is the size the window has
+        if w.is_maximized() and w.get_width() > 0 and w.get_height() > 0:
+            if tuple(w.get_default_size()) != (w.get_width(), w.get_height()):
+                w.set_default_size(w.get_width(), w.get_height())
+        return False
 
     def on_maximized(w: Gtk.Window, _pspec) -> None:
         if w.is_maximized():
-            if state.get("own") or state.get("fixing"):
-                return
-            # made by Windows, or by GTK: GTK's own from now on, or the first
-            # popover puts the window back to its normal size
-            state["own"] = True
-            state["size"] = w.get_default_size()
-
-            def make_own() -> None:
-                if w.is_maximized() and state.get("own") and not state.get("fixing"):
-                    w.maximize()
-            when_settled(w, make_own)
-            return
-        state.pop("own", None)
-        if state.get("fixing"):
-            return
-        size = state.get("size")
-        if size is None:
-            return
-
-        def check() -> None:
-            if w.is_maximized() or state.get("fixing") or state.get("size") != size:
-                return
-            state.pop("size", None)             # one try per restore: no pulsing
-            GLib.timeout_add(JUDGE_MS, judge)
-
-        def judge() -> bool:
-            if w.is_maximized() or state.get("fixing") or not oversized(w, size):
-                return False
-            # Windows' restore left the maximized size in place: through GTK it works
-            state["fixing"] = True
-            w.maximize()
-
-            def back() -> bool:
-                w.unmaximize()
-                GLib.timeout_add(SETTLE_MS, lambda: (state.pop("fixing", None), False)[1])
-                return False
-            GLib.timeout_add(UNMAXIMIZE_MS, back)
-            return False
-        when_settled(w, check)
+            if getattr(w, "size_before_maximize", None) is None:
+                w.size_before_maximize = tuple(w.get_default_size())
+            GLib.idle_add(hold, w)                      # once GTK has the maximized size
+            GLib.timeout_add(HOLD_AGAIN_MS, hold, w)
+        elif getattr(w, "size_before_maximize", None) is not None:
+            width, height = w.size_before_maximize
+            w.size_before_maximize = None
+            w.set_default_size(width, height)
 
     def on_suspended(w: Gtk.Window, _pspec) -> None:
         if not w.get_property("suspended"):
-            GLib.timeout_add(RESUME_CLOSE_MS, lambda: (close_open_popovers(w), False)[1])
+            for delay in RESUME_CLOSE_MS:
+                GLib.timeout_add(delay, lambda: close_open_popovers(w) and False)
 
+    window.size_before_maximize = None
     window.connect("notify::maximized", on_maximized)
     window.connect("notify::suspended", on_suspended)
+    if window.is_maximized():
+        on_maximized(window, None)
