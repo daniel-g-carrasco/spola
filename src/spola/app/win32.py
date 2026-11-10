@@ -40,11 +40,41 @@ kernel32.GenerateConsoleCtrlEvent.argtypes = [wintypes.DWORD, wintypes.DWORD]
 
 # -- the title bar -----------------------------------------------------------------
 
-def dark_title_bars(dark: bool) -> None:
-    """The system title bars of this process's windows, dark or light, as
-    the content is (Windows 10 1809 and later; ignored elsewhere)."""
-    user32, dwmapi = ctypes.windll.user32, ctypes.windll.dwmapi
+DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR = 35, 36      # Windows 11 (build 22000) and later
+GWL_STYLE, WS_CAPTION = -16, 0x00C00000             # a window with a title bar (not a popover's surface)
+
+
+class MARGINS(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_int), ("right", ctypes.c_int), ("top", ctypes.c_int), ("bottom", ctypes.c_int)]
+
+
+def colorref(rgb: tuple[int, int, int]) -> int:
+    """(red, green, blue), each 0-255, as Windows writes a colour: 0x00BBGGRR."""
+    red, green, blue = (max(0, min(255, int(part))) for part in rgb)
+    return red | green << 8 | blue << 16
+
+
+def title_bars(dark: bool, background: tuple[int, int, int] | None = None,
+               text: tuple[int, int, int] | None = None) -> None:
+    """The system title bars of this process's windows as the content is:
+    dark or light (Windows 10 1809 and later: the buttons' glyphs follow
+    it), and on Windows 11 in the content's very colours, `background` and
+    `text` as (red, green, blue), so that the bar and the window read as
+    one surface. Where Windows does not know the colour attributes
+    (Windows 10) the dark or light bar stays; ignored elsewhere."""
+    # our own handles: argtypes set on ctypes.windll's shared objects would
+    # reach every other module that calls the same functions
+    user32, dwmapi = ctypes.WinDLL("user32", use_last_error=True), ctypes.WinDLL("dwmapi")
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    dwmapi.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+    dwmapi.DwmSetWindowAttribute.restype = ctypes.c_long
+    dwmapi.DwmExtendFrameIntoClientArea.argtypes = [wintypes.HWND, ctypes.POINTER(MARGINS)]
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.GetWindowLongW.restype = ctypes.c_long
     pid, value = os.getpid(), ctypes.c_int(1 if dark else 0)
+    colours = [(attribute, wintypes.DWORD(colorref(rgb)))
+               for attribute, rgb in ((DWMWA_CAPTION_COLOR, background), (DWMWA_TEXT_COLOR, text)) if rgb is not None]
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
     def visit(hwnd, _lparam):
@@ -54,8 +84,18 @@ def dark_title_bars(dark: bool) -> None:
             for attribute in (20, 19):      # DWMWA_USE_IMMERSIVE_DARK_MODE, then its 1809 number
                 if dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value)) == 0:
                     break
+            for attribute, colour in colours:
+                dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(colour), ctypes.sizeof(colour))
+            # one pixel of DWM's frame under the content, at the top. The
+            # app is system DPI aware (GTK scales by whole numbers only): on a
+            # screen whose scale is not the main one's Windows stretches the
+            # window, and the seam between the title bar and the content
+            # showed what was behind the window
+            if user32.GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION == WS_CAPTION:
+                dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(0, 0, 1, 0)))
         return True
 
+    user32.EnumWindows.argtypes = [ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM), wintypes.LPARAM]
     user32.EnumWindows(visit, 0)
 
 

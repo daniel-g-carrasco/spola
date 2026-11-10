@@ -6,6 +6,15 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.43] - 2026-11-10
+
+### Changed
+- Windows: the window resizes, maximizes and drags as Windows itself does it again. The workarounds of the last versions got in the way of that and are replaced by lighter ones: opening the menu no longer shrinks a maximized window, and a menu left open when the window is minimized is closed when the window comes back.
+- Windows: the title bar takes the window's own colours, in the light and in the dark theme, with a thin line under it; the main menu opens under its button, without an arrow.
+
+### Fixed
+- Windows: on a second screen with another scale, a line between the title bar and the content showed what was behind the window.
+
 ## [0.3.42] - 2026-11-10
 
 ### Fixed

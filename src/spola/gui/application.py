@@ -86,24 +86,42 @@ def native_windows() -> None:
     its own to give)."""
     from spola.app import win32
     from . import winquirks
+    from .ui import window_colours
     style = Adw.StyleManager.get_default()
     exe = os.path.normpath(sys.executable) if getattr(sys, "frozen", False) else ""
 
     def native(*_args):
-        win32.dark_title_bars(style.get_dark())
+        windows = Gtk.Window.list_toplevels()
+        background, text = window_colours(windows[0]) if windows else (None, None)
+        win32.title_bars(style.get_dark(), background, text)
         if exe:
             win32.window_icons(exe)
+
+    def restyled(*_args):
+        # the style's colours follow the scheme a moment later: now for the
+        # dark or light bar, again once the new colours can be read
+        native()
+        GLib.idle_add(lambda: native() and False)
 
     def added(model, position, _removed, count):
         for i in range(position, position + count):
             window = model.get_item(i)
             window.connect("map", native)
+            window.add_css_class("system-titlebar")     # the hairline under the title bar (below)
             winquirks.watch(window)     # GTK 4.24's restore and popover quirks (see winquirks.py)
 
+    # a hairline between the system's title bar and the content, in the text's
+    # colour, faint: on a screen where Windows stretches the window a line
+    # stood there by itself, and the edge it gave was liked
+    hairline = Gtk.CssProvider()
+    hairline.load_from_string("window.system-titlebar headerbar { box-shadow: inset 0 1px alpha(currentColor, 0.09); }")
+    Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), hairline,
+                                              Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
     toplevels = Gtk.Window.get_toplevels()
     added(toplevels, 0, 0, toplevels.get_n_items())
     toplevels.connect("items-changed", added)
-    style.connect("notify::dark", native)
+    for change in ("notify::dark", "notify::high-contrast", "notify::accent-color"):
+        style.connect(change, restyled)
 
 
 class SpolaApp(Adw.Application):

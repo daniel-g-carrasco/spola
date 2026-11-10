@@ -154,12 +154,19 @@ class MainWindow(_WindowBase):
                 return
             self.set_default_size(int(state["width"]), int(state["height"]))
             if state.get("maximized"):
-                self.maximize()
+                if WINDOWS:     # by Windows, not by GTK: see gui/winquirks.py
+                    from . import winquirks
+                    winquirks.maximize_at_start(self)
+                else:
+                    self.maximize()
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
 
     def save_state(self) -> None:
         width, height = self.get_default_size()
+        if WINDOWS:     # not the maximized size the workaround lends to GTK while maximized
+            from . import winquirks
+            width, height = winquirks.normal_size(self)
         state = {"version": STATE_VERSION, "width": width, "height": height, "maximized": self.is_maximized()}
         try:
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
@@ -192,8 +199,18 @@ class MainWindow(_WindowBase):
         section.append(_("About Spola"), "app.about")
         section.append(_("Quit"), "app.quit")
         menu.append_section(None, section)
-        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
-                                       tooltip_text=_("Main Menu"), primary=True))
+        menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu,
+                                     tooltip_text=_("Main Menu"), primary=True)
+        if WINDOWS:
+            # with the system's title bar the button is the last thing before
+            # the window's edge: the menu's arrow would stand on the menu's
+            # own rounded corner (and off it, with the window half off the
+            # screen). No arrow, the menu's edge on the button's, and the
+            # gap the arrow would have left between the two
+            menu_button.get_popover().set_has_arrow(False)
+            menu_button.get_popover().set_halign(Gtk.Align.END)
+            menu_button.get_popover().set_offset(0, 6)
+        header.pack_end(menu_button)
         view.add_top_bar(header)
         self.banner = AttentionBanner(self)
         view.add_top_bar(self.banner.widget)
