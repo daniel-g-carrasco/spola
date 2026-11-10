@@ -15,7 +15,7 @@ import gi
 gi.require_version("Gio", "2.0")
 from gi.repository import Gio, GLib  # noqa: E402
 
-from spola.tray import ITEM_PATH, WATCHER, MenuItem, TrayIcon  # noqa: E402
+from spola.gui.tray import ITEM_PATH, WATCHER, MenuItem, TrayIcon  # noqa: E402
 
 WATCHER_XML = """
 <node><interface name="org.kde.StatusNotifierWatcher">

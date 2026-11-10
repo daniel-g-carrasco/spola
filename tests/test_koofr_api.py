@@ -8,9 +8,9 @@ import urllib.request
 
 import _setup  # noqa: F401
 
-from spola import koofr_api
-from spola.config import Pair
-from spola.koofr_api import ACTIVITY_LIMIT, Activity, folder_url, touched_pairs, user_agent, web_url
+from spola.app import koofr_api
+from spola.app.config import Pair
+from spola.app.koofr_api import ACTIVITY_LIMIT, Activity, folder_url, touched_pairs, user_agent, web_url
 
 PAIRS = [Pair("work", "/h/data/work", "/data/work"), Pair("photos", "/h/p", "/data/media/photos"),
          Pair("test", "/h/s/t", "/spola-test")]
@@ -54,7 +54,7 @@ class TouchedPairsTest(unittest.TestCase):
     def test_share_page_not_the_direct_download(self):
         # what rclone link answers (Koofr: "Hotlinking not allowed" opened from
         # elsewhere), and the page to give to someone
-        from spola.koofr_api import share_page
+        from spola.app.koofr_api import share_page
         direct = "https://app.koofr.net/content/links/c5105097-fe92-4bf3-bc7d-56571582855d/files/get?path=%2F"
         self.assertEqual(share_page(direct), "https://app.koofr.net/links/c5105097-fe92-4bf3-bc7d-56571582855d")
         self.assertEqual(share_page("https://example.org/x"), "https://example.org/x")

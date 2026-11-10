@@ -16,7 +16,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola import file_managers as fm
+from spola.app import file_managers as fm
 
 USER_UCA = """<?xml version="1.0" encoding="UTF-8"?>
 <actions>

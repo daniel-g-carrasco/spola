@@ -10,12 +10,12 @@ from unittest import mock
 import _setup  # noqa: F401
 from gi.repository import GLib
 
-from spola import engine as engine_mod
-from spola.account import Credentials
-from spola.config import Config
-from spola.engine import Engine
-from spola.paths import Paths
-from spola.trash import Entry
+from spola.app import engine as engine_mod
+from spola.app.account import Credentials
+from spola.app.config import Config
+from spola.app.engine import Engine
+from spola.app.paths import Paths
+from spola.app.trash import Entry
 
 
 def spin_until(condition, timeout=3):

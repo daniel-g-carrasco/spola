@@ -6,8 +6,8 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola.config import Pair
-from spola.grouping import expected_remote, group_pairs
+from spola.app.config import Pair
+from spola.core.grouping import expected_remote, group_pairs
 
 H = "/home/u"
 

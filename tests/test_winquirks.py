@@ -16,7 +16,7 @@ if _setup.WINDOWS:
     gi.require_version("Adw", "1")
     from gi.repository import Adw, Gio, GLib, Gtk
 
-    from spola import winquirks
+    from spola.gui import winquirks
 
 SW_MAXIMIZE, SW_RESTORE = 3, 9
 

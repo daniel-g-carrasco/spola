@@ -16,7 +16,7 @@ import locale  # noqa: E402
 from gi.repository import GLib  # noqa: E402
 
 _before = locale.setlocale(locale.LC_ALL)
-from spola import wintray  # noqa: E402
+from spola.gui import wintray  # noqa: E402
 # GTK, initialised on import, sets the user's locale: the other tests read
 # numbers written as in the C locale ("2000", not "2 000")
 locale.setlocale(locale.LC_ALL, _before)

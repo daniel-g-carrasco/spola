@@ -6,8 +6,8 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola import filetree
-from spola.rclone import summarize
+from spola.core import filetree
+from spola.app.rclone import summarize
 from test_rclone import events
 
 

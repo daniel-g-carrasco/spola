@@ -16,9 +16,9 @@ from types import SimpleNamespace
 
 import _setup  # noqa: F401
 
-from spola.config import Pair
-from spola.dbus_service import SyncService, path_for, uri_for
-from spola.sharing import Link, Snapshot
+from spola.app.config import Pair
+from spola.app.dbus_service import SyncService, path_for, uri_for
+from spola.app.sharing import Link, Snapshot
 
 
 class FakeInvocation:
@@ -111,7 +111,7 @@ class ServiceTest(unittest.TestCase):
                                           (False, "sub/doc.odt")):
                 with self.subTest(method=method, initialized=initialized, relative=relative):
                     self.service.engine.cfg.pairs[0].initialized = initialized
-                    with mock.patch("spola.dbus_service.threading.Thread") as worker:
+                    with mock.patch("spola.app.dbus_service.threading.Thread") as worker:
                         inv = self.call(method, str(self.root / relative))
                     worker.assert_not_called()
                     self.assertFalse(self.shared)
@@ -124,7 +124,7 @@ class ServiceTest(unittest.TestCase):
                     self.told.clear()
 
     def test_every_share_route_respects_custom_exclusions(self):
-        from spola.paths import Paths
+        from spola.app.paths import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file("p1")
@@ -133,7 +133,7 @@ class ServiceTest(unittest.TestCase):
         self.service.engine.paths = paths
         self.service.engine.creds = SimpleNamespace(user="u", password="p")
         for method in ("Share", "ShowShareLink", "CreateShareLink"):
-            with self.subTest(method=method), mock.patch("spola.dbus_service.threading.Thread") as worker:
+            with self.subTest(method=method), mock.patch("spola.app.dbus_service.threading.Thread") as worker:
                 self.shared.clear()
                 inv = self.call(method, str(self.root / "confidential" / "secret.txt"))
                 self.assertFalse(self.shared)
@@ -147,7 +147,7 @@ class ServiceTest(unittest.TestCase):
 
     def _existing_link(self, link, before_reply=lambda: None):
         """The HTTP client is the external boundary; the service still runs its worker."""
-        from spola import sharing
+        from spola.app import sharing
         reads = []
         main_thread = threading.get_ident()
 
@@ -200,7 +200,7 @@ class ServiceTest(unittest.TestCase):
         context = GLib.MainContext.default()
         while context.pending():
             context.iteration(False)
-        with mock.patch("spola.sharing.time.time", return_value=1000) as now:
+        with mock.patch("spola.app.sharing.time.time", return_value=1000) as now:
             def wait_for_reply():
                 end = time.monotonic() + 2
                 while not context.pending() and time.monotonic() < end:
@@ -231,14 +231,14 @@ class VersionsServiceTest(unittest.TestCase):
     """Version 2: the kept copies over D-Bus, from the engine's index."""
 
     def setUp(self):
-        from spola import versions
+        from spola.app import versions
         self.tmp = tempfile.TemporaryDirectory()
         base = Path(self.tmp.name)
         self.root = base / "work"
         (self.root / "docs").mkdir(parents=True)
         (self.root / "relazione.odt").write_text("today")
         self.pair = Pair("p1", str(self.root), "/data/work", initialized=True)
-        from spola.paths import Paths
+        from spola.app.paths import Paths
         self.paths = Paths(base / "c", base / "s", base / "d")
         for rel, text in (("relazione.odt", "yesterday"), ("docs/via.txt", "gone")):
             (self.paths.backup_dir("p1") / "20261017-123000" / rel).parent.mkdir(parents=True, exist_ok=True)
@@ -298,8 +298,8 @@ class VersionsServiceTest(unittest.TestCase):
         # which no D-Bus string can hold: left out, the rest of the answer
         # goes (it failed whole, and the folder lost every emblem)
         import os
-        from spola import versions
-        from spola.dbus_service import sendable
+        from spola.app import versions
+        from spola.app.dbus_service import sendable
         bad = os.fsdecode(b"bad-\xff.txt")
         self.assertFalse(sendable(bad))
         self.assertTrue(sendable("relazione.odt"))

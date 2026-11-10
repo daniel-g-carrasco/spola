@@ -19,13 +19,15 @@ import sys
 import time
 from pathlib import Path
 
-from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__, config, jobs, koofr_api, listings, preflight, verify
-from .account import AccountError, Credentials, check
+from spola.app import config, jobs, koofr_api, preflight, verify
+from spola.data import listings
+from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__
+from spola.app.account import AccountError, Credentials, check
 from .i18n import _, ngettext
-from .paths import Paths
-from .rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
-                     default_excluded, find_rclone, koofr_env, summarize as rclone_summarize)
-from .runner import BisyncRun, PairBusy, release_pair_lock, take_pair_lock
+from spola.app.paths import Paths
+from spola.app.rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
+                              default_excluded, find_rclone, koofr_env, summarize as rclone_summarize)
+from spola.app.runner import BisyncRun, PairBusy, release_pair_lock, take_pair_lock
 
 COMMANDS = ("login", "logout", "status", "add", "remove", "preview", "align", "repair", "sync", "verify",
             "import-koofr-desktop", "forget-windows")
@@ -62,7 +64,7 @@ def _fail(message: str) -> int:
 
 
 def _credentials(cfg: config.Config, rclone: str) -> Credentials | None:
-    from . import secrets
+    from spola.app import secrets
     if DEV_REMOTE:
         return Credentials("dev@localhost", "")
     password = secrets.lookup(cfg.user) if cfg.user else None
@@ -177,7 +179,7 @@ def _forget_windows() -> int:
     out of File Explorer (the folders and their files stay as they are)."""
     if os.name != "nt":
         return 0
-    from . import cloudfiles, explorer
+    from spola.app import cloudfiles, explorer
     explorer.unregister()
     failed = []
     try:
@@ -243,7 +245,7 @@ def main(argv: list[str]) -> int:
         return _fail(_("Spola is running: use its window, or quit it first."))
 
     if args.command == "login":
-        from . import secrets
+        from spola.app import secrets
         print(_("Create an app password at {url}").format(url=KOOFR_APP_PASSWORDS_URL))
         user = input(_("Koofr e-mail: ")).strip()
         password = getpass.getpass(_("App password: "))
@@ -263,14 +265,14 @@ def main(argv: list[str]) -> int:
         return 0
 
     if args.command == "logout":
-        from . import secrets
+        from spola.app import secrets
         if cfg.user:
             secrets.clear(cfg.user)
         print(_("Signed out."))
         return 0
 
     if args.command == "import-koofr-desktop":
-        from . import migrate, secrets
+        from spola.app import migrate, secrets
         password = secrets.lookup(cfg.user) if cfg.user and not cfg.mount_id else None
         if password:
             # the account's own storage, to leave out the shared folders

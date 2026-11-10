@@ -9,8 +9,9 @@ from unittest import mock
 
 import _setup
 
-from spola import grouping, places, remote_folders
-from spola.config import Pair
+from spola.app import remote_folders
+from spola.core import grouping, places
+from spola.app.config import Pair
 
 
 class PlacesTest(unittest.TestCase):

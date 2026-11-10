@@ -11,9 +11,9 @@ from unittest import mock
 
 import _setup  # noqa: F401
 
-from spola import koofr_api
-from spola.config import Pair
-from spola.remote_folders import (CachedFolders, LocalFolders, blocked, ensure, resolve, suggestions)
+from spola.app import koofr_api
+from spola.app.config import Pair
+from spola.app.remote_folders import CachedFolders, LocalFolders, blocked, ensure, resolve, suggestions
 
 
 class Counting(LocalFolders):

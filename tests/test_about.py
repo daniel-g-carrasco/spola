@@ -22,9 +22,9 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola import window  # noqa: E402
-from spola.config import Config, Pair  # noqa: E402
-from spola.paths import Paths  # noqa: E402
+from spola.gui import window  # noqa: E402
+from spola.app.config import Config, Pair  # noqa: E402
+from spola.app.paths import Paths  # noqa: E402
 
 
 def spin(cond, timeout=10.0) -> bool:

@@ -22,9 +22,9 @@ if sys.platform != "win32":
 
 import winreg  # noqa: E402
 
-from spola import cloudfiles  # noqa: E402
-from spola.explorer_status import ExplorerStatus  # noqa: E402
-from spola.rclone import clean_env  # noqa: E402
+from spola.app import cloudfiles  # noqa: E402
+from spola.app.explorer_status import ExplorerStatus  # noqa: E402
+from spola.app.rclone import clean_env  # noqa: E402
 
 LISTED_NS = 1792054859704779200        # 2026-10-15T09:00:59.704779200 UTC
 LISTING = ('# bisync listing v1 from 2026-10-15T09:17:40.592143500+0000\n'

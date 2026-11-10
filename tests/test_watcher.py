@@ -12,7 +12,7 @@ from unittest import mock
 import _setup  # noqa: F401
 from gi.repository import GLib
 
-from spola import watcher
+from spola.app import watcher
 
 
 def spin(cond, timeout: float = 10.0) -> bool:

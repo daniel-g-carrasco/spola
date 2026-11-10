@@ -12,10 +12,10 @@ from pathlib import Path
 
 from _setup import FIXTURES
 
-from spola import listings
-from spola.config import Config, Pair, load, normalize_remote, save
-from spola.jobs import prune_backups
-from spola.paths import Paths, nearest_folder
+from spola.data import listings
+from spola.app.config import Config, Pair, load, normalize_remote, save
+from spola.app.jobs import prune_backups
+from spola.app.paths import Paths, nearest_folder
 
 
 class ListingTest(unittest.TestCase):
@@ -88,7 +88,7 @@ class ConfigTest(unittest.TestCase):
             self.assertNotIn("extra", data["pairs"][0])
 
     def test_the_previous_save_is_kept_and_used_when_the_file_is_damaged(self):
-        from spola.config import backup_file
+        from spola.app.config import backup_file
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             cfg = Config(user="me@example.com", pairs=[Pair("abc", "/h/d", "/d")])
@@ -133,7 +133,7 @@ class ConfigTest(unittest.TestCase):
                 self.assertEqual(load(path).notices[0].kind, "recovered", bad)
 
     def test_format_versions(self):
-        from spola import config as config_mod
+        from spola.app import config as config_mod
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             # a newer format: read for what is known, written back whole, said

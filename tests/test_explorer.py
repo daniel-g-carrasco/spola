@@ -11,10 +11,11 @@ from pathlib import Path
 
 import _setup
 
-from spola import explorer, places
-from spola.config import Pair
-from spola.paths import Paths
-from spola.rclone import clean_env, default_excluded
+from spola.app import explorer
+from spola.core import places
+from spola.app.config import Pair
+from spola.app.paths import Paths
+from spola.app.rclone import clean_env, default_excluded
 
 
 class LocateTest(unittest.TestCase):
@@ -49,13 +50,13 @@ class LocateTest(unittest.TestCase):
         self.assertIn("m1", folder_page)
 
     def test_no_link_for_what_is_not_synced(self):
-        from spola.rclone import default_excluded
+        from spola.app.rclone import default_excluded
         self.assertNotEqual(explorer.link_refusal(self.pair, ".spola-root", False, default_excluded), "")
         self.assertEqual(explorer.link_refusal(self.pair, "Sub dir/a.txt", False, default_excluded), "")
         self.assertEqual(explorer.link_refusal(self.pair, "", True, default_excluded), "")     # the folder itself
 
     def test_sharing_needs_a_confirmed_pair(self):
-        from spola.rclone import default_excluded
+        from spola.app.rclone import default_excluded
         self.pair.initialized = False
         self.assertNotEqual(explorer.link_refusal(self.pair, "Sub dir/a.txt", False, default_excluded), "")
         self.assertNotEqual(explorer.link_refusal(self.pair, "", True, default_excluded), "")

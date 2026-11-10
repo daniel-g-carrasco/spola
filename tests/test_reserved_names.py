@@ -10,10 +10,10 @@ from unittest import mock
 
 import _setup
 
-from spola import jobs
-from spola.config import Config, Pair
-from spola.paths import Paths
-from spola.rclone import Mode, clean_env, reserved_exclude_lines
+from spola.app import jobs
+from spola.app.config import Config, Pair
+from spola.app.paths import Paths
+from spola.app.rclone import Mode, clean_env, reserved_exclude_lines
 
 
 @unittest.skipUnless(_setup.rclone_binary(), "rclone")

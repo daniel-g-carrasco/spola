@@ -12,7 +12,7 @@ import _setup  # noqa: F401
 if sys.platform != "win32":
     raise unittest.SkipTest("the toasts of Windows")
 
-from spola import wintoast  # noqa: E402
+from spola.app import wintoast  # noqa: E402
 
 
 def vtable_function(obj, slot, prototype):
@@ -22,7 +22,7 @@ def vtable_function(obj, slot, prototype):
 
 class ToastTest(unittest.TestCase):
     def test_a_string_with_emoji_reaches_windows_whole(self):
-        from spola.cloudfiles import _hstring_text
+        from spola.app.cloudfiles import _hstring_text
         for text in ("C:\\Users\\Grasso\\Foto 😀 mare", "àèì 🇮🇹 ok", ""):
             with wintoast._HString(text) as handle:
                 self.assertEqual(_hstring_text(handle), text)

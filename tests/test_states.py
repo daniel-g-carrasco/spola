@@ -5,7 +5,7 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola.states import PathStates, State, ancestors_and_self
+from spola.core.states import PathStates, State, ancestors_and_self
 
 
 class StatesTest(unittest.TestCase):

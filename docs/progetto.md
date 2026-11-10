@@ -354,7 +354,11 @@ Struttura, sul modello di p7m-extractor e pdf-cropper:
 
 ```
 README.md, LICENSE (MIT, come le altre app e come rclone)
-src/<pacchetto>/          codice dell'app
+src/<pacchetto>/          codice dell'app, in quattro strati dal 10/11/2026 (appendice AQ):
+  core/                   la logica pura
+  data/                   i formati non di Spola (gli elenchi di bisync)
+  app/                    i servizi senza finestra (motore, rclone, Koofr, impostazioni, Windows)
+  gui/                    le finestre e il tray
 nautilus/                 estensione per Nautilus
 data/                     .desktop, metainfo, icone app, icone di stato, emblemi, servizio D-Bus
 po/                       traduzioni (sorgenti in inglese, italiano completo)
@@ -724,7 +728,7 @@ Due buchi nelle protezioni, rilevati dall'analisi del 17 ottobre (punti 2 e 3 de
 
 Su Lucciola (niri + Noctalia 5) l'icona SNI nell'area di notifica è l'unica presenza di Spola nella shell, e il tray di Noctalia ha il difetto #4537. Noctalia 5 ha un sistema di plugin in Luau (niente più QML): voci di barra con glifo, testo e tooltip, pannelli con UI dichiarativa `ui.*`, tile del centro di controllo, provider del launcher, servizi in sottofondo; API con processi (`runAsync` con argv), file, HTTP, stato condiviso fra le voci, traduzioni; niente D-Bus diretto né watch dei file. Modello: il plugin `keep_awake` di Lucciola.
 
-- **Spola scrive `status.json`** (`status.py`, `StatusFile` agganciato ai segnali del motore in `app.py`): nella cartella di stato, atomico, al massimo uno al secondo, e comunque ogni minuto come battito; rimosso all'uscita. Solo dati, niente parole: stati con i nomi del motore (il lettore traduce), messaggi già nella lingua dell'utente, avanzamento (frazione, byte, trasferimenti, ETA, eliminazioni in coda), spazio su Koofr, chi attende l'utente. Il pid è quello della sandbox, inutile fuori: un lettore prende per spento uno Spola il cui file ha più di tre minuti. Preferenza "Icona nell'area di notifica" (`tray_icon`, solo Linux): spenta, `app.apply_tray` ferma il tray; accesa, lo ricrea.
+- **Spola scrive `status.json`** (`status.py`, `StatusFile` agganciato ai segnali del motore in `app.py`, dal 10/11/2026 `gui/application.py`): nella cartella di stato, atomico, al massimo uno al secondo, e comunque ogni minuto come battito; rimosso all'uscita. Solo dati, niente parole: stati con i nomi del motore (il lettore traduce), messaggi già nella lingua dell'utente, avanzamento (frazione, byte, trasferimenti, ETA, eliminazioni in coda), spazio su Koofr, chi attende l'utente. Il pid è quello della sandbox, inutile fuori: un lettore prende per spento uno Spola il cui file ha più di tre minuti. Preferenza "Icona nell'area di notifica" (`tray_icon`, solo Linux): spenta, `app.apply_tray` ferma il tray; accesa, lo ricrea.
 - **Plugin `noctalia/spola/`** (id `daniel-g-carrasco/spola`, `plugin_api` 24 come `keep_awake`): `service.luau` guarda la data del file ogni 2 s (`fileInfo`), lo rilegge quando cambia (`readFileAsync`) e pubblica `spola.data` (JSON) e `spola.running`; le azioni arrivano su `spola.cmd` e diventano una chiamata `gdbus` ciascuna: `ShowWindow` e `SyncNow` dell'interfaccia `Sync1` già esistente, `ActivateAction` (`sync-all`, `pause-all`) e `Activate` (avvio via attivazione D-Bus) di `org.freedesktop.Application`. `indicator.luau`: nuvola Tabler per stato (`cloud-check`, `cloud-up` acceso in `primary`, `cloud-exclamation` in `tertiary` o `error`, `cloud-pause`, `cloud-off`), testo con percentuale o nome della cartella (impostazione), tooltip con una riga per cartella; clic apre il pannello, destro sincronizza tutto, centrale pausa/ripresa. `panel.luau`: intestazione con stato, spazio Koofr e pulsanti, una riga per cartella con barra di avanzamento e Sincronizza ora / Apri in Spola (Rivedi per chi attende l'utente). `tile.luau`: pausa e ripresa di tutto. `launcher.luau`: `/spola`, cartelle e azioni, parole nella ricerca globale. Traduzioni en/it; `noctalia plugins lint` pulito. Installazione: copia in `~/.local/share/noctalia/plugins/spola/` e un file TOML con il widget nella barra (README del plugin); da far seminare a Lucciola quando sarà stabile.
 
 ## Appendice AH. Il primo allineamento senza nulla da fare parte da solo (2026-10-17)
@@ -842,3 +846,27 @@ Le versioni dalla 0.3.34 alla 0.3.37 le ha scritte Codex il 29/10 (conferma dell
 **La condivisione:** il bundle di Koofr nomina un solo link per elemento, ma `GET /mounts/{id}/links` li ha tutti, e le versioni prima della 0.3.36 ne creavano uno a ogni "Copy Koofr Share Link": lo snapshot ha `other_links`, la finestra dice quanti sono e Revoke Link (`revoke_links`) li toglie tutti. Il link di una cartella superiore è descritto come quello proprio (`_link_description`: password, scadenza, pulsante download). I percorsi si confrontano senza maiuscole (`_same`, come `places.py`). Voce di menu "Share on Koofr…". Tolto `rclone.share_link`, `app._show_link`, `explorer.link_error`: nulla li usava più.
 
 Restano dalla verifica, non fatti: i limiti del piano Koofr in parole generiche (`passwordRequiredReason` non usato); un invito fallito lascia una condivisione vuota su Koofr; una pagina `/bundle` per livello all'apertura; "Request files" e la panoramica delle condivisioni (seconda consegna).
+
+## Appendice AQ. Il codice in quattro strati (2026-11-10)
+
+Daniel sta dando la stessa struttura a tutti i suoi programmi (Meridiana, il modello GTK, P7M Extractor, PDF Cropper, Cartiglio): quattro cartelle con gli import in un verso solo. **Il core non sa che esiste una finestra, la finestra non fa conti.** Spola è arrivata per ultima perché è la più grande: 55 moduli spostati, nessuna riga di logica cambiata.
+
+| Strato | Cosa contiene | Può importare |
+|---|---|---|
+| `core/` | `activity`, `filetree`, `grouping`, `places`, `progress`, `states`: da valori a valori | `core`, `i18n` |
+| `data/` | `listings`: gli elenchi che scrive rclone bisync | `data`, `i18n` |
+| `app/` | i servizi senza finestra: `engine`, `rclone`, `runner`, `jobs`, `preflight`, `config`, `paths`, `koofr_api`, `sharing`, `trash`, `versions`, `conflicts`, `verify`, `account`, `migrate`, `recent`, `remote_folders`, `status`, `updates`, `minisign`, `diagnostics`, `log`, `autostart`, `portal`, `secrets`, `sleep`, `watcher`, `dbus_service`, `file_managers`, e per Windows `win32`, `winwatch`, `winconditions`, `wintoast`, `explorer`, `explorer_status`, `cloudfiles` | `app`, `core`, `data`, i nomi del pacchetto |
+| `gui/` | `application` (era `app.py`), `window`, `ui`, `add_folder`, `import_dialog`, `sharing_dialog`, `update_dialog`, `plan_tree`, `trash_search`, `tray`, `wintray`, `winquirks` | tutto |
+| radice | `__init__` (i nomi e `PACKAGE_DIR`), `__main__`, `cli` (un ingresso come la finestra), `i18n` | |
+
+Un modulo è stato messo dove dice ciò che fa, non ciò che importa oggi: il motore usa il ciclo principale di GLib ma non è una finestra, quindi sta in `app/`.
+
+**La prova**: `tests/test_strati.py`, lo stesso file degli altri programmi. Legge gli import con l'AST e fallisce con file, riga e regola. Nessun import va contro il verso degli strati. Restano **13 debiti**, tutti dello stesso tipo: `gi` fuori da `gui/`. Nessuno è una finestra (GLib, Gio, GObject, libsecret; solo `diagnostics` legge le versioni di GTK). Sono scritti nell'elenco `DEBTS` della prova, che può solo accorciarsi, in tre gruppi:
+
+1. **Una chiamata ciascuno** (`core/progress`, `app/conflicts`, `app/diagnostics`, `cli`): si pagano con poche righe.
+2. **Timer e ritorni sul ciclo principale** (`app/status`, `app/winconditions`, `app/winwatch`, `app/engine`): si pagano quando il servizio riceve da fuori chi gli fa «chiama tra poco, chiama ogni tanto, annulla». Il motore è il debito grosso: 43 `GLib.idle_add`, 13 timer, i segnali di GObject.
+3. **Il servizio è l'oggetto di Gio** (`app/dbus_service`, `app/portal`, `app/sleep`, `app/watcher`, `app/secrets`): D-Bus, i monitor dei file, libsecret. Si pagano solo cambiando libreria; oppure Daniel decide che GLib e Gio senza GTK sono ammessi in `app/`, e questi cinque escono dall'elenco.
+
+**Come è stato fatto**: uno script sposta i moduli con `git mv` e riscrive solo gli import (`tools/strati/move_flat_package.py` e `plan_spola.py` nel modello `app-template`), un secondo fa le sei correzioni a mano (`apply_spola.py`): i due moduli che trovavano il checkout dal proprio posto ora lo chiedono al pacchetto (`PACKAGE_DIR`), un import dentro una stringa di una prova, una prova che leggeva i sorgenti per percorso, gli import nascosti di PyInstaller, l'elenco dei sorgenti di `compile_po.py`, i commenti di posizione di `it.po`.
+
+**Cosa è stato verificato** è nella tabella del modello (`app-template/docs/allineamento.md`).

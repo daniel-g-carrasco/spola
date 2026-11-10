@@ -12,11 +12,11 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-from spola.config import Config, Pair  # noqa: E402
-from spola import jobs  # noqa: E402
-from spola.paths import Paths  # noqa: E402
-from spola.preflight import root_identity, write_marker  # noqa: E402
-from spola.rclone import Mode, bisync_args, clean_env  # noqa: E402
+from spola.app.config import Config, Pair  # noqa: E402
+from spola.app import jobs  # noqa: E402
+from spola.app.paths import Paths  # noqa: E402
+from spola.app.preflight import root_identity, write_marker  # noqa: E402
+from spola.app.rclone import Mode, bisync_args, clean_env  # noqa: E402
 
 out = Path(sys.argv[1]).resolve()
 out.mkdir(parents=True, exist_ok=True)
@@ -59,7 +59,7 @@ run(Mode.SYNC, False, "windows-sync.jsonl")
 # -- an interrupted run, as Stop does it, then the next run --------------------------
 def interrupted(name):
     import time
-    from spola.runner import BisyncRun
+    from spola.app.runner import BisyncRun
     (local / "big.bin").write_bytes(os.urandom(3_000_000))
     job = jobs.prepare(cfg, pair, paths, Mode.SYNC, False, False, path2_override=str(remote))
     argv = bisync_args(rclone, job.request) + ["--bwlimit", "500k"]
@@ -79,7 +79,7 @@ def interrupted(name):
 
 
 
-from spola import win32  # noqa: E402
+from spola.app import win32  # noqa: E402
 try:
     interrupted("console" if win32.has_console() else "no-console")
 except Exception:

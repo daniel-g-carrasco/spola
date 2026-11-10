@@ -26,8 +26,9 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola import import_dialog, migrate, preflight  # noqa: E402
-from spola.config import Config  # noqa: E402
+from spola.app import migrate, preflight  # noqa: E402
+from spola.gui import import_dialog  # noqa: E402
+from spola.app.config import Config  # noqa: E402
 
 State = preflight.KoofrDesktopState
 

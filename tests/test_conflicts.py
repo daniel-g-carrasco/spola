@@ -9,7 +9,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola.conflicts import ResolveError, decide, difference, group, resolve
+from spola.app.conflicts import ResolveError, decide, difference, group, resolve
 
 
 class ConflictsTest(unittest.TestCase):

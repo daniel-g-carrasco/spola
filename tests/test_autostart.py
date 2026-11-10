@@ -7,7 +7,7 @@ import unittest
 
 import _setup
 
-from spola import autostart
+from spola.app import autostart
 
 
 @unittest.skipIf(_setup.WINDOWS, "the .desktop entry is Linux only (Windows: the Run key, below)")
@@ -47,7 +47,7 @@ class WindowsTest(unittest.TestCase):
     """The Run key and the Credential Manager, for real (a CI runner)."""
 
     def test_run_key(self):
-        from spola import win32
+        from spola.app import win32
         before = win32.autostart_command()
         self.addCleanup(win32.set_autostart, before)
         autostart.apply(True)
@@ -56,7 +56,7 @@ class WindowsTest(unittest.TestCase):
         self.assertIsNone(win32.autostart_command())
 
     def test_credential_manager(self):
-        from spola import secrets
+        from spola.app import secrets
         user = "spola-test@example.invalid"
         self.addCleanup(secrets.clear, user)
         self.assertIsNone(secrets.lookup(user))

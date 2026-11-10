@@ -17,6 +17,11 @@ shorter, are in the app's metainfo, which software centres show.
   disappears. Sync All and Pause moved next to Open Spola, which gives the
   status its whole line.
 
+### Changed
+- Nothing in what Spola does. Its code is now in four layers (core, data,
+  app, gui) with the imports going one way only, checked by a test, as in
+  my other apps: docs/progetto.md, appendix AQ.
+
 ## [0.3.41] - 2026-11-06
 
 ### Fixed

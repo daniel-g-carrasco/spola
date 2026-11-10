@@ -7,7 +7,7 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola import minisign
+from spola.app import minisign
 
 # a key of the tests' own (minisign -G -W), never Spola's
 PUBLIC_KEY = "RWR7SJiRpYyOYfMs5NsaotSrG3B4wGxiTvXOWkzu4JCT3e240QSuHElq"
@@ -71,7 +71,7 @@ class MinisignTest(unittest.TestCase):
         with self.assertRaisesRegex(minisign.SignatureError, "trusted comment"):
             minisign.verify(digest_of(PAYLOAD), "\n".join(lines), PUBLIC_KEY)
         # Spola's own key: not the one that signed it
-        from spola import updates
+        from spola.app import updates
         with self.assertRaisesRegex(minisign.SignatureError, "another key"):
             minisign.verify(digest_of(PAYLOAD), SIGNED_V9, updates.PUBLIC_KEY)
         # the legacy form, over the whole file

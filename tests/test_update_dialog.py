@@ -21,8 +21,8 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola import updates  # noqa: E402
-from spola.update_dialog import UpdateDialog  # noqa: E402
+from spola.app import updates  # noqa: E402
+from spola.gui.update_dialog import UpdateDialog  # noqa: E402
 
 
 class FocusTest(unittest.TestCase):
@@ -37,7 +37,7 @@ class FocusTest(unittest.TestCase):
         from unittest import mock
         dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", "", []))
         dialog._cancel.set()            # "Later" (the dialog closed) once the last chunk was in
-        with mock.patch("spola.update_dialog.subprocess.Popen") as popen:
+        with mock.patch("spola.gui.update_dialog.subprocess.Popen") as popen:
             dialog._downloaded(Path("spola-setup-v99.0.0-windows-x64.exe"))
         popen.assert_not_called()
 

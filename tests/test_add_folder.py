@@ -25,8 +25,8 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola.add_folder import AddFolderDialog  # noqa: E402
-from spola.config import Config  # noqa: E402
+from spola.gui.add_folder import AddFolderDialog  # noqa: E402
+from spola.app.config import Config  # noqa: E402
 
 
 class AddButtonTest(unittest.TestCase):
