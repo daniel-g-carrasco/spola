@@ -12,12 +12,11 @@ from pathlib import Path
 
 import _setup
 
-from spola.config import Config, Pair
-from spola.preflight import (
-    CaseRename, case_renames, check_koofr_desktop, check_local_root, check_overlap, check_root_identity,
-    Refused, refused_paths, refused_reason, rename_plan, root_identity, scan_names,
-)
-from spola.rclone import exclude_lines, filter_escape
+from spola.app.config import Config, Pair
+from spola.app.preflight import (CaseRename, case_renames, check_koofr_desktop, check_local_root, check_overlap,
+                                 check_root_identity, Refused, refused_paths, refused_reason, rename_plan,
+                                 root_identity, scan_names)
+from spola.app.rclone import exclude_lines, filter_escape
 
 
 def codes(problems):
@@ -77,7 +76,7 @@ class WindowsRootTest(unittest.TestCase):
         self.assertEqual(codes(check_local_root(windows, home)), ["outside-home"])
 
     def test_home_is_the_profile_whatever_home_says(self):
-        from spola.preflight import home_dir
+        from spola.app.preflight import home_dir
         profile = os.path.expanduser("~")
         environ = {"USERPROFILE": profile, "HOME": "C:\\msys64\\home\\someone"}
         self.assertEqual(os.path.normcase(home_dir(environ)), os.path.normcase(os.path.realpath(profile)))
@@ -116,7 +115,7 @@ class KoofrDesktopTest(unittest.TestCase):
 
     @unittest.skipIf(_setup.WINDOWS, "the .desktop autostart is Linux only (Windows: test_windows_processes)")
     def test_koofr_desktop_autostart_counts_as_active(self):
-        from spola.preflight import koofr_desktop_active
+        from spola.app.preflight import koofr_desktop_active
         entry = "[Desktop Entry]\nName=Koofr\nExec=/home/u/.koofr-dist/storagegui -silent\n"
         with tempfile.TemporaryDirectory() as tmp:
             auto, logs = Path(tmp) / "autostart", Path(tmp) / "log"
@@ -145,7 +144,7 @@ class KoofrDesktopTest(unittest.TestCase):
     def test_koofr_desktop_login_entries_by_program(self):
         # never any "koofr" in the text: a profile called so is in every
         # entry, Spola's own too, which would be "turned off" with Koofr's
-        from spola.preflight import _starts_koofr_desktop as starts
+        from spola.app.preflight import _starts_koofr_desktop as starts
         self.assertTrue(starts(r"Koofr C:\Users\u\AppData\Local\koofr\storagegui.exe"))
         self.assertTrue(starts("L\x00C:\\Users\\u\\AppData\\Local\\koofr\\storagegui.exe\x00\x00"))     # a .lnk
         self.assertTrue(starts(r'Koofr "C:\Program Files\Koofr\Koofr.exe" --minimized'))
@@ -154,7 +153,7 @@ class KoofrDesktopTest(unittest.TestCase):
 
     @unittest.skipUnless(_setup.WINDOWS, "Windows only")
     def test_windows_processes_and_login_commands(self):
-        from spola import win32
+        from spola.app import win32
         names = win32.process_names()
         self.assertTrue(any(name.startswith("python") for name in names), sorted(names)[:20])
         self.assertIsInstance(win32.login_commands(), list)
@@ -164,7 +163,7 @@ class KoofrDesktopTest(unittest.TestCase):
         # Koofr Desktop's installer puts Koofr.lnk in the Startup folder; a
         # shortcut renamed still points to storagegui.exe, and one turned off
         # in Task Manager (StartupApproved, first byte odd) starts nothing
-        from spola import win32
+        from spola.app import win32
         target = r"C:\Users\u\AppData\Local\koofr\storagegui.exe"
         lnk = b"L\x00\x00\x00" + b"\x00" * 72 + target.encode("utf-16-le") + b"\x00\x00"
         with tempfile.TemporaryDirectory() as tmp:
@@ -184,7 +183,7 @@ class KoofrDesktopTest(unittest.TestCase):
     def test_windows_turn_off_as_task_manager_does(self):
         # a value of our own in the user's StartupApproved\Run, removed after
         import winreg
-        from spola import win32
+        from spola.app import win32
         name = f"spola-test-{os.getpid()}"
         entry = win32.LoginEntry("x", winreg.HKEY_CURRENT_USER, "Run", name)
         path = win32.APPROVED_KEY + "\\Run"
@@ -200,13 +199,13 @@ class KoofrDesktopTest(unittest.TestCase):
                 winreg.DeleteValue(key, name)
 
     def test_koofr_desktop_state(self):
-        from spola.preflight import KoofrDesktopState
+        from spola.app.preflight import KoofrDesktopState
         self.assertFalse(KoofrDesktopState(False, False).active)
         self.assertTrue(KoofrDesktopState(True, False).active)
         self.assertTrue(KoofrDesktopState(False, True).active)
 
     def test_koofr_desktop_config_path(self):
-        from spola import preflight
+        from spola.app import preflight
         saved = os.environ.get("APPDATA")
         try:
             os.environ["APPDATA"] = os.path.join(tempfile.gettempdir(), "Roaming")
@@ -224,7 +223,7 @@ class KoofrDesktopTest(unittest.TestCase):
     @unittest.skipIf(_setup.WINDOWS, "on Windows its processes are in sight: the logs do not count")
     def test_koofr_desktop_logs_written_lately_mean_it_runs(self):
         # inside the Flatpak the host's processes are not visible: its logs are
-        from spola.preflight import KOOFR_DESKTOP_LOG_FRESH_S, koofr_desktop_active
+        from spola.app.preflight import KOOFR_DESKTOP_LOG_FRESH_S, koofr_desktop_active
         with tempfile.TemporaryDirectory() as tmp:
             auto, logs = Path(tmp) / "autostart", Path(tmp) / "log"
             auto.mkdir()
@@ -240,7 +239,7 @@ class KoofrDesktopTest(unittest.TestCase):
 
     @unittest.skipIf(_setup.WINDOWS, "the Flatpak is Linux only")
     def test_host_config_dir_inside_the_flatpak(self):
-        from spola import preflight
+        from spola.app import preflight
         saved = {k: os.environ.get(k) for k in ("FLATPAK_ID", "XDG_CONFIG_HOME", "HOST_XDG_CONFIG_HOME")}
         try:
             os.environ["FLATPAK_ID"] = "io.example"
@@ -418,7 +417,7 @@ class RefusedPathsTest(unittest.TestCase):
 
     def test_exclude_patterns_are_literal(self):
         self.assertEqual(filter_escape("a[1]*?{x}.txt"), "/a\\[1\\]\\*\\?\\{x\\}.txt")
-        from spola.preflight import Refused
+        from spola.app.preflight import Refused
         self.assertEqual(exclude_lines([Refused("d \U0001F334", True, "emoji"), Refused("f.txt", False, "emoji")]),
                          "/d \U0001F334/**\n/f.txt\n")
         self.assertEqual(exclude_lines([]), "")
@@ -433,7 +432,7 @@ class JunctionTest(unittest.TestCase):
         # rclone (--skip-links) never goes through an NTFS junction; Spola's
         # own walks went in, and saw files no run syncs (B-02)
         import subprocess
-        from spola import jobs
+        from spola.app import jobs
         with tempfile.TemporaryDirectory() as tmp:
             root, outside = Path(tmp) / "pair", Path(tmp) / "outside"
             (root / "sub").mkdir(parents=True)

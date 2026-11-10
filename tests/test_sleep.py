@@ -10,7 +10,7 @@ import _setup  # noqa: F401
 if sys.platform == "win32":
     raise unittest.SkipTest("logind is Linux only")
 
-from spola.sleep import SleepWatch  # noqa: E402
+from spola.app.sleep import SleepWatch  # noqa: E402
 
 
 class SleepTest(unittest.TestCase):

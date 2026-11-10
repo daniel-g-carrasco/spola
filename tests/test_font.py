@@ -21,7 +21,7 @@ locale.setlocale(locale.LC_ALL, _before)
 if not initialised or Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola.app import larger_system_font  # noqa: E402
+from spola.gui.application import larger_system_font  # noqa: E402
 
 
 class FontTest(unittest.TestCase):

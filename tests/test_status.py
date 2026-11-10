@@ -10,9 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import _setup  # noqa: F401
-from spola import status
-from spola.config import Config, Pair
-from spola.engine import Status
+from spola.app import status
+from spola.app.config import Config, Pair
+from spola.app.engine import Status
 
 
 def fake_engine():

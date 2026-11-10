@@ -8,8 +8,8 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola.config import Config, Pair
-from spola.migrate import KoofrDesktopActive, candidates, import_koofr_desktop, problem_of
+from spola.app.config import Config, Pair
+from spola.app.migrate import KoofrDesktopActive, candidates, import_koofr_desktop, problem_of
 
 
 class ImportTest(unittest.TestCase):

@@ -16,12 +16,12 @@ import _setup
 if sys.platform != "win32":
     raise unittest.SkipTest("Windows only")
 
-from spola import win32  # noqa: E402
+from spola.app import win32  # noqa: E402
 
 CHILD = textwrap.dedent("""
     import os, subprocess, sys, time
     sys.path.insert(0, {src!r})
-    from spola import win32
+    from spola.app import win32
     assert not win32.has_console()
     env = {{k: v for k, v in os.environ.items() if not k.startswith("RCLONE_")}}
     p = subprocess.Popen([{rclone!r}, "rcd", "--rc-addr", "127.0.0.1:0", "--rc-no-auth", "-v"],

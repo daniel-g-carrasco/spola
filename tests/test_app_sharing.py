@@ -17,8 +17,8 @@ except (ImportError, ValueError):
 
 from gi.repository import GLib
 
-from spola.app import SpolaApp
-from spola.config import Pair
+from spola.gui.application import SpolaApp
+from spola.app.config import Pair
 
 
 class SharingRoutesTest(unittest.TestCase):
@@ -51,7 +51,7 @@ class SharingRoutesTest(unittest.TestCase):
     def invoke(self, name, path):
         options = GLib.VariantDict.new(None)
         options.insert_value(name, GLib.Variant("s", path))
-        with mock.patch.dict("sys.modules", {"spola.sharing_dialog": self.dialog_module}):
+        with mock.patch.dict("sys.modules", {"spola.gui.sharing_dialog": self.dialog_module}):
             return self.app.do_command_line(SimpleNamespace(get_options_dict=lambda: options))
 
     def test_new_and_legacy_options_open_read_only_dialog_for_remote_path(self):
@@ -79,7 +79,7 @@ class SharingRoutesTest(unittest.TestCase):
                 self.assertEqual(len(self.told), 1)
 
     def test_custom_exclusions_are_refused_before_dialog_loading(self):
-        from spola.paths import Paths
+        from spola.app.paths import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file(self.pair.id)
@@ -91,7 +91,7 @@ class SharingRoutesTest(unittest.TestCase):
         self.assertEqual(len(self.told), 1)
 
     def test_unreadable_exclusions_do_not_open_sharing(self):
-        from spola.paths import Paths
+        from spola.app.paths import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file(self.pair.id)

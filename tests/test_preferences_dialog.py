@@ -22,8 +22,8 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola import window  # noqa: E402
-from spola.config import Config  # noqa: E402
+from spola.gui import window  # noqa: E402
+from spola.app.config import Config  # noqa: E402
 
 
 class PreferencesDialogTest(unittest.TestCase):

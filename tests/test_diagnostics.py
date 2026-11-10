@@ -6,9 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import _setup  # noqa: F401
-from spola import diagnostics
-from spola.config import Config, Pair
-from spola.paths import Paths
+from spola.app import diagnostics
+from spola.app.config import Config, Pair
+from spola.app.paths import Paths
 
 
 class DiagnosticsTest(unittest.TestCase):

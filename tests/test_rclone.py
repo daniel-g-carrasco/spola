@@ -7,12 +7,10 @@ from pathlib import Path
 
 from _setup import fixture_lines
 
-from spola.rclone import (
-    DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode, Plan, Result,
-    bisync_args, clean_env, confirmed_max_delete, conflict_suffix, default_excluded, describe, effective_max_delete,
-    exclude_lines, excluded_by, fold_case_renames,
-    koofr_env, parse_line, relative_path, remote_spec, summarize,
-)
+from spola.app.rclone import (DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode,
+                              Plan, Result, bisync_args, clean_env, confirmed_max_delete, conflict_suffix,
+                              default_excluded, describe, effective_max_delete, exclude_lines, excluded_by,
+                              fold_case_renames, koofr_env, parse_line, relative_path, remote_spec, summarize)
 
 
 def request(**kw):
@@ -171,7 +169,7 @@ class ParseTest(unittest.TestCase):
         # preview plans the renamed folder as deleted and uploaded again (Koofr
         # cannot tell the two names apart); the run, with the folder renamed
         # on Koofr first, finds both sides the same. Both say one move.
-        from spola.preflight import CaseRename
+        from spola.app.preflight import CaseRename
         roots = ("/home/user/scratch/spola-case-probe/local/", "koofr:case-rename")
         renames = [CaseRename("Screencasts", "screencasts", "Screencasts")]
         moves = [("00. Screen/screen-0.mp4", "screencasts/screen-0.mp4"),
@@ -216,7 +214,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(summarize(0, events("koofr-sync.jsonl"), "/home/user/x/", "koofr:x").safety, "")
 
     def test_the_deletion_limit_has_a_floor_and_a_cap(self):
-        from spola.rclone import MAX_FREE_DELETES, MIN_FREE_DELETES, allowed_changes
+        from spola.app.rclone import MAX_FREE_DELETES, MIN_FREE_DELETES, allowed_changes
         self.assertEqual(effective_max_delete(10, 20), 25)                  # 5 files of 20 may go
         self.assertEqual(effective_max_delete(10, 1000), 10)
         self.assertEqual(effective_max_delete(10, 42579), 2)                # not 4,257 files unasked
@@ -229,7 +227,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(allowed_changes(10, 42579), 500)                   # the cap
 
     def test_a_confirmed_run_may_change_what_its_preview_showed_and_little_more(self):
-        from spola.rclone import confirmed_max_changes
+        from spola.app.rclone import confirmed_max_changes
         plan = Plan(upload=["a", "b", "c", "new1", "new2"])
         bases = ({"a": 1, "b": 1, "c": 1, "d": 1}, {})                       # here: a, b, c changed; the rest new
         self.assertEqual(confirmed_max_changes(plan, bases), 5)
@@ -265,7 +263,7 @@ class ParseTest(unittest.TestCase):
         self.assertEqual(out.plan.delete_remote, ["back\\slash.txt", "plain.txt", 'quote "q".txt'])
 
     def test_a_control_character_in_a_left_out_name_cannot_split_the_rules(self):
-        from spola.preflight import Refused
+        from spola.app.preflight import Refused
         self.assertEqual(exclude_lines([Refused("new\nline.txt", False, "emoji"), Refused("tab\there", True, "emoji")]),
                          "/new?line.txt\n/tab?here/**\n")
 
@@ -283,7 +281,7 @@ class ParseTest(unittest.TestCase):
         bisync_args("rclone", request(extra_test_flags=["--conflict-loser", "num"]))     # the one Spola uses
 
     def test_a_pairs_own_exclusions(self):
-        from spola.jobs import exclusion_patterns
+        from spola.app.jobs import exclusion_patterns
         patterns = exclusion_patterns("# mine\n- *.tmp\n+ keep.tmp\n- build/**\n-  /Trash/**\n")
         self.assertEqual(patterns, ["*.tmp", "build/**", "/Trash/**"])
         self.assertTrue(excluded_by("a/b.tmp", patterns))
@@ -419,7 +417,7 @@ class FindRcloneTest(unittest.TestCase):
         import tempfile
         from unittest import mock
 
-        from spola import rclone as rclone_mod
+        from spola.app import rclone as rclone_mod
         with (tempfile.TemporaryDirectory() as tmp,
               mock.patch.dict(os.environ, {"SPOLA_RCLONE": "C:/elsewhere/rclone.exe"}),
               mock.patch.object(sys, "frozen", True, create=True),

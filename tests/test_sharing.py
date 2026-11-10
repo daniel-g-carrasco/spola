@@ -10,7 +10,7 @@ from dataclasses import replace
 from unittest.mock import patch
 
 import _setup  # noqa: F401
-from spola import sharing
+from spola.app import sharing
 
 
 VIEWER = {"READ": True, "WRITE": False, "COMMENT": False, "MOUNT": False,

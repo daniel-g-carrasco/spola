@@ -9,8 +9,8 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 from _setup import rclone_binary
-from spola import verify
-from spola.rclone import DEFAULT_FILTERS, BisyncRequest, Event, Kind, Mode, Result, clean_env, parse_line
+from spola.app import verify
+from spola.app.rclone import DEFAULT_FILTERS, BisyncRequest, Event, Kind, Mode, Result, clean_env, parse_line
 
 RCLONE = rclone_binary()
 

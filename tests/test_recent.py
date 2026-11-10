@@ -10,7 +10,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola.recent import Recent, transferring
+from spola.app.recent import Recent, transferring
 
 
 class RecentTest(unittest.TestCase):

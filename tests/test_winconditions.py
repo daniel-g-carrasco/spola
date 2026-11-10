@@ -10,7 +10,7 @@ import _setup  # noqa: F401
 if sys.platform != "win32":
     raise unittest.SkipTest("Windows only")
 
-from spola import winconditions as wc  # noqa: E402
+from spola.app import winconditions as wc  # noqa: E402
 
 
 class ConditionsTest(unittest.TestCase):

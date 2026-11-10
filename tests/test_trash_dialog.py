@@ -23,13 +23,13 @@ locale.setlocale(locale.LC_ALL, _before)
 if Gdk.Display.get_default() is None:
     raise unittest.SkipTest("no display")
 
-from spola.account import Credentials  # noqa: E402
-from spola.config import Config, Pair  # noqa: E402
-from spola.engine import Engine  # noqa: E402
-from spola import engine as engine_mod  # noqa: E402
-from spola.paths import Paths  # noqa: E402
-from spola.trash import Entry  # noqa: E402
-from spola.window import TrashDialog, VersionsDialog  # noqa: E402
+from spola.app.account import Credentials  # noqa: E402
+from spola.app.config import Config, Pair  # noqa: E402
+from spola.app.engine import Engine  # noqa: E402
+from spola.app import engine as engine_mod  # noqa: E402
+from spola.app.paths import Paths  # noqa: E402
+from spola.app.trash import Entry  # noqa: E402
+from spola.gui.window import TrashDialog, VersionsDialog  # noqa: E402
 from test_trash_search import spin_until  # noqa: E402
 
 

@@ -21,7 +21,7 @@ def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] in COMMANDS + ("-h", "--help", "--version"):
         from .cli import main as cli_main
         return cli_main(sys.argv[1:])
-    from .app import main as app_main
+    from spola.gui.application import main as app_main
     return app_main(sys.argv)
 
 

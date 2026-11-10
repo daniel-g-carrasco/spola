@@ -40,8 +40,8 @@ def snapshot(**changes):
 
 class SharingDialogTest(unittest.TestCase):
     def setUp(self):
-        self.assertIsNotNone(importlib.util.find_spec("spola.sharing_dialog"), "sharing dialog is implemented")
-        from spola import sharing_dialog
+        self.assertIsNotNone(importlib.util.find_spec("spola.gui.sharing_dialog"), "sharing dialog is implemented")
+        from spola.gui import sharing_dialog
         self.ui = sharing_dialog
         self.jobs = []
         self.client = mock.Mock()

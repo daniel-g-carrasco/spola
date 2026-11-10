@@ -6,7 +6,7 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola.progress import progress_text, time_left
+from spola.core.progress import progress_text, time_left
 
 
 class ProgressTest(unittest.TestCase):

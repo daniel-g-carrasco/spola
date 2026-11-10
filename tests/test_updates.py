@@ -12,7 +12,7 @@ from unittest import mock
 import _setup  # noqa: F401
 from test_minisign import PAYLOAD, PUBLIC_KEY, SIGNED_V8, SIGNED_V9
 
-from spola import updates
+from spola.app import updates
 
 DOWNLOADS = "https://github.com/daniel-g-carrasco/spola/releases/download/v0.4.0/"
 RELEASE = {

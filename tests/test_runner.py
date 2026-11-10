@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest import mock
 
 import _setup  # noqa: F401
-from spola import runner
-from spola.runner import BisyncRun, newest_log
+from spola.app import runner
+from spola.app.runner import BisyncRun, newest_log
 
 SCRIPT = r'''
 import json, sys

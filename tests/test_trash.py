@@ -10,8 +10,9 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 
-from spola import koofr_api, listings, trash
-from spola.trash import Entry
+from spola.app import koofr_api, trash
+from spola.data import listings
+from spola.app.trash import Entry
 
 
 class FakeTrash:

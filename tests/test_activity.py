@@ -7,9 +7,9 @@ import unittest
 
 import _setup  # noqa: F401
 
-from spola import activity as act
-from spola.engine import Engine
-from spola.rclone import parse_line, relative_path
+from spola.core import activity as act
+from spola.app.engine import Engine
+from spola.app.rclone import parse_line, relative_path
 
 ROOTS = ["/home/u/work/", "koofr:data/work"]
 

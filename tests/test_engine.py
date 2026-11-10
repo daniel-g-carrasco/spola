@@ -19,19 +19,21 @@ from _setup import rclone_binary
 
 from gi.repository import GLib
 
-from spola import engine as engine_mod
-from spola import trash as trash_mod
-from spola import filetree, koofr_api
-from spola.account import Credentials, Quota
-from spola.config import Config, Pair
-from spola.conflicts import decide
-from spola.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
-from spola.paths import Paths
-from spola import preflight
-from spola.preflight import rename_plan, root_identity
-from spola import jobs, listings
-from spola import versions as versions_mod
-from spola.rclone import Mode, Result
+from spola.app import engine as engine_mod
+from spola.app import trash as trash_mod
+from spola.app import koofr_api
+from spola.core import filetree
+from spola.app.account import Credentials, Quota
+from spola.app.config import Config, Pair
+from spola.app.conflicts import decide
+from spola.app.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
+from spola.app.paths import Paths
+from spola.app import preflight
+from spola.app.preflight import rename_plan, root_identity
+from spola.app import jobs
+from spola.data import listings
+from spola.app import versions as versions_mod
+from spola.app.rclone import Mode, Result
 
 RCLONE = rclone_binary()
 
@@ -206,7 +208,7 @@ class EngineTest(unittest.TestCase):
             koofr_api.activity, koofr_api.primary_mount_id = orig
 
     def test_changed_exclusions_need_a_repair_shown_as_a_preview(self):
-        from spola.jobs import read_filters
+        from spola.app.jobs import read_filters
         self.align()
         (self.local / "secret.tmp").write_text("x")
         (self.local / "shown.txt").write_text("y")
@@ -1350,7 +1352,7 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: (self.remote / "new.txt").exists() and self.status() is Status.OK, 60))
 
     def test_the_status_file_follows_the_engine(self):
-        from spola import status as status_mod
+        from spola.app import status as status_mod
         status_mod.DEBOUNCE_MS = 100
         self.addCleanup(setattr, status_mod, "DEBOUNCE_MS", 1000)
         path = self.engine.paths.state / "status.json"
@@ -1397,7 +1399,7 @@ class EngineTest(unittest.TestCase):
     def test_many_files_changed_here_at_once_wait_for_a_confirmation(self):
         # a snapshot put back, a bulk edit: the files changed here would go up
         # over Koofr's copies; above the threshold the run does not start
-        from spola import rclone as rclone_mod
+        from spola.app import rclone as rclone_mod
         rclone_mod.MIN_FREE_CHANGES = 3
         self.addCleanup(setattr, rclone_mod, "MIN_FREE_CHANGES", 50)
         self.align()
@@ -1668,7 +1670,7 @@ class HelpersTest(unittest.TestCase):
             self.assertEqual(jobs.backups_older_than(paths, "none", 3, now), (0, 0))
 
     def test_conflict_words_follow_the_chosen_language(self):
-        from spola.jobs import conflict_words
+        from spola.app.jobs import conflict_words
         if not (Path(__file__).resolve().parent.parent / "locale/it/LC_MESSAGES/spola.mo").exists():
             self.skipTest("run tools/compile_po.py first")
         self.assertEqual(conflict_words("it"), ("conflitto-locale", "conflitto-koofr"))

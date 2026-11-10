@@ -19,8 +19,8 @@ if sys.platform != "win32":
 
 from gi.repository import GLib  # noqa: E402
 
-from spola import watcher, winwatch  # noqa: E402
-from spola.rclone import default_excluded  # noqa: E402
+from spola.app import watcher, winwatch  # noqa: E402
+from spola.app.rclone import default_excluded  # noqa: E402
 
 
 def handles() -> int:

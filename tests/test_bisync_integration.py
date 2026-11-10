@@ -16,12 +16,12 @@ from pathlib import Path
 import _setup
 from _setup import rclone_binary
 
-from spola import jobs
-from spola.config import Config, Pair
-from spola.paths import Paths
-from spola.preflight import root_identity
-from spola.rclone import Kind, Mode, Result, bisync_args, clean_env
-from spola.runner import BisyncRun, PairBusy
+from spola.app import jobs
+from spola.app.config import Config, Pair
+from spola.app.paths import Paths
+from spola.app.preflight import root_identity
+from spola.app.rclone import Kind, Mode, Result, bisync_args, clean_env
+from spola.app.runner import BisyncRun, PairBusy
 
 RCLONE = rclone_binary()
 
@@ -133,7 +133,7 @@ class BisyncScenarios(unittest.TestCase):
         self.assertEqual((self.remote / "notes.txt").read_text(), "only here changed")
 
     def test_resolving_a_conflict_reaches_the_other_side(self):
-        from spola import conflicts
+        from spola.app import conflicts
         self.write(self.local, "doc.odt", "base", age=600)
         for i in range(5):
             self.write(self.local, f"keep{i}.txt", "same", age=600)

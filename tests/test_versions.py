@@ -14,10 +14,10 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 from _setup import rclone_binary
-from spola import jobs, versions
-from spola.config import Config, Pair
+from spola.app import jobs, versions
+from spola.app.config import Config, Pair
 from spola.i18n import translation_for
-from spola.paths import Paths
+from spola.app.paths import Paths
 
 RUN1, RUN2 = "20261015-090000", "20261017-123000"
 # the Italian names need the compiled catalogue (tools/compile_po.py): CI may not have it
@@ -149,15 +149,15 @@ class VersionsTest(unittest.TestCase):
         # criterion: no path deletes a kept copy but the retention. The one
         # rmtree on the backups is in jobs.prune_backups; versions.py has none.
         src = Path(_setup.ROOT) / "src" / "spola"
-        text = (src / "versions.py").read_text(encoding="utf-8")
+        text = (src / "app" / "versions.py").read_text(encoding="utf-8")
         self.assertNotIn("rmtree", text)
         self.assertFalse(re.search(r"\.unlink\((?!tmp)", text.replace("os.unlink(tmp)", "")))
-        for path in src.glob("*.py"):
+        for path in src.rglob("*.py"):
             body = path.read_text(encoding="utf-8")
             if "backup_dir" in body and re.search(r"rmtree\(", body):
                 self.assertIn(path.name, ("jobs.py", "paths.py"), path)
-        self.assertNotIn("delete_backup_run", (src / "jobs.py").read_text(encoding="utf-8")
-                         + (src / "window.py").read_text(encoding="utf-8"))
+        self.assertNotIn("delete_backup_run", (src / "app" / "jobs.py").read_text(encoding="utf-8")
+                         + (src / "gui" / "window.py").read_text(encoding="utf-8"))
 
 
 @unittest.skipUnless(rclone_binary(), "rclone not found")
@@ -167,8 +167,8 @@ class RealRunTest(unittest.TestCase):
     under their own path and name, and the manifest tells them apart."""
 
     def test_a_real_run(self):
-        from spola.preflight import root_identity
-        from spola.rclone import Mode, bisync_args, clean_env, parse_line, summarize
+        from spola.app.preflight import root_identity
+        from spola.app.rclone import Mode, bisync_args, clean_env, parse_line, summarize
         tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
         local, remote = tmp / "local", tmp / "remote"
         (local / "docs").mkdir(parents=True)

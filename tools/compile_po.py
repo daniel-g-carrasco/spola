@@ -18,7 +18,7 @@ DOMAIN = "spola"
 
 def update() -> None:
     pot = ROOT / "po" / f"{DOMAIN}.pot"
-    sources = sorted(str(p.relative_to(ROOT)) for p in [*(ROOT / "src" / "spola").glob("*.py"),
+    sources = sorted(str(p.relative_to(ROOT)) for p in [*(ROOT / "src" / "spola").rglob("*.py"),
                                                           *(ROOT / "extensions").glob("*.py")])
     subprocess.run(["xgettext", "--language=Python", "--keyword=_", "--keyword=ngettext:1,2", "--keyword=pgettext:1c,2", "--keyword=N_",
                     "--keyword=tr",     # tr = translation_for(language).gettext: a name in a chosen language
