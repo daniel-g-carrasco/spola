@@ -118,6 +118,12 @@ class MainWindow(_WindowBase):
             self.import_button.set_visible(koofr_desktop_has_folders())
         self.update_overall()
 
+    def show_update(self, version: str, asked) -> None:
+        """The banner of a newer version; asked() opens what it brings."""
+        self._update_asked = asked
+        self.update_banner.set_title(_("Spola {version} is available").format(version=version))
+        self.update_banner.set_revealed(True)
+
     def toast(self, text: str) -> None:
         self.toasts.add_toast(Adw.Toast(title=escape(text), timeout=5))     # (a toast reads markup)
 
@@ -191,6 +197,12 @@ class MainWindow(_WindowBase):
         view.add_top_bar(header)
         self.banner = AttentionBanner(self)
         view.add_top_bar(self.banner.widget)
+        # a newer version: said here for as long as it is there, whatever
+        # else announced it (a notification is gone in a few seconds)
+        self.update_banner = Adw.Banner(button_label=_("Update…"), revealed=False)
+        self.update_banner.connect("button-clicked", lambda *_: self._update_asked())
+        self._update_asked = lambda: None
+        view.add_top_bar(self.update_banner)
 
         self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
         self.stack.add_named(self._login_page(), "login")

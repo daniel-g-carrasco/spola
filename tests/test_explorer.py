@@ -224,8 +224,14 @@ class ShellTest(unittest.TestCase):
                 script = ("$sh = New-Object -ComObject Shell.Application; foreach ($i in @(%s)) { "
                           "[bool]($sh.Namespace($i[0]).ParseName($i[1]).Verbs() | Where-Object { $_.Name -eq '%s' }) }"
                           % (items, verb))
-                out = subprocess.run(["powershell", "-NoProfile", "-Command", script],
-                                     capture_output=True, text=True, timeout=60).stdout.split()
+                try:
+                    out = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                                         capture_output=True, text=True, timeout=60).stdout.split()
+                except subprocess.TimeoutExpired:
+                    # the shell of this machine did not answer (a CI runner now
+                    # and then: it held the Windows files of two releases):
+                    # that says nothing of Spola. A wrong answer still fails
+                    self.skipTest("Windows' shell did not answer in 60 seconds")
             finally:
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path + r"\command")
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key_path)

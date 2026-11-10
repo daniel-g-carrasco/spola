@@ -269,3 +269,28 @@ jobs:
           done
           gh release upload "${GITHUB_REF_NAME}" "$setup" "$zip" "$setup.minisig" "$zip.minisig" \
             --repo "${GITHUB_REPOSITORY}" --clobber
+      - name: Published when every file is there
+        # release-complete: the same step, word for word, in build.yml and in
+        # windows.yml (tests/test_release_complete.py compares them and runs
+        # it). The release is a draft until the Flatpak and the Windows
+        # installer and zip, with their signatures, are all there: the
+        # installed app asks GitHub for the latest release, and a draft is
+        # never that. Whichever workflow ends last finds every file and
+        # publishes. 0.3.41 went out with the Flatpak alone.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          names="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY}" --json assets --jq '.assets[].name')"
+          missing=""
+          for wanted in '\.flatpak$' \
+                        "-setup-${tag}-windows-x64\.exe$" "-setup-${tag}-windows-x64\.exe\.minisig$" \
+                        "-${tag}-windows-x64-portable\.zip$" "-${tag}-windows-x64-portable\.zip\.minisig$"; do
+            echo "$names" | grep -Eq -- "$wanted" || missing="$missing $wanted"
+          done
+          if [ -n "$missing" ]; then
+            echo "the release stays a draft, still missing:$missing"
+          else
+            gh release edit "$tag" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+            echo "release $tag published: every file is there"
+          fi

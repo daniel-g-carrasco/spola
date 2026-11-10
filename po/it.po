@@ -252,6 +252,10 @@ msgstr "Spola {version} è aggiornato"
 msgid "Spola {version} is available"
 msgstr "È disponibile Spola {version}"
 
+#: src/spola/gui/window.py:197
+msgid "Update…"
+msgstr "Aggiorna…"
+
 #: src/spola/gui/application.py:239
 msgid "Click to see what is new and update."
 msgstr "Clicca per vedere le novità e aggiornare."
