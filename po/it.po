@@ -3,7 +3,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: spola\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-13 18:55+0100\n"
+"POT-Creation-Date: 2026-11-13 22:48+0100\n"
 "PO-Revision-Date: 2026-10-10 16:00+0200\n"
 "Last-Translator: Daniel Grasso <code@danielgrasso.com>\n"
 "Language-Team: Italian\n"
@@ -23,22 +23,22 @@ msgstr "Sincronizza ora con Koofr"
 msgid "Open on Koofr"
 msgstr "Apri su Koofr"
 
-#: extensions/spola-files.py:383 src/spola/app/explorer.py:169
-#: src/spola/app/file_managers.py:62
+#: extensions/spola-files.py:383 extensions/spola-files.py:392
+#: src/spola/app/explorer.py:169 src/spola/app/file_managers.py:62
 msgid "Share on Koofr…"
 msgstr "Condividi su Koofr…"
 
-#: extensions/spola-files.py:405 src/spola/app/explorer.py:171
+#: extensions/spola-files.py:412 src/spola/app/explorer.py:171
 #: src/spola/app/file_managers.py:64
 msgid "Recently Deleted Files…"
 msgstr "File eliminati di recente…"
 
-#: extensions/spola-files.py:411 src/spola/app/explorer.py:170
+#: extensions/spola-files.py:418 src/spola/app/explorer.py:170
 #: src/spola/app/file_managers.py:63
 msgid "Previous Versions…"
 msgstr "Versioni precedenti…"
 
-#: extensions/spola-files.py:424
+#: extensions/spola-files.py:431
 msgid "Sync status of the folders synced with Koofr"
 msgstr "Stato delle cartelle sincronizzate con Koofr"
 
@@ -157,28 +157,28 @@ msgstr "{stem} (questo computer {date}){ext}"
 msgid "{stem} (Koofr {date}){ext}"
 msgstr "{stem} (Koofr {date}){ext}"
 
-#: src/spola/app/dbus_service.py:328 src/spola/app/dbus_service.py:335
-#: src/spola/gui/application.py:355
+#: src/spola/app/dbus_service.py:331 src/spola/app/dbus_service.py:338
+#: src/spola/gui/application.py:360
 #, python-brace-format
 msgid "“{name}” is not in a folder synced with Koofr."
 msgstr "«{name}» non è in una cartella sincronizzata con Koofr."
 
-#: src/spola/app/dbus_service.py:337 src/spola/app/engine.py:839
-#: src/spola/gui/application.py:390 src/spola/gui/application.py:519
+#: src/spola/app/dbus_service.py:340 src/spola/app/engine.py:839
+#: src/spola/gui/application.py:413 src/spola/gui/application.py:543
 msgid "Not signed in to Koofr"
 msgstr "Accesso a Koofr non effettuato"
 
-#: src/spola/app/dbus_service.py:360
+#: src/spola/app/dbus_service.py:363
 msgid "Sharing could not be checked. Open Share… to try again."
 msgstr ""
 "Non è stato possibile verificare la condivisione. Apri «Condividi…» per "
 "riprovare."
 
-#: src/spola/app/dbus_service.py:364
+#: src/spola/app/dbus_service.py:367
 msgid "The Koofr account changed. Open Share… again."
 msgstr "L’account Koofr è cambiato. Apri di nuovo «Condividi…»."
 
-#: src/spola/app/dbus_service.py:371
+#: src/spola/app/dbus_service.py:374
 msgid ""
 "Open Share… to explicitly create or manage a link. No usable unprotected "
 "link exists."
@@ -1341,7 +1341,7 @@ msgstr "La password per applicazioni non è nel portachiavi: accedi di nuovo."
 #: src/spola/gui/add_folder.py:85 src/spola/gui/add_folder.py:368
 #: src/spola/gui/import_dialog.py:61 src/spola/gui/sharing_dialog.py:467
 #: src/spola/gui/sharing_dialog.py:482 src/spola/gui/sharing_dialog.py:638
-#: src/spola/gui/update_dialog.py:95 src/spola/gui/window.py:372
+#: src/spola/gui/update_dialog.py:98 src/spola/gui/window.py:372
 #: src/spola/gui/window.py:1104 src/spola/gui/window.py:1218
 #: src/spola/gui/window.py:1668 src/spola/gui/window.py:1675
 #: src/spola/gui/window.py:1711 src/spola/gui/window.py:2008
@@ -1492,140 +1492,148 @@ msgstr ""
 "Le impostazioni sono state salvate da uno Spola più recente (formato "
 "{version}): ciò che questa versione non conosce viene lasciato com'è."
 
-#: src/spola/gui/application.py:131
+#: src/spola/gui/application.py:134
 msgid "Start without opening the window"
 msgstr "Avvia senza aprire la finestra"
 
-#: src/spola/gui/application.py:252
+#: src/spola/gui/application.py:257
 #, python-brace-format
 msgid "The check for updates failed: {error}"
 msgstr "Il controllo degli aggiornamenti non è riuscito: {error}"
 
-#: src/spola/gui/application.py:256
+#: src/spola/gui/application.py:261
 #, python-brace-format
 msgid "Spola {version} is up to date"
 msgstr "Spola {version} è aggiornato"
 
-#: src/spola/gui/application.py:268 src/spola/gui/window.py:124
+#: src/spola/gui/application.py:273 src/spola/gui/window.py:124
 #, python-brace-format
 msgid "Spola {version} is available"
 msgstr "È disponibile Spola {version}"
 
-#: src/spola/gui/application.py:269
+#: src/spola/gui/application.py:274
 msgid "Click to see what is new and update."
 msgstr "Clicca per vedere le novità e aggiornare."
 
-#: src/spola/gui/application.py:528 src/spola/gui/window.py:714
+#: src/spola/gui/application.py:406
+msgid ""
+"Share on Koofr works on one file or folder at a time. Select one, then "
+"choose it again."
+msgstr ""
+"«Condividi su Koofr» funziona con un file o una cartella alla volta. "
+"Selezionane uno e scegli di nuovo la voce."
+
+#: src/spola/gui/application.py:552 src/spola/gui/window.py:714
 #, python-brace-format
 msgid "Syncing “{name}”"
 msgstr "Sincronizzazione di «{name}»"
 
-#: src/spola/gui/application.py:530 src/spola/gui/window.py:714
+#: src/spola/gui/application.py:554 src/spola/gui/window.py:714
 msgid "Comparing the two sides…"
 msgstr "Confronto delle due parti…"
 
-#: src/spola/gui/application.py:547
+#: src/spola/gui/application.py:571
 msgid "Transferring Now"
 msgstr "In trasferimento"
 
-#: src/spola/gui/application.py:548
+#: src/spola/gui/application.py:572
 msgid "Recently Synced Files"
 msgstr "File sincronizzati di recente"
 
-#: src/spola/gui/application.py:549
+#: src/spola/gui/application.py:573
 msgid "No recently synced files"
 msgstr "Nessun file sincronizzato di recente"
 
-#: src/spola/gui/application.py:559 src/spola/gui/window.py:999
+#: src/spola/gui/application.py:583 src/spola/gui/window.py:999
 msgid "Sync Now"
 msgstr "Sincronizza ora"
 
-#: src/spola/gui/application.py:561 src/spola/gui/window.py:723
+#: src/spola/gui/application.py:585 src/spola/gui/window.py:723
 msgid "Resume"
 msgstr "Riprendi"
 
-#: src/spola/gui/application.py:561
+#: src/spola/gui/application.py:585
 msgid "Pause"
 msgstr "Metti in pausa"
 
-#: src/spola/gui/application.py:563
+#: src/spola/gui/application.py:587
 msgid "Open Spola"
 msgstr "Apri Spola"
 
-#: src/spola/gui/application.py:565 src/spola/gui/window.py:200
+#: src/spola/gui/application.py:589 src/spola/gui/window.py:200
 msgid "Quit"
 msgstr "Esci"
 
-#: src/spola/gui/application.py:639 src/spola/gui/application.py:646
+#: src/spola/gui/application.py:663 src/spola/gui/application.py:670
 #: src/spola/gui/window.py:611
 #, python-brace-format
 msgid "The preview of “{name}” is ready"
 msgstr "L'anteprima di “{name}” è pronta"
 
-#: src/spola/gui/application.py:640
+#: src/spola/gui/application.py:664
 #, python-brace-format
 msgid "“{name}”: {what}"
 msgstr "“{name}”: {what}"
 
-#: src/spola/gui/application.py:644 src/spola/gui/window.py:631
+#: src/spola/gui/application.py:668 src/spola/gui/window.py:631
 #, python-brace-format
 msgid "Conflicts in “{name}”"
 msgstr "Conflitti in «{name}»"
 
-#: src/spola/gui/application.py:645
+#: src/spola/gui/application.py:669
 #, python-brace-format
 msgid "Conflicts resolved in “{name}”"
 msgstr "Conflitti risolti in “{name}”"
 
-#: src/spola/gui/application.py:647 src/spola/gui/window.py:629
+#: src/spola/gui/application.py:671 src/spola/gui/window.py:629
 #, python-brace-format
 msgid "“{name}” is waiting for your confirmation"
 msgstr "«{name}» aspetta una tua conferma"
 
-#: src/spola/gui/application.py:648 src/spola/gui/window.py:628
+#: src/spola/gui/application.py:672 src/spola/gui/window.py:628
 #, python-brace-format
 msgid "“{name}” needs a repair"
 msgstr "«{name}» va riparata"
 
-#: src/spola/gui/application.py:649
+#: src/spola/gui/application.py:673
 #, python-brace-format
 msgid "“{name}” stopped to keep your files safe"
 msgstr "“{name}” si è fermata per proteggere i tuoi file"
 
-#: src/spola/gui/application.py:650 src/spola/gui/window.py:633
+#: src/spola/gui/application.py:674 src/spola/gui/window.py:633
 #, python-brace-format
 msgid "“{name}” cannot be synced"
 msgstr "«{name}» non si riesce a sincronizzare"
 
-#: src/spola/gui/application.py:651 src/spola/gui/window.py:632
+#: src/spola/gui/application.py:675 src/spola/gui/window.py:632
 #, python-brace-format
 msgid "Some files in “{name}” are not synced"
 msgstr "Alcuni file di «{name}» non sono sincronizzati"
 
-#: src/spola/gui/application.py:652
+#: src/spola/gui/application.py:676
 msgid "A word about Spola's settings"
 msgstr "Una parola sulle impostazioni di Spola"
 
-#: src/spola/gui/application.py:653
+#: src/spola/gui/application.py:677
 #, python-brace-format
 msgid "“{name}”: differences between this computer and Koofr"
 msgstr "“{name}”: differenze tra questo computer e Koofr"
 
-#: src/spola/gui/application.py:654
+#: src/spola/gui/application.py:678
 #, python-brace-format
 msgid "“{name}” verified"
 msgstr "“{name}” verificata"
 
-#: src/spola/gui/application.py:655
+#: src/spola/gui/application.py:679
 #, python-brace-format
 msgid "A public link in “{name}” no longer works"
 msgstr "Un link pubblico in «{name}» non funziona più"
 
-#: src/spola/gui/application.py:671
+#: src/spola/gui/application.py:695
 msgid "Share Again…"
 msgstr "Condividi di nuovo…"
 
-#: src/spola/gui/application.py:692 src/spola/gui/ui.py:106
+#: src/spola/gui/application.py:716 src/spola/gui/ui.py:106
 #: src/spola/gui/window.py:995
 msgid "Stopping…"
 msgstr "Arresto in corso…"
@@ -2342,7 +2350,7 @@ msgstr "Cartella home"
 msgid "Update Available"
 msgstr "Aggiornamento disponibile"
 
-#: src/spola/gui/update_dialog.py:37 src/spola/gui/update_dialog.py:127
+#: src/spola/gui/update_dialog.py:37 src/spola/gui/update_dialog.py:130
 msgid "Later"
 msgstr "Più tardi"
 
@@ -2359,7 +2367,12 @@ msgstr "Apri la pagina della versione"
 msgid "You have version {version}."
 msgstr "Hai la versione {version}."
 
-#: src/spola/gui/update_dialog.py:53
+#: src/spola/gui/update_dialog.py:55
+#, python-brace-format
+msgid "The download is {size} MB."
+msgstr "Il download è di {size} MB."
+
+#: src/spola/gui/update_dialog.py:56
 msgid ""
 "Spola closes while the new version is installed, its syncs stopped properly, "
 "and opens again."
@@ -2367,42 +2380,42 @@ msgstr ""
 "Spola si chiude mentre si installa la nuova versione, con le "
 "sincronizzazioni fermate in modo ordinato, e poi si riapre."
 
-#: src/spola/gui/update_dialog.py:56
+#: src/spola/gui/update_dialog.py:59
 #, python-brace-format
 msgid "{app} {version} Is Available"
 msgstr "È disponibile {app} {version}"
 
-#: src/spola/gui/update_dialog.py:67
+#: src/spola/gui/update_dialog.py:70
 msgid "What Is New"
 msgstr "Novità"
 
-#: src/spola/gui/update_dialog.py:75
+#: src/spola/gui/update_dialog.py:78
 msgid "Release Page"
 msgstr "Pagina della versione"
 
-#: src/spola/gui/update_dialog.py:75
+#: src/spola/gui/update_dialog.py:78
 msgid "This version on GitHub, with its files"
 msgstr "Questa versione su GitHub, con i suoi file"
 
-#: src/spola/gui/update_dialog.py:98
+#: src/spola/gui/update_dialog.py:101
 msgid "Downloading…"
 msgstr "Download in corso…"
 
-#: src/spola/gui/update_dialog.py:108
+#: src/spola/gui/update_dialog.py:111
 #, python-brace-format
 msgid "Download failed: {error}"
 msgstr "Download non riuscito: {error}"
 
-#: src/spola/gui/update_dialog.py:117
+#: src/spola/gui/update_dialog.py:120
 #, python-brace-format
 msgid "Downloading: {done} of {total} MB"
 msgstr "Download: {done} di {total} MB"
 
-#: src/spola/gui/update_dialog.py:137
+#: src/spola/gui/update_dialog.py:140
 msgid "Starting the installer…"
 msgstr "Avvio del programma di installazione…"
 
-#: src/spola/gui/update_dialog.py:146
+#: src/spola/gui/update_dialog.py:149
 #, python-brace-format
 msgid "Cannot start the installer: {error}"
 msgstr "Impossibile avviare il programma di installazione: {error}"

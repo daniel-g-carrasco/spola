@@ -50,6 +50,9 @@ class UpdateDialog(Adw.Dialog):
 
         what = _("You have version {version}.").format(version=__version__)
         if self.installer is not None:
+            size = getattr(self.installer, "size", 0)
+            if size:
+                what += " " + _("The download is {size} MB.").format(size=round(size / 1e6))
             what += "\n" + _("Spola closes while the new version is installed, its syncs stopped properly, "
                              "and opens again.")
         self.page = Adw.StatusPage(icon_name=APP_ID, description=what, css_classes=["compact"],

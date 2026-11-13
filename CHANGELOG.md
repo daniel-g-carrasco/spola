@@ -6,6 +6,12 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.46] - 2026-11-14
+
+### Changed
+- Share on Koofr works on one file or folder at a time, and says so: with several items selected the entry is there, nothing opens, and a notification says to select one. It used to be missing from the menu in Files, Nemo and Caja, to share only the first item in Thunar, and to open a window for each item in Dolphin and in File Explorer.
+- Windows: the update window says how large the download is before it starts.
+
 ## [0.3.45] - 2026-11-13
 
 ### Fixed
@@ -761,7 +767,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.45...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.46...main
+[0.3.46]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.46
 [0.3.45]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.45
 [0.3.38]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.38
 [0.3.37]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.37
