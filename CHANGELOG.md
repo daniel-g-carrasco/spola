@@ -6,6 +6,19 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.45] - 2026-11-13
+
+### Fixed
+- Renaming or moving a whole folder on this computer no longer destroys the public links and the shares that point to it on Koofr. The sync used to move its files one by one into a new folder on Koofr and remove the old one, and Koofr removes a link together with the folder it points to: on 2026-11-11 a link that had been opened four times stopped working this way, with no warning. Spola now moves the folder on Koofr itself, in one operation, before the sync: the folder stays the same folder, its links keep their address, nothing is uploaded again, and a large folder no longer counts as many deletions.
+
+### Added
+- A sync that would remove from Koofr a file or folder with a public link stops first and says which links would stop working, and how many times each was opened. It goes on only after a confirmation; to keep the link, put the file or folder back. After a confirmed sync a notification says so once more and, when the files went to one new folder, offers to share that folder again: a new link has a different address.
+
+### Changed
+- The sharing window is laid out again, after GNOME's guidelines. The public link comes first, with one evident action: create it, or copy it. Its password shows as dots until asked for, its expiration has a line of its own, and how many times it was opened is said under its address. People have their initials and their role; Revoke Link, which cannot be undone, is last and apart. While Koofr is asked there is a page that says so, and one with Try Again when it does not answer; what a change left unsaid stays in a banner at the top. Nothing is highlighted when the window opens: the first line of text used to come up selected.
+- A file or folder with no link of its own, under a folder that has one, says so where its own link would be.
+- Windows: the update window is laid out again the same way: "Later" and "Install Update" at the top, the version and what happens next, what is new as a list under the changelog's headings, the download as a progress bar, an error in a banner. The release pages now carry the changelog's notes for the version: they used to be one line with a link, and that line was all the window had to show.
+
 ## [0.3.44] - 2026-11-13
 
 ### Fixed
@@ -748,7 +761,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.38...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.45...main
+[0.3.45]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.45
 [0.3.38]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.38
 [0.3.37]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.37
 [0.3.36]: https://github.com/daniel-g-carrasco/spola/tree/v0.3.36
