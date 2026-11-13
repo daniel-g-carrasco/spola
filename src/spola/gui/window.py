@@ -542,6 +542,12 @@ class MainWindow(_WindowBase):
                           _("Spola lost track of the last synced state ({reason}). A new alignment copies "
                             "what is missing on each side and deletes nothing.").format(reason=rt.message),
                           _("Repair")).present(self)
+        elif rt.safety == "links":
+            PreviewDialog(self, pair_id, Mode.SYNC, True, _("Confirm Changes"),
+                          _("The sync stopped because it would remove from Koofr something that has a public "
+                            "link, and Koofr removes the link with it. If that is what you want, confirm; to keep "
+                            "the link, put the file or folder back where it was first."),
+                          _("Confirm")).present(self)
         else:
             PreviewDialog(self, pair_id, Mode.SYNC, True, _("Confirm Changes"),
                           _("The sync stopped because it would delete or change many files at once ({reason}). "
@@ -2377,6 +2383,7 @@ class PreviewDialog(Adw.Dialog):
         self.set_child(self.nav)
         self.shown: Outcome | None = None          # the outcome on screen
         self.outdated_group: Adw.PreferencesGroup | None = None
+        self.links_group: Adw.PreferencesGroup | None = None
         self._handler = self.engine.connect("pair-changed",
                                             lambda _e, pid: self._changed() if pid == pair_id else None)
         # the preview ages too: after its time, Confirm would act on an old picture
@@ -2385,10 +2392,10 @@ class PreviewDialog(Adw.Dialog):
         self._start()
 
     def _start(self, refresh: bool = False) -> None:
-        for group in (self.info_group, self.result_group, self.outdated_group):
+        for group in (self.info_group, self.result_group, self.outdated_group, self.links_group):
             if group is not None:
                 self.page.remove(group)
-        self.info_group = self.result_group = self.outdated_group = None
+        self.info_group = self.result_group = self.outdated_group = self.links_group = None
         self.shown = None
         if self.spinner_group.get_parent() is None:
             self.page.add(self.spinner_group)
@@ -2445,6 +2452,29 @@ class PreviewDialog(Adw.Dialog):
         group.add(row)
         self.page.add(group)
 
+    def _links(self, outcome: Outcome) -> None:
+        """The public links this run would remove on Koofr, before the list
+        of what it does: Koofr removes a link with what it points to."""
+        rt = self.engine.runtime.get(self.pair_id)
+        preview = rt.preview if rt else None
+        risks = preview.links_at_risk if preview is not None and preview.outcome is outcome else ()
+        if not risks:
+            return
+        group = self.links_group = Adw.PreferencesGroup(
+            title=escape(_("Public Links That Stop Working")),
+            description=escape(_("Koofr removes a public link together with the file or folder it points to. "
+                                 "A new link has a different address: whoever has the old one needs the new one.")))
+        for risk in risks:
+            parts = [ngettext("Opened {n} time", "Opened {n} times", risk.opened).format(n=count(risk.opened))]
+            if risk.successor:
+                parts.append(_("Its files seem to be in “{folder}” now: after the sync, share that folder "
+                               "again.").format(folder=risk.successor))
+            row = Adw.ActionRow(title=escape(risk.path), subtitle=escape("\n".join(parts)), title_lines=0,
+                                subtitle_lines=0)
+            row.add_prefix(Gtk.Image(icon_name="dialog-warning-symbolic", css_classes=["warning"]))
+            group.add(row)
+        self.page.add(group)
+
     def _closed(self) -> None:
         GLib.source_remove(self._tick)
         self.engine.disconnect(self._handler)
@@ -2472,6 +2502,7 @@ class PreviewDialog(Adw.Dialog):
         plan = outcome.plan
         self.shown = outcome
         self._info(outcome)
+        self._links(outcome)
         self.page.add(group)
         if outcome.result is not Result.OK and not plan.empty:
             group.set_description(_("Note: {message}").format(message=outcome.message))

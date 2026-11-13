@@ -12,12 +12,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import time
 import unicodedata
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from spola.data import listings
 from .config import Config, Pair, normalize_remote
 from spola.i18n import _
 from spola.core.places import remote_within, within
@@ -374,6 +376,9 @@ class CaseRename:
     old: str        # in the last listing of this computer
     new: str        # here now
     koofr: str      # on Koofr now
+    # a whole folder renamed or moved here (folder_moves): where it goes on
+    # Koofr. "" for a rename by case alone, which stays where it is.
+    target: str = ""
 
 
 def case_renames(root: str, before: Iterable[str], koofr: Iterable[str]) -> list[CaseRename]:
@@ -430,6 +435,157 @@ def case_renames(root: str, before: Iterable[str], koofr: Iterable[str]) -> list
         here_moved.insert(0, (old, new))
         koofr_moved.insert(0, (there, f"{koofr_parent}/{variants[0]}" if koofr_parent else variants[0]))
     return renamed
+
+
+# A reorganisation larger than this is left to bisync and its checks: the
+# folders gone since the last listing, the new folders looked at for them.
+MOVES_LOOKED_AT = (20, 400)
+
+
+@dataclass
+class News:
+    """What this computer has that the last listing did not, and what of the
+    listing is gone: found in one walk, for the folders moved and for the
+    public links a run would remove."""
+    files: dict[str, tuple[int, int | None]]        # the listing's files: path -> (size, date in ns)
+    dirs: set[str]                                   # the folders those files are in
+    gone_dirs: list[str]                             # of those, the ones no longer here (the topmost only)
+    new_dirs: list[str]                              # folders here that the listing does not know
+    new_files: dict[tuple[int, int], str]            # (size, date in ms) -> a file here the listing does not know
+    anything_gone: bool = False                      # a file or a folder of the listing is no longer here
+    koofr_hash: dict[str, str] = field(default_factory=dict)     # Koofr's listing: folded path -> "md5:..."
+
+    def gone(self, path: str) -> bool:
+        return any(path == g or path.startswith(g + "/") for g in self.gone_dirs)
+
+
+def news(root: str, before: Iterable[listings.Entry], skip=lambda rel: False) -> News:
+    """The walk of `root` against the last listing (a second or so on 40,000
+    files: off the main loop). New files are looked at only when something
+    of the listing is gone: only then does a move need its other end."""
+    files = {e.path: (e.size, listings.modtime_ns(e.modtime)) for e in before if not e.is_dir}
+    dirs: set[str] = set()
+    for path in files:
+        while "/" in path:
+            path = path.rpartition("/")[0]
+            if path in dirs:
+                break
+            dirs.add(path)
+    gone: list[str] = []
+    for folder in sorted(dirs, key=lambda p: (p.count("/"), p)):
+        if not any(folder.startswith(g + "/") for g in gone) and not os.path.isdir(os.path.join(root, folder)):
+            gone.append(folder)
+    found = News(files, dirs, gone, [], {})
+    if not gone and all(os.path.lexists(os.path.join(root, path)) for path in files):
+        return found
+    found.anything_gone = True
+    stack = [""]
+    while stack:
+        prefix = stack.pop()
+        try:
+            items = list(os.scandir(os.path.join(root, prefix) if prefix else root))
+        except OSError:
+            continue
+        for item in items:
+            rel = prefix + item.name
+            try:
+                if item.is_symlink() or item.is_junction():
+                    continue        # rclone (--skip-links) never goes through them
+                if item.is_dir():
+                    if not skip(rel + "/"):
+                        if rel not in dirs:
+                            found.new_dirs.append(rel)
+                        stack.append(rel + "/")
+                elif rel not in files and not skip(rel):
+                    st = item.stat()
+                    found.new_files.setdefault((st.st_size, st.st_mtime_ns // 1_000_000), rel)
+            except OSError:
+                continue
+    return found
+
+
+def _held(found: News, folder: str) -> list[tuple[str, tuple[int, int | None]]]:
+    """The files the last listing had under `folder`, by their path in it."""
+    return [(path[len(folder) + 1:], sign) for path, sign in found.files.items() if path.startswith(folder + "/")]
+
+
+def _same_files(root: str, folder: str, held: list) -> int:
+    """How many of `held` are in `folder` now, with the same size and date."""
+    same = 0
+    for rel, (size, ns) in held:
+        try:
+            st = os.stat(os.path.join(root, folder, rel), follow_symlinks=False)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode) and st.st_size == size and ns is not None and abs(st.st_mtime_ns - ns) <= 1_000_000:
+            same += 1
+    return same
+
+
+def successor(root: str, found: News, folder: str) -> str:
+    """The new folder that holds most of what `folder` had, if one stands
+    out: where its files seem to be now ("" when none or several do)."""
+    held = _held(found, folder)
+    if not held or len(found.new_dirs) > MOVES_LOOKED_AT[1]:
+        return ""
+    scores = sorted(((_same_files(root, new, held), new) for new in found.new_dirs), reverse=True)
+    if not scores or scores[0][0] == 0 or (len(scores) > 1 and scores[1][0] == scores[0][0]):
+        return ""
+    return scores[0][1]
+
+
+def folder_moves(root: str, found: News, koofr: Iterable[str]) -> list[CaseRename]:
+    """The whole folders renamed or moved here since the last run: a folder
+    of the last listing that is gone, and one new folder that holds at least
+    half of the files it had, each under the same name inside it, with the
+    same size and date (one candidate only, taken once). Koofr must still
+    have the folder where it was and nothing where it goes.
+
+    Moved on Koofr first, on the server, in one operation, bisync finds the
+    two sides agreeing. Left to bisync, the files go one by one into a new
+    folder and the old one is removed, and Koofr removes with it every
+    public link and share that points to it (tried on 2026-11-13: a link
+    follows a folder moved on the server, also into folders not there yet,
+    and is gone with one whose files were moved one by one; 2026-11-11, a
+    link opened four times lost this way). The topmost folder only: what it
+    holds moves with it."""
+    if not found.gone_dirs or not found.new_dirs:
+        return []
+    if len(found.gone_dirs) > MOVES_LOOKED_AT[0] or len(found.new_dirs) > MOVES_LOOKED_AT[1]:
+        return []
+    on_koofr = [path for path in koofr]
+    folded = [path.casefold() for path in on_koofr]
+
+    def koofr_name(folder: str) -> str | None:
+        """The folder as Koofr spells it, if it has files under it there."""
+        prefix, depth = folder.casefold() + "/", folder.count("/") + 1
+        for path, low in zip(on_koofr, folded, strict=True):
+            if low.startswith(prefix):
+                return "/".join(path.split("/")[:depth])
+        return None
+
+    def on_koofr_already(folder: str) -> bool:
+        low = folder.casefold()
+        return any(path == low or path.startswith(low + "/") for path in folded)
+
+    claimed: dict[str, list[str]] = {}
+    for old in found.gone_dirs:
+        held = _held(found, old)
+        if not held:
+            continue
+        enough = max(1, (len(held) + 1) // 2)
+        candidates = [new for new in found.new_dirs if _same_files(root, new, held) >= enough]
+        if len(candidates) == 1:
+            claimed.setdefault(candidates[0], []).append(old)
+    moves = []
+    for new, olds in sorted(claimed.items()):
+        if len(olds) != 1:
+            continue                    # two folders into one: not a rename
+        there = koofr_name(olds[0])
+        if there is None or on_koofr_already(new):
+            continue
+        moves.append(CaseRename(olds[0], new, there, new))
+    return moves
 
 
 def root_identity(path: str) -> tuple[int, int]:

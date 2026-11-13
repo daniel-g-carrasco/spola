@@ -173,6 +173,9 @@ class SpolaApp(Adw.Application):
         review = Gio.SimpleAction.new("review", GLib.VariantType.new("s"))
         review.connect("activate", lambda _a, param: self._review(param.get_string()))
         self.add_action(review)
+        share = Gio.SimpleAction.new("share", GLib.VariantType.new("s"))    # a notification's "Share Again…"
+        share.connect("activate", lambda _a, param: self._share(param.get_string()))
+        self.add_action(share)
         for name, handler in (("quit", self._quit), ("show", lambda: self.activate()),
                               ("sync-all", lambda: self.engine.sync_all("manual")),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
@@ -649,18 +652,33 @@ class SpolaApp(Adw.Application):
             "settings": _("A word about Spola's settings"),
             "verify": _("“{name}”: differences between this computer and Koofr"),
             "verified": _("“{name}” verified"),
+            "link-lost": _("A public link in “{name}” no longer works"),
         }
         if WINDOWS:
             # GLib has no notifications on Windows: a toast of Spola's own
-            self.tray.notify(titles.get(kind, "{name}").format(name=name), message, lambda: self._review(pair_id),
+            again = self._share_again(pair_id) if kind == "link-lost" else ""
+            self.tray.notify(titles.get(kind, "{name}").format(name=name), message,
+                             (lambda: self._share(again)) if again else (lambda: self._review(pair_id)),
                              tag=f"{kind}-{pair_id}")
             return
         note = Gio.Notification.new(titles.get(kind, "{name}").format(name=name))
         note.set_body(message)
         note.set_default_action_and_target("app.review", GLib.Variant("s", pair_id))
+        again = self._share_again(pair_id) if kind == "link-lost" else ""
+        if again:
+            # the folder its files are in now: Share on Koofr, where a new link is made
+            note.set_default_action_and_target("app.share", GLib.Variant("s", again))
+            note.add_button_with_target(_("Share Again…"), "app.share", GLib.Variant("s", again))
         if kind in ("confirm", "repair", "error", "gone", "settings"):
             note.set_priority(Gio.NotificationPriority.HIGH)
         self.send_notification(f"{kind}-{pair_id}", note)
+
+    def _share_again(self, pair_id: str) -> str:
+        """Where to share again after a link was lost: the one folder its
+        files went to, on this computer ("" when there is not just one)."""
+        pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
+        places = {risk.successor for risk in (rt.lost_links if rt else []) if risk.successor}
+        return os.path.join(pair.local, places.pop()) if pair is not None and len(places) == 1 else ""
 
     # -- quitting -------------------------------------------------------------------
 

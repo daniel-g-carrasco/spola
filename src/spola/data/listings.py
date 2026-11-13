@@ -147,6 +147,85 @@ def retime(path: Path, times: dict[str, str]) -> int:
     return changed
 
 
+_GO_ESCAPES = {"\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t"}
+
+
+def go_quote(text: str) -> str:
+    """A Go string literal that go_unquote, and Go's strconv.Unquote, read
+    back as `text`: not byte for byte what strconv.Quote writes (which also
+    escapes what it does not consider printable), but bisync only reads it."""
+    out = ['"']
+    for ch in text:
+        code = ord(ch)
+        if ch in _GO_ESCAPES:
+            out.append(_GO_ESCAPES[ch])
+        elif 0xDC80 <= code <= 0xDCFF:       # a byte that is not UTF-8, as surrogateescape keeps it
+            out.append(f"\\x{code - 0xDC00:02x}")
+        elif code < 0x20 or code == 0x7F:
+            out.append(f"\\x{code:02x}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def _renamed(path: Path, moves: list[tuple[str, str]]) -> tuple[str, int] | None:
+    """The listing at `path` with every entry at or under a move's old
+    folder at its new place, and how many moved; None when none did. Every
+    line must rebuild exactly first, as in retime."""
+    with open(path, encoding="utf-8", errors="surrogateescape", newline="") as f:
+        text = f.read()
+    lines = text.split("\n")
+    if not lines or not lines[0].startswith(HEADER):
+        raise ValueError("not a bisync listing (or an unknown version)")
+    entries, moved = [], 0
+    for line in lines[1:]:
+        if not line:
+            continue
+        m = _EXACT.match(line)
+        if not m or "{}{}{} {} {} {} {}".format(*m.groups()) != line:
+            raise ValueError(f"unexpected listing line: {line!r}")
+        flag, gap, size, hash_, id_, modtime, quoted = m.groups()
+        name = go_unquote(quoted)
+        for old, new in moves:
+            if name == old or name.startswith(old + "/"):
+                name = new + name[len(old):]
+                if go_unquote(go_quote(name)) != name:
+                    raise ValueError(f"a name this cannot write: {name!r}")
+                line = f"{flag}{gap}{size} {hash_} {id_} {modtime} {go_quote(name)}"
+                moved += 1
+                break
+        entries.append((name.encode("utf-8", errors="surrogateescape"), line))
+    if not moved:
+        return None
+    entries.sort(key=lambda entry: entry[0])        # as bisync writes them: by name, byte by byte
+    return "\n".join([lines[0], *(line for _name, line in entries), ""]), moved
+
+
+def rename(first: Path, second: Path, here: list[tuple[str, str]], koofr: list[tuple[str, str]]) -> int:
+    """A folder moved on both sides, written in both listings of the last
+    synced state ({old folder: new folder} as each side spells them): what
+    it held is where it is now, with the sizes, dates and checksums it had,
+    so that bisync finds nothing to do for it. Both listings are prepared
+    before either is replaced; a listing this does not understand leaves
+    both alone (ValueError). Returns how many entries moved, both sides."""
+    prepared = [(path, _renamed(path, moves)) for path, moves in ((first, here), (second, koofr))]
+    total = 0
+    written = []
+    for path, result in prepared:
+        if result is None:
+            continue
+        text, moved = result
+        tmp = path.with_name(path.name + ".moved")
+        with open(tmp, "w", encoding="utf-8", errors="surrogateescape", newline="") as f:
+            f.write(text)
+        written.append((tmp, path))
+        total += moved
+    for tmp, path in written:
+        tmp.replace(path)
+    return total
+
+
 _TIME = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?([+-]\d{4}|Z)$")
 
 

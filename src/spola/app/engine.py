@@ -39,7 +39,7 @@ from . import conflicts as conflicts_mod
 from spola import WINDOWS
 from spola.core import filetree
 from spola.data import listings
-from . import jobs, koofr_api
+from . import jobs, koofr_api, sharing
 from . import trash as trash_mod
 from . import verify
 from . import versions as versions_mod
@@ -189,6 +189,7 @@ class Preview:
     base_counts: tuple | None = None
     counts: tuple[int, int] | None = None       # entries of those listings, each side
     changed_count: int = 0         # preliminary size/date check when this preview was prepared
+    links_at_risk: tuple = ()      # jobs.LinkAtRisk: the public links this run would remove on Koofr
     finished: float = 0.0               # time.time()
     stale: bool = False                 # something changed since it started
     seen: bool = False                  # its answer reached a dialog
@@ -235,6 +236,17 @@ class Task:
     counts: tuple | None = None         # a preview's Preview.counts, likewise
     max_delete: int | None = None       # a confirmed run: what its preview showed, not the pair's limit
     max_changes: int | None = None      # likewise for the files changed here at once
+    links_at_risk: list = field(default_factory=list)   # jobs.LinkAtRisk: public links the run would remove
+    links_ok: frozenset = frozenset()   # a confirmed run: the links its preview said would stop working
+
+
+def lost_link_message(risk) -> str:
+    """After a confirmed run removed what a public link pointed to."""
+    if risk.successor:
+        return _("The public link to “{old}” no longer works. Share “{new}” again to make a new one: "
+                 "its address will be different.").format(old=risk.path, new=risk.successor)
+    return _("The public link to “{old}” no longer works: Koofr removed it with what it pointed to.").format(
+        old=risk.path)
 
 
 def safety_message(outcome: Outcome) -> str:
@@ -290,6 +302,7 @@ class PairRuntime:
     gone: str = ""
     safety: str = ""        # which check stopped the run waiting for a confirmation (Outcome.safety)
     safety_changed: int = 0     # "changes": how many files the check counted (jobs.TooManyChanges)
+    lost_links: list = field(default_factory=list)      # jobs.LinkAtRisk of the last confirmed run: to share again
     rerun_requested: bool = False   # a run asked for while one ran: again afterwards
     last_failure: str = ""          # a run that could not start, until one does
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
@@ -348,6 +361,13 @@ class Engine(GObject.Object):
         self.versions: dict[str, versions_mod.Index] = {}     # the kept copies, read in a thread
         # Koofr's trash, for restore_from_trash (tests give their own)
         self.koofr_trash = lambda creds: trash_mod.KoofrTrash(creds.user, creds.password)
+        # every public link of the account's mount (sharing.Link); None with the
+        # developer's local folder as Koofr, which has no links
+        self.koofr_links = None if self.dev_remote else (
+            lambda creds, mount_id: sharing.Client(creds.user, creds.password, mount_id).all_links())
+        # Koofr's checksum of one file ("md5:..."), for a file with a link that seems moved here
+        self.koofr_md5 = None if self.dev_remote else (
+            lambda creds, mount_id, path: sharing.Client(creds.user, creds.password, mount_id).file_md5(path))
         self.trash_read = TrashRead()
         # Koofr's activity feed as a doorbell: None = not tried yet
         self.feed_ok: bool | None = None
@@ -1142,7 +1162,8 @@ class Engine(GObject.Object):
         rt.before_run = (rt.status, rt.message)     # what this answers: back to it if the run is dropped
         rt.preview = None               # what it said is about to happen
         self._enqueue(Task(pair_id, mode, max_delete=max_delete, max_changes=max_changes, reason="confirmed",
-                           callback=callback), front=True)
+                           callback=callback, links_ok=frozenset(risk.id for risk in kept.links_at_risk)),
+                      front=True)
         if rt.task is None or rt.task.dry_run:
             self._set_status(pair, rt, Status.PENDING)
         return True
@@ -1755,7 +1776,7 @@ class Engine(GObject.Object):
                      and preview.fresh() and preview.mode is task.mode else 0)
 
         def work():
-            free = busy = changes = damaged = None
+            free = busy = changes = damaged = links = None
             try:
                 if override:
                     os.makedirs(override, exist_ok=True)
@@ -1772,12 +1793,32 @@ class Engine(GObject.Object):
                 if not task.dry_run and (problem := local_space_problem(pair.local, paths.state, downloads)):
                     result = (None, None, problem)
                 if task.mode is Mode.SYNC:
-                    # a rename by case alone: on Koofr first (a preview only says it)
-                    task.case_renames = jobs.case_renames(paths, pair)
+                    # a rename by case alone, a whole folder moved: on Koofr
+                    # first, on the server (a preview only says it)
+                    task.case_renames, found = jobs.renames_here(paths, pair)
                     if task.case_renames and not task.dry_run and not task.cancelled:
-                        problem = jobs.rename_on_koofr(rclone, env, cfg, pair, paths, task.case_renames, override)
+                        moved: list = []
+                        problem = jobs.rename_on_koofr(rclone, env, cfg, pair, paths, task.case_renames, override,
+                                                       moved)
+                        jobs.record_moves(paths, pair, moved)
                         if problem:
                             result = (None, None, problem)
+                    if result[0] is not None and found is not None and found.anything_gone and self.koofr_links:
+                        # what is gone here goes on Koofr, and Koofr removes a
+                        # public link with what it points to: never in silence
+                        try:
+                            every = self.koofr_links(creds, cfg.mount_id)
+                        except Exception as e:
+                            complain(f"reading the public links for {pair.name}", e)
+                            result = (None, None, _("The public links on Koofr could not be checked. "
+                                                    "Spola tries again."))
+                        else:
+                            md5 = self.koofr_md5
+                            task.links_at_risk = jobs.links_at_risk(
+                                pair, found, every, task.case_renames if task.dry_run else (),
+                                (lambda path: md5(creds, cfg.mount_id, path)) if md5 else None)
+                            if not task.dry_run and any(risk.id not in task.links_ok for risk in task.links_at_risk):
+                                raise jobs.LinksAtRisk(task.links_at_risk)
                 if task.dry_run and task.mode is not Mode.CHECK:
                     free = free_space(rclone, paths, creds, override)
                     task.bases = jobs.listed_files(paths, pair)
@@ -1788,6 +1829,8 @@ class Engine(GObject.Object):
                 result, busy = (None, None, ""), e.paths
             except jobs.TooManyChanges as e:
                 result, changes = (None, None, ""), e
+            except jobs.LinksAtRisk as e:
+                result, links = (None, None, ""), e.links
             except jobs.DamagedListings as e:
                 result, damaged = (None, None, ""), str(e)
             except jobs.NotReady as e:
@@ -1797,12 +1840,13 @@ class Engine(GObject.Object):
             except Exception as e:      # said, never a lane taken for good
                 complain(f"preparing a run of {pair.name}", e)
                 result = (None, None, f"{type(e).__name__}: {e}")
-            GLib.idle_add(self._start_prepared, task, *result, free, busy, changes, damaged)
+            GLib.idle_add(self._start_prepared, task, *result, free, busy, changes, damaged, links)
 
         threading.Thread(target=work, name=f"prepare-{pair.id}", daemon=True).start()
 
     def _start_prepared(self, task: Task, job, argv, error: str, free: int | None = None,
-                        busy: list[str] | None = None, changes=None, damaged: str | None = None) -> bool:
+                        busy: list[str] | None = None, changes=None, damaged: str | None = None,
+                        links: list | None = None) -> bool:
         """The run prepared in a thread: start it, unless things changed
         meanwhile (shutdown, pair removed or paused, Stop pressed), or files
         already in sync are being written (`busy`): then it waits for them."""
@@ -1877,6 +1921,21 @@ class Engine(GObject.Object):
                 self.emit("attention", pair.id, "confirm", message)
             GLib.idle_add(self._next)
             return False
+        if links is not None:
+            # the run would remove on Koofr what a public link points to, and
+            # Koofr removes the link with it: the run did not start; a
+            # preview that names the links, then a word
+            rt.safety = "links"
+            message = (_("“{name}” has a public link, which this sync would remove on Koofr")
+                       .format(name=os.path.basename(links[0].path)) if len(links) == 1 else
+                       _("{n} public links would be removed on Koofr by this sync").format(n=count(len(links))))
+            if task.callback:
+                task.callback(None, message)
+            self._set_status(pair, rt, Status.NEEDS_CONFIRMATION, message)
+            if rt.before_run[0] is not Status.NEEDS_CONFIRMATION:
+                self.emit("attention", pair.id, "confirm", message)
+            GLib.idle_add(self._next)
+            return False
         if damaged is not None:
             # the record of the last synced state cannot be read: a repair,
             # from the kept copy or with a new alignment, never a retry
@@ -1929,6 +1988,7 @@ class Engine(GObject.Object):
                 rt.preview.free_bytes, rt.preview.bases, rt.preview.counts = free, task.bases, task.counts
                 rt.preview.base_counts = task.base_counts
                 rt.preview.changed_count = job.changed_count
+                rt.preview.links_at_risk = tuple(task.links_at_risk)
             self.emit("pair-changed", pair.id)
             return False
         rt.stats, rt.transferring = None, []
@@ -2057,6 +2117,11 @@ class Engine(GObject.Object):
                     complain(f"reading the outcome of {pair.name}", e)
                     self._set_status(pair, rt, Status.ERROR, _("The outcome of the sync could not be read: {error}")
                                      .format(error=f"{type(e).__name__}: {e}"))
+                if not task.dry_run and task.links_at_risk and outcome.result is Result.OK:
+                    # confirmed, and done: said once more, with where to share again
+                    rt.lost_links = list(task.links_at_risk)
+                    for risk in task.links_at_risk:
+                        self.emit("attention", pair.id, "link-lost", lost_link_message(risk))
                 if not task.dry_run:
                     self.emit("run-finished", pair.id, task.reason)
             if task.callback:
