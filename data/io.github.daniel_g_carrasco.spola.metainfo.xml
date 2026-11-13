@@ -114,6 +114,13 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.45" date="2026-11-13" type="development">
+      <description>
+        <p>Renaming or moving a whole folder no longer destroys the public links that point to it on Koofr: Spola moves the folder on Koofr itself, in one operation, so the links keep their address and nothing is uploaded again.</p>
+        <p>A sync that would remove from Koofr something with a public link stops first, names the links and waits for a confirmation.</p>
+        <p>The sharing window and, on Windows, the update window are laid out again after GNOME's guidelines: one evident action, standard rows, nothing selected when they open.</p>
+      </description>
+    </release>
     <release version="0.3.44" date="2026-11-13" type="development">
       <description>
         <p>When Koofr refuses requests because it received too many at once, Spola no longer asks to repair the folder: nothing was changed, so it tries again by itself, later and with fewer requests at a time.</p>
