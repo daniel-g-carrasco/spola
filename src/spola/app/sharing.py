@@ -11,6 +11,7 @@ import base64
 import datetime as dt
 import json
 import posixpath
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -354,6 +355,21 @@ class Client:
                         tuple(link for link in links.values() if not _same(link.path, path)),
                         bool(permissions.get("CREATE_LINK")), bool(permissions.get("MOUNT")),
                         other_links=tuple(link for link in own if link is not main))
+
+    def all_links(self) -> list[Link]:
+        """Every public link of the mount, wherever it points (one request):
+        for what a sync is about to remove on Koofr."""
+        listed = self._request("GET", _mount_url(self.mount_id) + "/links").get("links")
+        if not isinstance(listed, list):
+            raise _bad_response()
+        return [_link(raw) for raw in listed if isinstance(raw, dict) and raw.get("mountId") == self.mount_id]
+
+    def file_md5(self, path: str) -> str:
+        """Koofr's checksum of the file at `path`, as a listing has it
+        ("md5:..."); "" when Koofr gives none."""
+        info = self._request("GET", _mount_url(self.mount_id) + "/files/info", params={"path": _path(path)})
+        digest = info.get("hash")
+        return "md5:" + digest.lower() if isinstance(digest, str) and re.fullmatch(r"[0-9a-fA-F]{32}", digest) else ""
 
     def create_link(self, path: str) -> Link:
         snapshot = self.load(path)

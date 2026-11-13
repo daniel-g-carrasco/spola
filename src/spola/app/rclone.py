@@ -592,10 +592,16 @@ def fold_case_renames(plan: Plan, renames) -> None:
     """Renames by case alone (preflight.case_renames), done on Koofr before
     the run: bisync, which cannot tell the two names apart there, plans the
     files they carry as deleted on Koofr and uploaded again (a preview, which
-    renames nothing), and then does nothing with them. One move each."""
+    renames nothing), and then does nothing with them. One move each.
+    Likewise the whole folders moved here (preflight.folder_moves): a
+    preview plans their files as moved one by one; the run moves the folder."""
     if not renames:
         return
     tops = [r.new.casefold() for r in renames]
+    moved_tops = [r.new.casefold() for r in renames if r.target]
+    if moved_tops:
+        plan.moved_remote = [(old, new) for old, new in plan.moved_remote
+                             if not any(new.casefold().startswith(top + "/") for top in moved_tops)]
 
     def renamed(path: str) -> bool:
         folded = path.casefold()

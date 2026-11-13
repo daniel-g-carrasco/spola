@@ -10,6 +10,7 @@ be asked to do, so every rule about when a run may start lives here:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -24,10 +25,12 @@ from spola.data import listings
 from . import versions
 from .config import Config, Pair
 from .paths import Paths
-from .preflight import (CaseRename, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
-                        check_root_identity, koofr_desktop_config, refused_paths)
+from .preflight import (CaseRename, News, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
+                        check_root_identity, folder_moves, koofr_desktop_config, news as preflight_news,
+                        refused_paths, successor)
 from spola.i18n import _, translation_for
 from .koofr_api import user_agent
+from .log import complain
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, allowed_changes, conflict_suffix, default_excluded,
                      effective_max_delete, exclude_lines, excluded_by, no_window, remote_spec, reserved_exclude_lines,
                      windows_reserved_names_matter)
@@ -383,16 +386,129 @@ def case_renames(paths: Paths, pair: Pair) -> list[CaseRename]:
     return find_case_renames(pair.local, (e.path for e in before), (e.path for e in koofr))
 
 
+def renames_here(paths: Paths, pair: Pair) -> tuple[list[CaseRename], News | None]:
+    """What Spola does on Koofr itself before a run, on the server: the
+    renames by case alone, then the whole folders renamed or moved here
+    (preflight.folder_moves). With them, what this computer has and lacks
+    since the last listing (None before a first alignment), for the public
+    links the run would remove."""
+    workdir = paths.workdir(pair.id)
+    try:
+        before, koofr = listings.load(workdir, 1), listings.load(workdir, 2)
+    except (OSError, ValueError):
+        return [], None
+    if not before or not koofr:
+        return [], None
+    found = preflight_news(pair.local, before, default_excluded)
+    found.koofr_hash = {e.path.casefold(): e.hash for e in koofr if not e.is_dir}
+    on_koofr = [e.path for e in koofr]
+    renames = find_case_renames(pair.local, (e.path for e in before), on_koofr)
+    return renames + folder_moves(pair.local, found, on_koofr), found
+
+
+@dataclass(frozen=True)
+class LinkAtRisk:
+    """A public link of Koofr to a file or folder that the next sync would
+    remove there: Koofr removes the link with what it points to, and a new
+    link has another address."""
+    id: str
+    path: str               # in the synced folder, as the last listing had it
+    is_dir: bool
+    opened: int             # how many times it was opened
+    successor: str = ""     # the new folder its files seem to be in now ("" when none stands out)
+
+
+class LinksAtRisk(Exception):
+    """The run was not started: it would remove what public links point to."""
+    def __init__(self, links: list[LinkAtRisk]):
+        super().__init__(f"{len(links)} public links would stop working")
+        self.links = links
+
+
+def _md5(path: str) -> str:
+    digest = hashlib.md5(usedforsecurity=False)
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            digest.update(block)
+    return "md5:" + digest.hexdigest()
+
+
+def links_at_risk(pair: Pair, found: News, links, planned=(), remote_md5=None) -> list[LinkAtRisk]:
+    """Of the mount's public links (sharing.Link), the ones to something
+    that was synced in this folder and is no longer here: the run would
+    remove it on Koofr, and the link with it. Not the ones that follow:
+    under a folder Spola moves on the server first (`planned`, for a
+    preview: a real run has moved them already, and Koofr gives the link's
+    new place), nor a file moved here, which rclone moves on the server
+    (the same content as Koofr's copy: the link stays, tried 2026-11-13).
+    The content is compared by Koofr's checksum: the listing's, or, where
+    the listing has none (a file not synced again since a first alignment),
+    the one `remote_md5(path on Koofr)` asks Koofr for."""
+    root = pair.remote.rstrip("/").casefold() + "/"
+    known = {path.casefold(): (path, False) for path in found.files}
+    known.update({folder.casefold(): (folder, True) for folder in found.dirs})
+    at_risk = []
+    for link in links:
+        low = link.path.casefold()
+        entry = known.get(low[len(root):]) if low.startswith(root) else None
+        if entry is None:
+            continue            # elsewhere, or never synced here (new on Koofr, left out)
+        rel, is_dir = entry
+        if os.path.lexists(os.path.join(pair.local, rel)):
+            continue
+        if any(move.target and (rel == move.old or rel.startswith(move.old + "/")) for move in planned):
+            continue
+        if not is_dir:
+            size, ns = found.files[rel]
+            moved = found.new_files.get((size, ns // 1_000_000)) if ns is not None else None
+            try:
+                wanted = found.koofr_hash.get(rel.casefold(), "") if moved else ""
+                if moved and not wanted.startswith("md5:") and remote_md5 is not None:
+                    wanted = remote_md5(link.path) or ""
+                if moved and wanted.startswith("md5:") and _md5(os.path.join(pair.local, moved)) == wanted:
+                    continue
+            except Exception as e:      # the checksum could not be had: the link counts as at risk
+                complain(f"comparing {rel} with Koofr's copy", e)
+        at_risk.append(LinkAtRisk(link.id, rel, is_dir, link.counter,
+                                  successor(pair.local, found, rel) if is_dir else ""))
+    return sorted(at_risk, key=lambda risk: risk.path)
+
+
 def _join(root: str, rel: str) -> str:
     return root + rel if root.endswith((":", "/")) else f"{root}/{rel}"
 
 
+def record_moves(paths: Paths, pair: Pair, moves: list[CaseRename]) -> int:
+    """The folders just moved on Koofr (and here before), written in the two
+    listings of the last synced state: bisync then finds nothing to do for
+    what they hold. Without it the files count as gone from both sides, and
+    a folder that is a tenth of the pair stops the run on the deletion
+    check. Only for a move this run made and Koofr confirmed: a listing
+    that names files Koofr does not have would read as deletions there. If
+    the listings cannot be rewritten they stay as they are, and bisync
+    asks."""
+    if not moves:
+        return 0
+    workdir = paths.workdir(pair.id)
+    first, second = listings.find(workdir, 1), listings.find(workdir, 2)
+    if first is None or second is None:
+        return 0
+    try:
+        return listings.rename(first, second, [(m.old, m.new) for m in moves], [(m.koofr, m.target) for m in moves])
+    except (OSError, ValueError) as e:
+        complain(f"writing the folders moved in the listings of {pair.name}", e)
+        return 0
+
+
 def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Paths, renames: list[CaseRename],
-                    path2_override: str | None = None) -> str:
-    """The renames by case alone, done on Koofr before the run, on the
-    server (a folder at once). Koofr is asked for the name it has first: a
-    run stopped by a safety check after renaming leaves it done for the next.
-    '' when done, else what went wrong."""
+                    path2_override: str | None = None, moved: list | None = None) -> str:
+    """The renames by case alone and the whole folders moved here, done on
+    Koofr before the run, on the server (a folder at once, with the public
+    links that point to it). Koofr is asked for the name it has first: a
+    run stopped by a safety check after renaming leaves it done for the
+    next. '' when done, else what went wrong. A folder that cannot be moved
+    (something is where it goes, Koofr refuses) is left to bisync: the
+    check on the public links comes after, and sees what was not moved."""
     root = path2_override or remote_spec(pair.remote)
     common = ["--config", str(paths.rclone_config), "--color", "NEVER"]
     if cfg.instance_id:
@@ -411,13 +527,23 @@ def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Path
                 continue        # the folder is gone: bisync will see what happened
             names = [line.rstrip("/") for line in listed.stdout.splitlines()]
             current = next((n for n in names if n.casefold() == name.casefold()), None)
-            if current is None or current == target_name:
+            if current is None or (not r.target and current == target_name):
                 continue        # gone, or renamed already
             source = f"{parent}/{current}" if parent else current
-            target = f"{parent}/{target_name}" if parent else target_name
+            target = r.target or (f"{parent}/{target_name}" if parent else target_name)
+            if r.target:
+                into, _sep, last = target.rpartition("/")
+                there = rclone_run("lsf", "--max-depth", "1", _join(root, into) if into else root)
+                if there.returncode == 0 and any(line.rstrip("/").casefold() == last.casefold()
+                                                 for line in there.stdout.splitlines()):
+                    continue    # something is there already: bisync will see what happened
             done = rclone_run("moveto", _join(root, source), _join(root, target))
         except (OSError, subprocess.TimeoutExpired) as e:
             return str(e)
+        if done.returncode != 0 and r.target:
+            continue            # left to bisync, and to the check on the links
+        if r.target and moved is not None:
+            moved.append(CaseRename(r.old, r.new, source, target))      # with the name Koofr had for it
         if done.returncode != 0:
             lines = [line for line in done.stderr.splitlines() if line.strip()]
             return _("Could not rename “{old}” to “{new}” on Koofr: {error}").format(

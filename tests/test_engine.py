@@ -608,6 +608,95 @@ class EngineTest(unittest.TestCase):
         self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
         self.assertEqual(sorted(p.name for p in self.local.iterdir() if p.is_dir()), ["caps"])
 
+    def shared_folder(self, name="events/2026-10-20"):
+        (self.local / name / "photos").mkdir(parents=True)
+        for i in range(4):
+            (self.local / name / f"doc-{i}.txt").write_text(str(i) * 50)
+        (self.local / name / "photos" / "p.jpg").write_text("jpg")
+        self.assertTrue(spin_until(lambda: (self.remote / name / "photos" / "p.jpg").exists()
+                                   and self.engine.active is None and not self.engine.queue, 30))
+
+    def test_a_folder_renamed_here_is_moved_on_koofr_as_a_folder(self):
+        # 2026-11-11: left to bisync, the files went one by one into a new
+        # folder and the old one was removed, and Koofr removed with it a
+        # public link opened four times. Moved on the server, the folder is
+        # the same folder: its links follow (tried on Koofr, 2026-11-13).
+        self.align()
+        self.shared_folder()
+        folder = os.stat(self.remote / "events/2026-10-20").st_ino
+        os.rename(self.local / "events/2026-10-20", self.local / "events/2026-11-20")
+        finished = []
+        self.engine.connect("run-finished", lambda _e, pid, reason: finished.append(reason))
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "manual" in finished, 30))
+        self.assertFalse((self.remote / "events/2026-10-20").exists())
+        self.assertEqual(os.stat(self.remote / "events/2026-11-20").st_ino, folder)     # moved, not made again
+        self.assertEqual(sorted(p.name for p in (self.remote / "events/2026-11-20").iterdir()),
+                         ["doc-0.txt", "doc-1.txt", "doc-2.txt", "doc-3.txt", "photos"])
+        plan = self.engine.runtime["p1"].last_outcome.plan
+        self.assertEqual(plan.moved_remote, [("events/2026-10-20", "events/2026-11-20")])
+        self.assertEqual(plan.upload + plan.delete_remote + plan.download + plan.delete_local, [])
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and not self.engine.queue, 30))
+        self.assertTrue((self.local / "events/2026-11-20/photos/p.jpg").exists())
+
+    def test_a_preview_shows_a_folder_moved_as_one_move(self):
+        self.align()
+        self.shared_folder()
+        self.engine.set_paused("p1", True)
+        os.rename(self.local / "events/2026-10-20", self.local / "events/2026-11-20")
+        kept, got = self.preview_of("p1", Mode.SYNC, False)        # paused: no sync of its own gets there first
+        self.assertTrue(spin_until(lambda: got, 60))
+        plan = got[0][0].plan
+        self.assertEqual(plan.moved_remote, [("events/2026-10-20", "events/2026-11-20")])
+        self.assertEqual(plan.upload + plan.delete_remote, [])
+        self.assertTrue((self.remote / "events/2026-10-20").is_dir())       # a preview moves nothing
+
+    def test_a_sync_that_would_remove_a_public_link_waits_for_a_word(self):
+        from types import SimpleNamespace as NS
+        self.align()
+        self.shared_folder("Shared")
+        asked = []
+        self.engine.koofr_links = lambda creds, mount_id: (asked.append(mount_id) or [
+            NS(id="l1", path="/test/shared", counter=4), NS(id="l2", path="/elsewhere", counter=0)])
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append((kind, msg)))
+        # nothing gone here: Koofr is not even asked for its links
+        (self.local / "new.txt").write_text("new")
+        self.assertTrue(spin_until(lambda: (self.remote / "new.txt").exists() and self.engine.active is None, 30))
+        self.assertEqual(asked, [])
+        shutil.rmtree(self.local / "Shared")
+        rt = self.engine.runtime["p1"]
+        self.assertTrue(spin_until(lambda: self.status() is Status.NEEDS_CONFIRMATION, 30), rt.message)
+        self.assertEqual(rt.safety, "links")
+        self.assertIn("Shared", rt.message)
+        self.assertIn("confirm", [kind for kind, _msg in told])
+        self.assertTrue((self.remote / "Shared/photos/p.jpg").exists())        # nothing was removed
+        self.engine.sync_all("poll")                                            # automatic runs stay stopped
+        spin_until(lambda: False, 1.5)
+        self.assertTrue((self.remote / "Shared").is_dir())
+        kept, got = self.preview_of("p1", Mode.SYNC, True)
+        self.assertTrue(spin_until(lambda: got, 60))
+        self.assertEqual([(risk.path, risk.is_dir, risk.opened) for risk in kept.links_at_risk], [("Shared", True, 4)])
+        self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True))
+        self.assertTrue(spin_until(lambda: not (self.remote / "Shared").exists(), 30))
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK, 30), rt.message)
+        self.assertEqual([risk.path for risk in rt.lost_links], ["Shared"])
+        self.assertIn("link-lost", [kind for kind, _msg in told])
+
+    def test_a_folder_moved_with_its_link_does_not_stop_the_sync(self):
+        from types import SimpleNamespace as NS
+        self.align()
+        self.shared_folder("Shared")
+        # Koofr gives a link where its folder is now
+        self.engine.koofr_links = lambda creds, mount_id: [
+            NS(id="l1", path="/test/Shared" if (self.remote / "Shared").exists() else "/test/Shared 2026", counter=4)]
+        os.rename(self.local / "Shared", self.local / "Shared 2026")
+        self.assertTrue(spin_until(lambda: (self.remote / "Shared 2026/photos/p.jpg").exists()
+                                   and self.status() is Status.OK and not self.engine.queue, 30),
+                        self.engine.runtime["p1"].message)
+        self.assertFalse((self.remote / "Shared").exists())
+        self.assertEqual(self.engine.runtime["p1"].safety, "")
+
     def test_confirming_needs_the_finished_preview(self):
         # nothing to confirm without the preview, nor while it still runs, nor
         # for another question: the preview goes on, and once it is done the
