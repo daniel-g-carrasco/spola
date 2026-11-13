@@ -187,7 +187,7 @@ class SpolaProvider(GObject.GObject, *_providers()):
         self._pending_folders = set()
         self._schedule = 0
         self._roots_retry = 0
-        self.spola_version = 0      # Sync1: 2 brings previous versions, 3 explicit sharing
+        self.spola_version = 0      # Sync1: 2 brings previous versions, 3 explicit sharing, 4 Share on a selection
         Gio.DBusProxy.new_for_bus(Gio.BusType.SESSION,
                                   Gio.DBusProxyFlags.DO_NOT_AUTO_START | Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES,
                                   None, APP_ID, OBJECT_PATH, INTERFACE, None, self._proxy_ready)
@@ -385,6 +385,13 @@ class SpolaProvider(GObject.GObject, *_providers()):
             items.append(link)
             if self.spola_version >= 2:
                 items += self._version_items(prefix, target, background or os.path.isdir(target))
+        elif self.spola_version >= 4:
+            # several items: the entry stays, and Spola, hearing two requests in a
+            # row, says that sharing takes one item at a time (an older Spola
+            # would open a window for each)
+            link = FM.MenuItem(name=f"{prefix}::ShareLink", label=_("Share on Koofr…"))
+            link.connect("activate", lambda *_: [self._share(path) for path in paths[:2]])
+            items.append(link)
         return items
 
     def _share(self, target):

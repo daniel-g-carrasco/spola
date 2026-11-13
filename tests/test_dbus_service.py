@@ -267,7 +267,7 @@ class VersionsServiceTest(unittest.TestCase):
         return inv
 
     def test_version_and_menu_names(self):
-        self.assertEqual(self.call("GetVersion", "()").value.unpack(), (3,))
+        self.assertEqual(self.call("GetVersion", "()").value.unpack(), (4,))
         self.assertEqual(self.call("GetFolderVersions", "(s)", uri_for(str(self.root))).value.unpack(), (["relazione.odt"],))
         self.assertEqual(self.call("GetFolderVersions", "(s)", str(self.root / "docs")).value.unpack(), (["via.txt"],))
         self.assertEqual(self.call("GetFolderVersions", "(s)", "/elsewhere").value.unpack(), ([],))

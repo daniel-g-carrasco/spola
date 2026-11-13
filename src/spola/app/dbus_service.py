@@ -24,6 +24,9 @@ VersionsChanged signal (the root of a pair whose copies were read again).
 Version 3 adds Share. ShowShareLink opens the same dialog; CreateShareLink
 only retrieves an existing usable unprotected link. Creating access always
 requires an explicit action in the dialog, including from older extensions.
+Version 4: several Share requests in a row (a selection of several items)
+open nothing, and Spola says that sharing takes one item at a time; an
+extension may then offer Share on a selection, asking for its first two.
 """
 
 from __future__ import annotations
@@ -44,7 +47,7 @@ from spola.core.states import State, ancestors_and_self
 
 OBJECT_PATH = "/io/github/daniel_g_carrasco/spola/Sync"
 INTERFACE = f"{APP_ID}.Sync1"
-VERSION = 3
+VERSION = 4
 BATCH_MS = 300
 
 XML = f"""

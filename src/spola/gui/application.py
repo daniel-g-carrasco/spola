@@ -124,6 +124,9 @@ def native_windows() -> None:
         style.connect(change, restyled)
 
 
+SHARE_BURST_S = 1.5        # requests to share closer than this are one selection of several items
+
+
 class SpolaApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -139,6 +142,8 @@ class SpolaApp(Adw.Application):
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None
         self._quitting = False
+        # the last request to share: several in a row are one selection of several items
+        self._share_asked, self._share_path, self._share_told, self._share_dialog = 0.0, "", False, None
         self._quit_done = False
         self.explorer_status = None         # Windows: the sync status in File Explorer
         self._last_summary = ""
@@ -381,8 +386,26 @@ class SpolaApp(Adw.Application):
         self._share(path)
 
     def _share(self, path: str) -> None:
+        """Share on Koofr…, from a file manager's menu. With several items
+        selected the file managers ask once per item, one right after the
+        other (Explorer and Dolphin start the command for each, the Nautilus
+        extension and Thunar's action ask for the first two): sharing takes
+        one item at a time, so nothing opens (the window just opened for the
+        first is closed) and Spola says so, once."""
         from spola.app import explorer
         from spola.app.rclone import default_excluded
+        now = time.monotonic()
+        several = now - self._share_asked < SHARE_BURST_S and path != self._share_path
+        self._share_asked = now
+        if several:
+            if not self._share_told:
+                self._share_told = True
+                if self._share_dialog is not None:
+                    self._share_dialog.force_close()
+                    self._share_dialog = None
+                self._tell(_("Share on Koofr works on one file or folder at a time. Select one, then choose it again."))
+            return
+        self._share_path, self._share_told, self._share_dialog = path, False, None
         found = self._in_pair(path)
         if found is None:
             return
@@ -397,7 +420,8 @@ class SpolaApp(Adw.Application):
         from .sharing_dialog import SharingDialog
         window = self._window()
         window.present()
-        SharingDialog(window, explorer.remote_path(pair, relative)).present(window)
+        self._share_dialog = SharingDialog(window, explorer.remote_path(pair, relative))
+        self._share_dialog.present(window)
 
     def do_activate(self):
         self._window().present()
