@@ -74,6 +74,51 @@ class Release:
     assets: list[Asset] = field(default_factory=list)
 
 
+def notes_sections(notes: str, limit: int = 12) -> list[tuple[str, list[str]]]:
+    """A release's notes (the version's section of CHANGELOG.md, as Markdown)
+    as (heading, items) for the update window: "### Fixed" is a heading, a
+    "- " line with the lines that continue it one item, a paragraph of its
+    own an item too. GitHub's "Full Changelog" line and what is left of
+    Markdown's emphasis are dropped; at most `limit` items in all."""
+    sections: list[tuple[str, list[str]]] = []
+    items: list[str] | None = None
+    open_item = False
+
+    def add(text: str) -> None:
+        nonlocal items
+        if items is None:
+            items = []
+            sections.append(("", items))
+        items.append(text)
+
+    for raw in notes.replace("\r\n", "\n").split("\n"):
+        line = raw.strip()
+        if not line:
+            open_item = False
+            continue
+        if "full changelog" in line.lower() and "http" in line.lower():
+            continue
+        line = re.sub(r"\*\*|__|`", "", line)
+        if line.startswith("#"):
+            items = []
+            sections.append((line.lstrip("#").strip(), items))
+            open_item = False
+        elif line[:2] in ("- ", "* "):
+            add(line[2:].strip())
+            open_item = True
+        elif open_item and items:
+            items[-1] += " " + line
+        else:
+            add(line)
+            open_item = True
+    kept, left = [], limit
+    for heading, found in sections:
+        if found and left > 0:
+            kept.append((heading, found[:left]))
+            left -= len(found[:left])
+    return kept
+
+
 def parse_version(text: str) -> tuple[int, ...]:
     """'v1.2.0' -> (1, 2, 0); what is not a number counts as 0."""
     parts = []

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""The update dialog opens with the focus on its action, not on the notes
-(a selectable label given the focus has all its text selected)."""
+"""The update dialog opens with the focus on its action and nothing selected
+(a selectable label given the focus has all its text selected); what is new
+comes as rows under the changelog's headings; a failure is said in a banner."""
 
 import locale
 import unittest
@@ -12,7 +13,7 @@ try:
     import gi
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
-    from gi.repository import Adw, Gdk
+    from gi.repository import Adw, Gdk, Gtk
 except (ImportError, ValueError):
     raise unittest.SkipTest("GTK 4 and libadwaita") from None
 Adw.init()
@@ -23,6 +24,48 @@ if Gdk.Display.get_default() is None:
 
 from spola.app import updates  # noqa: E402
 from spola.gui.update_dialog import UpdateDialog  # noqa: E402
+
+
+NOTES = """### Fixed
+- Renaming a whole folder no longer destroys
+  the public links that point to it.
+- A second thing.
+
+### Added
+- A sync that would remove a link stops first.
+
+**Full Changelog**: https://github.com/x/y/compare/v1...v2
+"""
+
+
+def widgets(root):
+    child = root.get_first_child()
+    while child is not None:
+        yield child
+        yield from widgets(child)
+        child = child.get_next_sibling()
+
+
+class LayoutTest(unittest.TestCase):
+    def test_what_is_new_as_rows_and_no_text_to_select(self):
+        dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", NOTES, []))
+        self.assertEqual([row.get_title() for row in dialog.note_rows],
+                         ["Renaming a whole folder no longer destroys the public links that point to it.",
+                          "A second thing.", "A sync that would remove a link stops first."])
+        selectable = [w for w in widgets(dialog) if isinstance(w, Gtk.Label) and w.get_selectable()]
+        self.assertEqual(selectable, [])
+        self.assertFalse(dialog.progress_group.get_visible())
+        self.assertFalse(dialog.banner.get_revealed())
+
+    def test_a_failed_download_is_said_and_can_be_tried_again(self):
+        dialog = UpdateDialog(updates.Release("99.0.0", "https://example/release", "", []))
+        dialog.action.set_sensitive(False)
+        dialog.progress_group.set_visible(True)
+        dialog._failed("Download failed: no network")
+        self.assertTrue(dialog.banner.get_revealed())
+        self.assertEqual(dialog.banner.get_title(), "Download failed: no network")
+        self.assertTrue(dialog.action.get_sensitive())
+        self.assertFalse(dialog.progress_group.get_visible())
 
 
 class FocusTest(unittest.TestCase):
