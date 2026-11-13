@@ -300,6 +300,11 @@ class BisyncRequest:
     conflict_suffix: str = "conflict-local-{DateOnly}-,conflict-koofr-{DateOnly}-"
     user_agent: str | None = None
     extra_test_flags: list[str] = field(default_factory=list)   # tests only
+    gentle: bool = False        # Koofr refused requests lately: fewer at a time, and not too many a second
+
+
+GENTLE_CHECKERS = 4
+GENTLE_TPS = 40
 
 
 def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
@@ -325,14 +330,23 @@ def bisync_args(rclone: str, req: BisyncRequest) -> list[str]:
         "--create-empty-src-dirs",
         "--resilient", "--recover",
         "--max-lock", "2m",
-        # Koofr has no recursive listing: folders are listed one by one, and
-        # 16 in parallel halve the time of 8 (data/work: 49 s instead of 95)
-        "--checkers", "16",
         "--skip-links",
         "--use-json-log", "--stats", "1s", "--stats-log-level", "NOTICE",
         "--color", "NEVER",
         "-v",
     ]
+    if req.gentle:
+        # Koofr answered "too many requests" not long ago (13/11/2026: a
+        # tree of 10,600 folders asked 16 at a time, some 200 requests a
+        # second, refused at every run for half an hour). Its limit is not
+        # published: a quarter of the folders at a time and a ceiling on the
+        # requests, which makes the listing some four times slower.
+        args += ["--checkers", str(GENTLE_CHECKERS), "--tpslimit", str(GENTLE_TPS),
+                 "--tpslimit-burst", str(GENTLE_TPS)]
+    else:
+        # Koofr has no recursive listing: folders are listed one by one, and
+        # 16 in parallel halve the time of 8 (data/work: 49 s instead of 95)
+        args += ["--checkers", "16"]
     if req.user_agent:
         args += ["--user-agent", req.user_agent]
     if req.exclude_from:
@@ -631,6 +645,36 @@ class Outcome:
     # a run stopped for too many deletions: {"Path1": (deleted, entries)}, as
     # bisync counted them (confirmed_max_delete)
     excess: dict = field(default_factory=dict)
+    # Koofr was reached and refused: too many requests (429) or an error of
+    # its own (5xx). Nothing to repair: the same run later, and more slowly
+    busy: bool = False
+
+
+# rclone's Koofr backend on an answer it did not expect
+_REFUSED = re.compile(r"invalid response status! got (429|5\d\d)\b", re.IGNORECASE)
+
+
+def refusal(message: str) -> str:
+    """The HTTP status with which Koofr refused ("429", "503"), "" if the
+    message is not a refusal."""
+    if (m := _REFUSED.search(message)):
+        return m[1]
+    return "429" if "too many requests" in message.lower() else ""
+
+
+def plain_reason(message: str) -> str:
+    """An error of rclone's as a line a person can read: a refusal of
+    Koofr's by what it means, anything else by its first line, without the
+    headers and the HTML a server's answer drags along. The whole text
+    stays with who shows it, as a detail."""
+    code = refusal(message)
+    if code == "429":
+        return _("Koofr received too many requests at once and refused some")
+    if code:
+        return _("Koofr answered with an error of its own ({code})").format(code=code)
+    lines = message.strip().splitlines()
+    first = " ".join(lines[0].split()) if lines else ""
+    return first if len(first) <= 160 else first[:159].rstrip() + "…"
 
 
 NETWORK_HINTS = ("no such host", "dial tcp", "connection refused", "connection reset",
@@ -804,9 +848,14 @@ def summarize(exit_code: int, events: list[Event], path1: str, path2: str,
     # next run recovers it (--recover), so it is a retry, not a repair. If the
     # retry fails again without network errors, that one asks for the repair.
     network = any(hint in message.lower() for message in plan.errors for hint in NETWORK_HINTS)
-    if network and result in (Result.NEEDS_REPAIR, Result.RETRY):
+    # The same for a refusal of Koofr's: bisync stops while listing, before
+    # it changes anything, and says itself that the run can be tried again
+    # ("retryable without --resync"). Asking the user to repair would only
+    # make them press a button that runs into the same refusal.
+    busy = any(refusal(message) for message in plan.errors)
+    if (network or busy) and result in (Result.NEEDS_REPAIR, Result.RETRY):
         result = Result.RETRY
     for name in ("upload", "download", "delete_local", "delete_remote", "replace_local", "conflicts"):
         setattr(plan, name, sorted(set(getattr(plan, name)), key=lambda s: (s.count("/"), s.casefold())))
     return Outcome(result, exit_code, first_error, plan, stats, network, safety, empty_side, root_missing,
-                   excess=excess)
+                   excess=excess, busy=busy)

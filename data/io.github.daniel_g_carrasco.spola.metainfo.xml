@@ -114,6 +114,12 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.44" date="2026-11-13" type="development">
+      <description>
+        <p>When Koofr refuses requests because it received too many at once, Spola no longer asks to repair the folder: nothing was changed, so it tries again by itself, later and with fewer requests at a time.</p>
+        <p>The question after a sync that stopped is short: what happened in one line and one button to resume; the technical error and the new alignment are under "Details".</p>
+      </description>
+    </release>
     <release version="0.3.43" date="2026-11-10" type="development">
       <description>
         <p>Windows: the window resizes, maximizes and drags as Windows itself does it again. The workarounds of the last versions got in the way of that and are replaced by lighter ones: opening the menu no longer shrinks a maximized window, and a menu left open when the window is minimized is closed when the window comes back.</p>
