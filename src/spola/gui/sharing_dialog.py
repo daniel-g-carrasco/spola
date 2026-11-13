@@ -35,9 +35,10 @@ def _combo(title, choices):
     return Adw.ComboRow(title=title, model=Gtk.StringList.new(choices))
 
 
-def _link_description(link):
+def _link_description(link, expiry=True):
     """Who can open this link and what it allows, in words a recipient would
-    also understand; every fact comes from Koofr's own answer."""
+    also understand; every fact comes from Koofr's own answer. `expiry`:
+    said here too (the item's own link has a row for it)."""
     if not link.active:
         return (_("This link has expired.") if link.valid_to and link.valid_to <= time.time() * 1000 else
                 _("This link is not active yet."))
@@ -53,7 +54,8 @@ def _link_description(link):
         text = _("Anyone with the link can view. No account is needed.")
     if not link.downloadable:
         text += "\n" + _("The download button is hidden; recipients can still save or record content.")
-    text += "\n" + (_("Expires: {date}").format(date=_date(link.valid_to)) if link.valid_to else _("No expiration date."))
+    if expiry:
+        text += "\n" + (_("Expires: {date}").format(date=_date(link.valid_to)) if link.valid_to else _("No expiration date."))
     if link.password_required and link.has_password:
         text += "\n" + _("Koofr requires a password for this link.")
     return text
@@ -115,14 +117,22 @@ class PermissionEditor(Gtk.Box):
 
 
 class SharingDialog(Adw.Dialog):
+    """One item's sharing, as Koofr has it now. The layout is libadwaita's
+    own: a loading page, an error page with its retry, then boxed lists
+    (the public link first, with one evident action: create it, or copy
+    it), a banner for what a change left unsaid, button rows for the
+    actions. No label is selectable and the focus starts on the main
+    action: nothing is highlighted before the user selects it."""
+
     def __init__(self, window, remote_path):
-        super().__init__(title=_("Share"), content_width=540, content_height=660)
+        super().__init__(title=_("Share"), content_width=480, content_height=640)
         self.window, self.engine, self.path = window, window.engine, remote_path
         self.creds = self.engine.creds
         self.client = (sharing.Client(self.creds.user, self.creds.password, self.engine.cfg.mount_id)
                        if self.creds else None)
         self.snapshot = None
         self._closed, self._busy = False, False
+        self._focused = False
         self.member_rows = []
         self.inherited_link_rows = []
         self.connect("closed", self._on_closed)
@@ -131,57 +141,82 @@ class SharingDialog(Adw.Dialog):
 
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title=_("Share"), subtitle=remote_path.rsplit("/", 1)[-1] or "/"))
-        self.spinner = Gtk.Spinner()
+        name = remote_path.rsplit("/", 1)[-1] or "/"
+        header.set_title_widget(Adw.WindowTitle(title=_("Share"), subtitle=name, tooltip_text=remote_path))
+        self.spinner = Adw.Spinner(visible=False)
         header.pack_start(self.spinner)
         refresh = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=_("Refresh sharing settings"))
         refresh.connect("clicked", lambda *_: self._reload())
         header.pack_end(refresh)
         self.refresh_button = refresh
         view.add_top_bar(header)
+        # what a change left unsaid: it stays until the next successful read
+        self.banner = Adw.Banner(button_label=_("Try Again"))
+        self.banner.connect("button-clicked", lambda *_: self._reload())
+        view.add_top_bar(self.banner)
+
+        self.stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        loading = Adw.StatusPage(title=_("Reading the Sharing Settings"),
+                                 description=_("Spola asks Koofr who can open “{name}”. Nothing is changed.")
+                                 .format(name=name))
+        loading.set_child(Adw.Spinner(width_request=32, height_request=32, halign=Gtk.Align.CENTER))
+        self.stack.add_named(loading, "loading")
+        self.failed = Adw.StatusPage(icon_name="dialog-error-symbolic", title=_("Sharing Settings Not Available"))
+        self.retry_button = Gtk.Button(label=_("Try Again"), halign=Gtk.Align.CENTER, css_classes=["pill", "suggested-action"])
+        self.retry_button.connect("clicked", lambda *_: self._reload())
+        self.failed.set_child(self.retry_button)
+        self.stack.add_named(self.failed, "failed")
+
         self.page = Adw.PreferencesPage()
-        notice = Adw.PreferencesGroup()
-        notice.add(Gtk.Label(label=remote_path, xalign=0, selectable=True, wrap=True, css_classes=["dim-label"]))
-        self.status_label = Gtk.Label(label=_("Loading sharing settings…"), xalign=0, wrap=True)
-        notice.add(self.status_label)
-        self.error_label = Gtk.Label(xalign=0, wrap=True, selectable=True, visible=False, css_classes=["error"])
-        notice.add(self.error_label)
-        self.retry_button = _button(_("Try Again"), self._reload)
-        self.retry_button.set_visible(False)
-        notice.add(self.retry_button)
-        self.page.add(notice)
-
-        self.people_group = Adw.PreferencesGroup(title=_("People with access"))
-        self.invite_button = _button(_("Add People…"), self._invite)
-        self.people_group.set_header_suffix(self.invite_button)
-        self.page.add(self.people_group)
-
-        self.link_group = Adw.PreferencesGroup(title=_("Access via link"))
-        self.link_summary = Adw.ActionRow(title=_("No sharing link"), subtitle_lines=0)
-        self.create_button = _button(_("Create Link"), self._create, suggested=True)
-        self.link_summary.add_suffix(self.create_button)
-        self.link_group.add(self.link_summary)
-        self.link_box = Gtk.Box(spacing=8, margin_top=8)
-        self.url_entry = Gtk.Entry(editable=False, hexpand=True, width_chars=10)
-        self.copy_button = _button(_("Copy Link"), self._copy_link, suggested=True)
-        self.link_box.append(self.url_entry)
-        self.link_box.append(self.copy_button)
-        self.link_group.add(self.link_box)
-        self.password_row = Adw.ActionRow(title=_("Password"))
-        self.password_entry = Gtk.PasswordEntry(editable=False, show_peek_icon=True, hexpand=True,
-                                                valign=Gtk.Align.CENTER)
-        self.password_row.add_suffix(self.password_entry)
-        self.password_copy = _button(_("Copy Password"), self._copy_password)
+        # -- the public link: the first thing, with the one main action
+        self.link_group = Adw.PreferencesGroup(title=_("Public Link"))
+        self.create_button = Adw.ButtonRow(title=_("Create Public Link"), start_icon_name="list-add-symbolic")
+        self.create_button.add_css_class("suggested-action")
+        self.create_button.connect("activated", lambda *_: self._create())
+        self.link_group.add(self.create_button)
+        self.url_row = Adw.ActionRow(title_lines=1, subtitle_lines=1, use_markup=False)
+        self.copy_button = Gtk.Button(label=_("Copy Link"), valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        self.copy_button.connect("clicked", lambda *_: self._copy_link())
+        self.url_row.add_suffix(self.copy_button)
+        self.link_group.add(self.url_row)
+        # shown as dots until asked for: a property row, not an entry (nothing to type, nothing selected)
+        self.password_row = Adw.ActionRow(title=_("Password"), css_classes=["property"], use_markup=False)
+        self.password_shown = Gtk.ToggleButton(icon_name="view-reveal-symbolic", valign=Gtk.Align.CENTER,
+                                               css_classes=["flat"], tooltip_text=_("Show Password"))
+        self.password_shown.connect("toggled", lambda *_: self._show_password())
+        self.password_row.add_suffix(self.password_shown)
+        self.password_copy = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER, css_classes=["flat"],
+                                        tooltip_text=_("Copy Password"))
+        self.password_copy.connect("clicked", lambda *_: self._copy_password())
         self.password_row.add_suffix(self.password_copy)
         self.link_group.add(self.password_row)
-        self.link_actions = Gtk.Box(spacing=8, margin_top=8)
-        self.settings_button = _button(_("Link Settings…"), self._settings)
-        self.revoke_button = _button(_("Revoke Link…"), self._revoke)
-        self.link_actions.append(self.settings_button)
-        self.link_actions.append(self.revoke_button)
-        self.link_group.add(self.link_actions)
+        self.expiry_row = Adw.ActionRow(title=_("Expires"), css_classes=["property"], use_markup=False)
+        self.link_group.add(self.expiry_row)
+        self.settings_row = Adw.ActionRow(title=_("Link Settings"), activatable=True,
+                                          subtitle=_("Password, expiration, download button"))
+        self.settings_row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        self.settings_row.connect("activated", lambda *_: self._settings())
+        self.link_group.add(self.settings_row)
         self.page.add(self.link_group)
-        view.set_content(self.page)
+        # -- the links of the folders above: they open this item too
+        self.parent_links_group = Adw.PreferencesGroup(title=_("Links on Parent Folders"), visible=False)
+        self.page.add(self.parent_links_group)
+        # -- people
+        self.people_group = Adw.PreferencesGroup(title=_("People"))
+        self.invite_button = Adw.ButtonRow(title=_("Add People…"), start_icon_name="list-add-symbolic")
+        self.invite_button.connect("activated", lambda *_: self._invite())
+        self.people_group.add(self.invite_button)
+        self.page.add(self.people_group)
+        # -- what cannot be undone, last and apart
+        self.link_actions = Adw.PreferencesGroup()
+        self.revoke_button = Adw.ButtonRow(title=_("Revoke Link…"))
+        self.revoke_button.add_css_class("destructive-action")
+        self.revoke_button.connect("activated", lambda *_: self._revoke())
+        self.link_actions.add(self.revoke_button)
+        self.page.add(self.link_actions)
+        self.stack.add_named(self.page, "content")
+
+        view.set_content(self.stack)
         self.toasts = Adw.ToastOverlay(child=view)
         self.set_child(self.toasts)
         self._render()
@@ -201,17 +236,39 @@ class SharingDialog(Adw.Dialog):
 
     def _set_busy(self, busy):
         self._busy = busy
-        self.spinner.set_spinning(busy)
+        # the first read has its own page; a change keeps what is shown, with a spinner in the header
+        self.spinner.set_visible(busy and self.snapshot is not None)
         self.refresh_button.set_sensitive(not busy)
-        self.people_group.set_sensitive(not busy and self.snapshot is not None)
-        self.link_group.set_sensitive(not busy and self.snapshot is not None)
+        for group in (self.link_group, self.parent_links_group, self.people_group, self.link_actions):
+            group.set_sensitive(not busy and self.snapshot is not None)
         self.copy_button.set_sensitive(not busy and bool(self.snapshot and self.snapshot.link and self.snapshot.link.active))
         self.create_button.set_sensitive(not busy and bool(self.snapshot and self.snapshot.can_create_link))
+        self._show_page()
+
+    def _show_page(self):
+        if self.snapshot is not None:
+            self.stack.set_visible_child_name("content")
+        elif self._busy:
+            self.stack.set_visible_child_name("loading")
+        else:
+            self.stack.set_visible_child_name("failed")
 
     def _error(self, message, retry=False):
-        self.error_label.set_label(message)
-        self.error_label.set_visible(bool(message))
+        """What went wrong: on the page that replaces the settings when
+        there are none to show, else in the banner above them."""
+        self._error_text = message
+        self.failed.set_description(escape(message) if message else "")
         self.retry_button.set_visible(retry)
+        self.banner.set_title(message.replace("\n", " "))
+        self.banner.set_button_label(_("Try Again") if retry else "")
+        self.banner.set_revealed(bool(message) and self.snapshot is not None)
+
+    def error_text(self) -> str:
+        return getattr(self, "_error_text", "")
+
+    def link_text(self) -> str:
+        """What the window says about the public link."""
+        return self.link_group.get_description() or ""
 
     def _reload(self):
         if self._closed or self._busy:
@@ -276,67 +333,103 @@ class SharingDialog(Adw.Dialog):
 
     def _render(self):
         state = self.snapshot
-        self.status_label.set_label("" if state else _("Sharing settings are not available yet."))
-        self.status_label.set_visible(state is None)
+        self._show_page()
+        if getattr(self, "_error_text", ""):
+            self.banner.set_revealed(state is not None)
+        # -- people
         for row in self.member_rows:
             self.people_group.remove(row)
         self.member_rows.clear()
-        self.people_group.set_description(_("Only people you invite receive account-based access."))
-        self.invite_button.set_visible(bool(state and state.can_invite))
+        self.people_group.remove(self.invite_button)
+        self.people_group.set_description(_("People you invite open it with their own Koofr account."))
         if state:
             if not state.access and not state.inherited:
-                self.people_group.set_description(_("No other people have been added here."))
+                self.people_group.set_description(_("Nobody else has been added. People you invite open it with "
+                                                    "their own Koofr account."))
             for access in ([state.access] if state.access else []) + list(state.inherited):
                 inherited = access in state.inherited
                 for member in access.members:
                     role = _("Owner") if member.owner else _role_title(member.permissions)
-                    subtitle = role
-                    if member.email and member.email != member.name:
-                        subtitle = member.email + " · " + subtitle
+                    subtitle = member.email if member.email and member.email != member.name else ""
                     if inherited:
-                        subtitle += "\n" + _("Access from {path}").format(path=access.path)
-                    row = Adw.ActionRow(title=escape(member.name or member.email), subtitle=escape(subtitle), subtitle_lines=0)
+                        subtitle += ("\n" if subtitle else "") + _("Access from {path}").format(path=access.path)
+                    row = Adw.ActionRow(title=member.name or member.email, subtitle=subtitle, subtitle_lines=0,
+                                        use_markup=False)
+                    row.add_prefix(Adw.Avatar(size=32, text=member.name or member.email, show_initials=True))
+                    row.add_suffix(Gtk.Label(label=role, css_classes=["dim-label"]))
                     if access.can_manage and not inherited and not member.owner and not member.is_group:
                         row.set_activatable(True)
                         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
                         row.connect("activated", lambda _r, a=access, m=member: MemberDialog(self, a, m).present(self))
                     self.people_group.add(row)
                     self.member_rows.append(row)
+        self.people_group.add(self.invite_button)          # last, under the people already there
+        self.invite_button.set_visible(bool(state and state.can_invite))
+        # -- the public link
         link = state.link if state else None
+        manage = bool(link and state.can_create_link)
         self.create_button.set_visible(bool(state and not link and state.can_create_link))
-        self.link_box.set_visible(link is not None)
-        self.copy_button.set_visible(link is not None)
-        self.link_actions.set_visible(bool(link and state.can_create_link))
+        self.url_row.set_visible(link is not None)
         self.password_row.set_visible(bool(link and link.has_password))
-        self.password_entry.set_text(link.password if link else "")
-        self.password_copy.set_sensitive(bool(link and link.password))
-        self.url_entry.set_text(link.url if link else "")
-        self.link_summary.set_title(_("Sharing link") if link else _("No sharing link"))
+        self.password_text = link.password if link else ""
+        self.password_shown.set_sensitive(bool(self.password_text))
+        self.password_copy.set_sensitive(bool(self.password_text))
+        self._show_password()
+        self.expiry_row.set_visible(bool(link and link.active))
+        self.settings_row.set_visible(manage)
+        self.link_actions.set_visible(manage)
         if link:
-            description = _link_description(link)
+            self.url_row.set_title(link.url)
+            self.url_row.set_subtitle(ngettext("Opened {n} time", "Opened {n} times", link.counter).format(n=link.counter)
+                                      if link.counter else _("Not opened yet"))
+            self.expiry_row.set_subtitle(_date(link.valid_to) if link.valid_to else _("Never"))
+            description = _link_description(link, expiry=False)
             others = len(state.other_links)
             if others:
                 description += "\n" + ngettext("{n} other link leads to this item; Revoke Link removes it too.",
                                                "{n} other links lead to this item; Revoke Link removes them too.",
                                                others).format(n=others)
-            self.link_summary.set_subtitle(escape(description))
+            self.link_group.set_description(escape(description))
+        elif state and any(parent.active for parent in state.inherited_links):
+            self.link_group.set_description(escape(_(
+                "No link of its own, but the link of a folder above opens this item too: see below.")))
+        elif state and state.can_create_link:
+            self.link_group.set_description(escape(_(
+                "No public link yet. With one, anyone who has it can view and download without an account. "
+                "Koofr may require a password.")))
         else:
-            self.link_summary.set_subtitle(_("Create a link for viewing and downloading without an account. Koofr may require a password."))
+            self.link_group.set_description(escape(_("No public link. You do not have permission to create one "
+                                                     "for this item.")) if state else "")
         for row in self.inherited_link_rows:
-            self.link_group.remove(row)
+            self.parent_links_group.remove(row)
         self.inherited_link_rows.clear()
         if state:
             for inherited_link in state.inherited_links:
                 if inherited_link.active:
-                    description = (_("The link on {path} opens this item too. Manage that folder to change it.")
-                                   .format(path=inherited_link.path) + "\n" + _link_description(inherited_link))
+                    description = (_("This folder's link opens this item too. Manage it from that folder.")
+                                   + "\n" + _link_description(inherited_link))
                 else:
-                    description = _("The link on {path} is inactive. Manage it from that folder.").format(path=inherited_link.path)
-                row = Adw.ActionRow(title=_("Link on a parent folder"), subtitle=escape(description),
-                                    subtitle_lines=0)
-                self.link_group.add(row)
+                    description = _("This folder's link is inactive. Manage it from that folder.")
+                row = Adw.ActionRow(title=inherited_link.path, subtitle=description, subtitle_lines=0, title_lines=0,
+                                    use_markup=False)
+                row.add_prefix(Gtk.Image(icon_name="folder-symbolic"))
+                self.parent_links_group.add(row)
                 self.inherited_link_rows.append(row)
+        self.parent_links_group.set_visible(bool(self.inherited_link_rows))
         self._set_busy(self._busy)
+        if state and not self._focused:
+            # the main action has the focus: no text is selected until the user selects it
+            self._focused = True
+            main = self.copy_button if link else (self.create_button if state.can_create_link else self.refresh_button)
+            GLib.idle_add(lambda: (main.grab_focus() if not self._closed else None) and False)
+
+    def _show_password(self):
+        shown = self.password_shown.get_active() and bool(self.password_text)
+        self.password_shown.set_icon_name("view-conceal-symbolic" if shown else "view-reveal-symbolic")
+        self.password_shown.set_tooltip_text(_("Hide Password") if shown else _("Show Password"))
+        # a password Koofr has but does not give back is said, not shown as empty
+        self.password_row.set_subtitle(self.password_text if shown else
+                                       ("\u2022" * 8 if self.password_text else _("Set, not shown by Koofr")))
 
     def _copy_text(self, text):
         self.window.get_clipboard().set(text)
@@ -390,11 +483,9 @@ class _EditorDialog(Adw.Dialog):
         self.save_button = _button(action, self._save, suggested=True)
         header.pack_end(self.save_button)
         view.add_top_bar(header)
+        self.error = Adw.Banner()           # what is wrong with the values, above them
+        view.add_top_bar(self.error)
         self.page = Adw.PreferencesPage()
-        self.error = Gtk.Label(xalign=0, wrap=True, visible=False, css_classes=["error"])
-        error_group = Adw.PreferencesGroup()
-        error_group.add(self.error)
-        self.page.add(error_group)
         view.set_content(self.page)
         self.set_child(view)
         if WINDOWS:
@@ -407,8 +498,8 @@ class _EditorDialog(Adw.Dialog):
             root.set_default_size(self.get_content_width(), self.get_content_height())
 
     def _invalid(self, message):
-        self.error.set_label(message)
-        self.error.set_visible(True)
+        self.error.set_title(message)
+        self.error.set_revealed(True)
 
 
 class LinkSettingsDialog(_EditorDialog):
@@ -522,7 +613,10 @@ class MemberDialog(_EditorDialog):
                 "Koofr sends an invitation. The recipient needs a Koofr account to access this item.")))
         else:
             group = Adw.PreferencesGroup()
-            group.add(_button(_("Remove Access…"), self._remove, destructive=True))
+            remove = Adw.ButtonRow(title=_("Remove Access…"))
+            remove.add_css_class("destructive-action")
+            remove.connect("activated", lambda *_: self._remove())
+            group.add(remove)
             self.page.add(group)
 
     def _save(self):

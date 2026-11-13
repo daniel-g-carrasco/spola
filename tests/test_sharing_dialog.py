@@ -14,7 +14,7 @@ try:
     import gi
     gi.require_version("Gtk", "4.0")
     gi.require_version("Adw", "1")
-    from gi.repository import Adw, Gdk, Gtk
+    from gi.repository import Adw, Gdk, GLib, Gtk
 except (ImportError, ValueError):
     raise unittest.SkipTest("GTK 4 and libadwaita") from None
 Adw.init()
@@ -77,7 +77,7 @@ class SharingDialogTest(unittest.TestCase):
         self.finish()
         self.assertEqual(self.client.method_calls, [mock.call.load("/work")])
         self.assertTrue(dialog.create_button.get_visible())
-        self.assertFalse(dialog.copy_button.get_visible())
+        self.assertFalse(dialog.url_row.get_visible())
 
     def test_copy_existing_link_never_mutates_permissions_or_expiry(self):
         self.client.load.return_value = snapshot(link=link(valid_to=1900000000000))
@@ -105,8 +105,8 @@ class SharingDialogTest(unittest.TestCase):
         self.client.load.return_value = snapshot(link=link(has_password=True, password="abc123", password_required=True))
         dialog = self.dialog()
         self.finish()
-        self.assertIn("password", dialog.link_summary.get_subtitle().lower())
-        self.assertEqual(dialog.password_entry.get_text(), "abc123")
+        self.assertIn("password", dialog.link_text().lower())
+        self.assertEqual(dialog.password_text, "abc123")
         self.assertTrue(dialog.password_row.get_visible())
 
     def test_expired_link_cannot_be_copied(self):
@@ -114,17 +114,17 @@ class SharingDialogTest(unittest.TestCase):
         dialog = self.dialog()
         self.finish()
         self.assertFalse(dialog.copy_button.get_sensitive())
-        self.assertIn("expired", dialog.link_summary.get_subtitle().lower())
+        self.assertIn("expired", dialog.link_text().lower())
 
     def test_create_is_explicit_and_reloads_server_settings(self):
         dialog = self.dialog()
         self.finish()
         self.client.load.return_value = snapshot(link=link(has_password=True, password="abcdef"))
-        dialog.create_button.emit("clicked")
+        dialog.create_button.emit("activated")
         self.assertFalse(dialog.create_button.get_sensitive())
         self.finish()
         self.assertEqual(self.client.create_link.call_args, mock.call("/work"))
-        self.assertEqual(dialog.password_entry.get_text(), "abcdef")
+        self.assertEqual(dialog.password_text, "abcdef")
         self.assertTrue(dialog.copy_button.get_sensitive())
 
     def test_partial_write_failure_reloads_and_shows_actual_state(self):
@@ -136,7 +136,7 @@ class SharingDialogTest(unittest.TestCase):
         dialog._change(lambda: self.client.update_link(dialog.snapshot.link, password_mode="reset", valid_to=1000))
         self.assertFalse(dialog.copy_button.get_sensitive())
         self.finish()
-        self.assertIn("refused", dialog.error_label.get_label())
+        self.assertIn("refused", dialog.error_text())
         self.assertTrue(dialog.snapshot.link.has_password)
 
     def test_failed_reload_leaves_copy_disabled_and_offers_retry(self):
@@ -279,16 +279,70 @@ class SharingDialogTest(unittest.TestCase):
         self.client.load.return_value = snapshot(link=link(), other_links=(link(id="old"),))
         dialog = self.dialog()
         self.finish()
-        self.assertIn("1 other link", dialog.link_summary.get_subtitle())
+        self.assertIn("1 other link", dialog.link_text())
         self.assertEqual([l.id for l in dialog.snapshot.links], ["link", "old"])
 
     def test_a_link_without_download_button_does_not_promise_downloads(self):
         self.client.load.return_value = snapshot(link=link(downloadable=False))
         dialog = self.dialog()
         self.finish()
-        text = dialog.link_summary.get_subtitle()
+        text = dialog.link_text()
         self.assertIn("Anyone with the link can view.", text)
         self.assertNotIn("view and download", text)
+
+    def widgets(self, root):
+        child = root.get_first_child()
+        while child is not None:
+            yield child
+            yield from self.widgets(child)
+            child = child.get_next_sibling()
+
+    def test_nothing_can_be_found_selected_when_the_window_opens(self):
+        # a selectable label given the focus shows all its text selected: none is selectable,
+        # nothing is an entry, and the focus goes to the main action
+        self.client.load.return_value = snapshot(link=link(has_password=True, password="abc123"))
+        dialog = self.dialog()
+        self.finish()
+        found = [w for w in self.widgets(dialog) if (isinstance(w, Gtk.Label) and w.get_selectable())
+                 or isinstance(w, (Gtk.Entry, Gtk.Text))]
+        self.assertEqual(found, [])
+        context = GLib.MainContext.default()
+        for _i in range(20):
+            context.iteration(False)
+        self.assertIs(dialog.get_focus(), dialog.copy_button)
+
+    def test_a_page_for_reading_one_for_a_failure_then_the_settings(self):
+        dialog = self.dialog()
+        self.assertEqual(dialog.stack.get_visible_child_name(), "loading")
+        self.finish()
+        self.assertEqual(dialog.stack.get_visible_child_name(), "content")
+        self.assertFalse(dialog.banner.get_revealed())
+        self.client.load.side_effect = RuntimeError("no answer")
+        dialog._reload()
+        self.finish()
+        self.assertEqual(dialog.stack.get_visible_child_name(), "failed")
+        self.assertIn("no answer", dialog.error_text())
+
+    def test_a_password_is_dots_until_asked_for(self):
+        self.client.load.return_value = snapshot(link=link(has_password=True, password="abc123"))
+        dialog = self.dialog()
+        self.finish()
+        self.assertNotIn("abc123", dialog.password_row.get_subtitle())
+        dialog.password_shown.set_active(True)
+        self.assertEqual(dialog.password_row.get_subtitle(), "abc123")
+        # one Koofr has but does not give back is said, not shown as empty
+        self.client.load.return_value = snapshot(link=link(has_password=True, password=""))
+        dialog._reload()
+        self.finish()
+        self.assertIn("not shown", dialog.password_row.get_subtitle())
+        self.assertFalse(dialog.password_copy.get_sensitive())
+
+    def test_a_parents_link_is_said_where_the_items_own_would_be(self):
+        self.client.load.return_value = snapshot(inherited_links=(link(path="/"),))
+        dialog = self.dialog()
+        self.finish()
+        self.assertIn("folder above", dialog.link_text())
+        self.assertTrue(dialog.parent_links_group.get_visible())
 
     def test_expired_parent_link_is_not_described_as_providing_access(self):
         self.client.load.return_value = snapshot(inherited_links=(link(path="/", active=False, valid_to=1000),))
