@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.46" date="2026-11-14" type="development">
+      <description>
+        <p>Share on Koofr works on one file or folder at a time, and says so when several are selected: nothing opens and a notification says to select one. On Windows the update window says how large the download is.</p>
+      </description>
+    </release>
     <release version="0.3.45" date="2026-11-13" type="development">
       <description>
         <p>Renaming or moving a whole folder no longer destroys the public links that point to it on Koofr: Spola moves the folder on Koofr itself, in one operation, so the links keep their address and nothing is uploaded again.</p>
