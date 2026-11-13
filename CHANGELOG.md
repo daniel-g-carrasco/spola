@@ -6,6 +6,15 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.44] - 2026-11-13
+
+### Fixed
+- When Koofr refuses requests because it received too many at once (or answers with an error of its own), Spola no longer asks to repair the folder: nothing was changed and nothing is lost, so it tries again by itself after 5, 15, 30 and 60 minutes and says so in the folder's line. The repair it used to ask for ran into the same refusal.
+- After such a refusal the syncs ask Koofr for fewer folders at a time, for two hours: slower, and within what Koofr accepts.
+
+### Changed
+- The question after a sync that stopped is short: what happened in one line, one button to resume from the last successful sync. What rclone said word for word and the new alignment are under "Details", the latter with the warning that files deleted since the last sync come back.
+
 ## [0.3.43] - 2026-11-10
 
 ### Changed

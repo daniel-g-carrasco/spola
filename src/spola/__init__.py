@@ -13,7 +13,7 @@ side (gui/) only displays and triggers.
 import sys
 from pathlib import Path
 
-__version__ = "0.3.43"
+__version__ = "0.3.44"
 
 WINDOWS = sys.platform == "win32"
 # the package's folder: a module one or two folders down finds the checkout

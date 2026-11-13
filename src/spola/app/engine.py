@@ -52,6 +52,7 @@ from spola.i18n import _, count, every_translation, ngettext
 from .log import complain
 from .paths import Paths
 from .rclone import (MODIFY_WINDOW_NS, Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes,
+                     plain_reason,
                      confirmed_max_delete, default_excluded, summarize as rclone_summarize, describe, excluded_by,
                      find_rclone, fold_case_renames, koofr_env, no_window, relative_path, remote_spec)
 from spola.core.states import PathStates, ancestors_and_self
@@ -64,6 +65,10 @@ MAX_WAIT_S = 120
 # most this long: a file written without end (a log) is synced all the same
 BUSY_WAIT_MAX_S = 300
 RETRY_DELAYS_MIN = (1, 5, 15, 30, 60)
+# after a refusal of Koofr's ("too many requests"): a minute later is the
+# same refusal, and one more request counted against the limit
+BUSY_DELAYS_MIN = (5, 15, 30, 60)
+GENTLE_HOURS = 2        # how long the runs stay slow after a refusal; each new refusal starts the count again
 RESUME_GAP_S = 90       # wall clock ahead of the monotonic clock: the machine slept
 ACTIVITY_INTERVAL_S = 60
 TRASH_TTL_S = 5 * 60            # Koofr's trash read once serves this long (it is read whole: 87 pages took 78 s)
@@ -289,6 +294,8 @@ class PairRuntime:
     last_failure: str = ""          # a run that could not start, until one does
     filters_changed: bool = False   # the exclusions changed during a run: a repair afterwards
     tried_listings: set = field(default_factory=set)    # kept copies a repair went back to, this session
+    detail: str = ""                # the whole error behind `message`, when that is a plain line of it
+    gentle_until: float = 0.0       # monotonic: Koofr refused requests, runs go slowly until then
     listing_serial: int = 0         # readings of the last listing asked for: only the latest applies
     backup_run: str = ""            # the run folder of the real run in progress (versions.py)
     ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
@@ -1756,6 +1763,7 @@ class Engine(GObject.Object):
                 job = jobs.prepare(cfg, pair, paths, task.mode, task.dry_run, task.force, path2_override=override,
                                    koofr_files=lambda: jobs.files_on_koofr(rclone, env, paths, pair, override),
                                    wait_for_writes=wait, max_delete=task.max_delete, max_changes=task.max_changes)
+                job.request.gentle = time.monotonic() < rt.gentle_until
                 if task.mode is Mode.CHECK:
                     argv = verify.check_args(rclone, job.request, paths.workdir(pair.id) / verify.REPORT)
                 else:
@@ -2159,10 +2167,11 @@ class Engine(GObject.Object):
         elif result is Result.NEEDS_REPAIR and (outcome.empty_side or outcome.root_missing):
             self._side_gone(pair, rt, outcome)
         elif result is Result.NEEDS_REPAIR:
-            message = outcome.message
+            # a line a person can read; the whole error stays as a detail
+            message, rt.detail = plain_reason(outcome.message), outcome.message
             if rt.filters_changed:          # bisync noticed the new exclusions too: say it in Spola's words
                 rt.filters_changed = False
-                message = _("The exclusions changed")
+                message, rt.detail = _("The exclusions changed"), ""
             self._set_status(pair, rt, Status.NEEDS_REPAIR, message)
             self.emit("attention", pair.id, "repair", message)
         elif result is Result.CANCELLED:
@@ -2172,7 +2181,8 @@ class Engine(GObject.Object):
                 self.request_sync(pair.id, "rerun")
         else:
             locked = "prior lock file" in (outcome.message or "")
-            delay = 3 if locked else RETRY_DELAYS_MIN[min(rt.retries, len(RETRY_DELAYS_MIN) - 1)]
+            delays = BUSY_DELAYS_MIN if outcome.busy else RETRY_DELAYS_MIN
+            delay = 3 if locked else delays[min(rt.retries, len(delays) - 1)]
             if not locked:
                 rt.retries += 1
             if rt.retry_source:
@@ -2185,6 +2195,13 @@ class Engine(GObject.Object):
                 message = _("A previous sync was interrupted: trying again in {n} min.").format(n=delay)
             if outcome.network:
                 message = _("Koofr cannot be reached right now: trying again in {n} min.").format(n=delay)
+            if outcome.busy:
+                # nothing was changed and nothing is lost: later, and with
+                # fewer requests at a time for a while (bisync_args, gentle)
+                rt.gentle_until = time.monotonic() + GENTLE_HOURS * 3600
+                rt.detail = outcome.message
+                message = _("Koofr is receiving too many requests: trying again in {n} min, more slowly.") \
+                    .format(n=delay)
             self._set_status(pair, rt, Status.ERROR, message)
             if rt.retries == 3:
                 self.emit("attention", pair.id, "error", message)

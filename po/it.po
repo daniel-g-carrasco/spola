@@ -3824,3 +3824,30 @@ msgstr "Motore di sincronizzazione"
 #: src/spola/gui/window.py:2577
 msgid "Measuring the space taken by the logs and backups…"
 msgstr "Misurazione dello spazio occupato da log e backup…"
+
+msgid "Koofr received too many requests at once and refused some"
+msgstr "Koofr ha ricevuto troppe richieste insieme e ne ha rifiutate alcune"
+
+msgid "Koofr answered with an error of its own ({code})"
+msgstr "Koofr ha risposto con un suo errore ({code})"
+
+msgid "Koofr is receiving too many requests: trying again in {n} min, more slowly."
+msgstr "Koofr sta ricevendo troppe richieste: riprovo tra {n} min, più lentamente."
+
+msgid "The Sync of “{name}” Stopped"
+msgstr "La sincronizzazione di «{name}» si è fermata"
+
+msgid "{reason}.\n\nSpola can pick up from the last successful sync ({time}): what changed since then is synced as usual, with the same safety checks."
+msgstr "{reason}.\n\nSpola può riprendere dall'ultima sincronizzazione riuscita ({time}): ciò che è cambiato da allora viene sincronizzato come sempre, con le stesse protezioni."
+
+msgid "Resume the Sync"
+msgstr "Riprendi la sincronizzazione"
+
+msgid "Details"
+msgstr "Dettagli"
+
+msgid "What rclone said"
+msgstr "Cosa ha detto rclone"
+
+msgid "If that state cannot be trusted. The two sides are compared from scratch: what is missing on each side is copied and nothing is deleted, so files deleted since the last sync come back; where both sides have a different version, the newer one wins."
+msgstr "Se di quello stato non ci si può fidare. I due lati vengono confrontati da capo: ciò che manca da ciascun lato viene copiato e nulla viene eliminato, quindi i file eliminati dopo l'ultima sincronizzazione ricompaiono; dove i due lati hanno una versione diversa, vince la più recente."

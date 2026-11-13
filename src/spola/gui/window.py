@@ -420,32 +420,57 @@ class MainWindow(_WindowBase):
     def ask_repair(self, pair_id: str) -> None:
         """Spola lost track of the last synced state, but a copy of it was
         kept after the last successful sync: going back to it and syncing
-        normally keeps every safety check; a new alignment is the other way."""
+        normally keeps every safety check, and is the one thing offered as
+        a button. What rclone said, word for word, and the other way (a new
+        alignment, which brings back what was deleted since) are under
+        "Details": there for who looks for them, not in the way."""
         pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
         kept = self.engine.kept_listings(pair_id) if pair is not None else []
         if pair is None or rt is None or not kept:
             return
         name, stamp = kept[0]
         dialog = Adw.AlertDialog(
-            heading=_("Repair “{name}”?").format(name=pair.name),
-            body=_("Spola lost track of the last synced state ({reason}).\n\n"
-                   "It kept a copy of the state known at {time}, after the last successful sync: Spola can go "
-                   "back to it and sync normally from there, the changes since then handled as usual, with the "
-                   "same safety checks. Or a new alignment copies what is missing on each side and deletes "
-                   "nothing; where both sides have a different version, the newer one wins.").format(
-                reason=rt.message, time=when(stamp)))
-        dialog.add_response("cancel", _("Cancel"))
-        dialog.add_response("restore", _("Go Back to That State"))
-        dialog.add_response("align", _("New Alignment…"))
+            heading=_("The Sync of “{name}” Stopped").format(name=pair.name),
+            body=_("{reason}.\n\n"
+                   "Spola can pick up from the last successful sync ({time}): what changed since then is "
+                   "synced as usual, with the same safety checks.").format(
+                reason=rt.message.rstrip("."), time=when(stamp)))
+        dialog.add_response("cancel", _("Not Now"))
+        dialog.add_response("restore", _("Resume the Sync"))
         dialog.set_response_appearance("restore", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("restore")
+        dialog.set_close_response("cancel")
+
+        # GNOME's way for what is there for who looks for it: a boxed list
+        # with an expander row; inside, what rclone said as a property row
+        # (selectable, to copy it into a report) and the other way as a row
+        # that opens something, with its arrow
+        details = Adw.ExpanderRow(title=_("Details"))
+        if rt.detail and rt.detail.strip() != rt.message:
+            said = Adw.ActionRow(title=_("What rclone said"), use_markup=False, subtitle_selectable=True,
+                                 css_classes=["property"])
+            said.set_subtitle(rt.detail.strip()[:1500])     # after use_markup: a server's HTML is no markup of ours
+            details.add_row(said)
+        align = Adw.ActionRow(
+            title=_("New Alignment…"), activatable=True,
+            subtitle=_("If that state cannot be trusted. The two sides are compared from scratch: what is missing "
+                       "on each side is copied and nothing is deleted, so files deleted since the last sync come "
+                       "back; where both sides have a different version, the newer one wins."))
+        align.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+        details.add_row(align)
+        rows = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=["boxed-list"], margin_top=6)
+        rows.append(details)
+        dialog.set_extra_child(rows)
 
         def chosen(_d, response):
             if response == "restore":
                 if not self.engine.restore_listings(pair_id, name):
                     self.toast(_("The kept state could not be put back: a new alignment is needed."))
-            elif response == "align":
-                self.open_preview(pair_id)
+
+        def new_alignment(_row):
+            dialog.close()
+            self.open_preview(pair_id)
+        align.connect("activated", new_alignment)
         dialog.connect("response", chosen)
         dialog.present(self)
 

@@ -409,6 +409,51 @@ class DefaultsTest(unittest.TestCase):
         self.assertTrue(out.network)
         self.assertIs(summarize(7, [crit], "/a/", "koofr:b").result, Result.NEEDS_REPAIR)
 
+    REFUSAL = ("error reading destination directory: Invalid response status! Got 429, expected [200]; headers: map[Cache-Control:[no-cache] Content-Length:[117] Content-Type:[text/html]], content: <html><body><h1>429 Too Many Requests</h1>\\nYou have sent too many requests in a given amount of time.\\n</body></html>\\n")
+
+    def test_a_refusal_of_koofr_is_a_retry_not_a_repair(self):
+        # 13/11/2026: Koofr answered 429 to 365 folder listings of a run;
+        # bisync stopped with a critical error and Spola asked for a repair,
+        # which ran into the same refusal
+        refused = Event(Kind.ERROR, self.REFUSAL, "error")
+        crit = Event(Kind.CRITICAL, "Bisync critical error: march failed with 365 error(s)", "error")
+        out = summarize(7, [refused, crit], "/a/", "koofr:b")
+        self.assertIs(out.result, Result.RETRY)
+        self.assertTrue(out.busy)
+        self.assertFalse(out.network)
+        gone = Event(Kind.ERROR, "Invalid response status! Got 503, expected [200]", "error")
+        self.assertTrue(summarize(7, [gone, crit], "/a/", "koofr:b").busy)
+        # a status that says the request itself is wrong is no refusal to wait out
+        denied = Event(Kind.ERROR, "Invalid response status! Got 403, expected [200]", "error")
+        out = summarize(7, [denied, crit], "/a/", "koofr:b")
+        self.assertIs(out.result, Result.NEEDS_REPAIR)
+        self.assertFalse(out.busy)
+
+    def test_an_error_is_said_in_a_line_a_person_can_read(self):
+        from spola.app.rclone import plain_reason, refusal
+        self.assertEqual(refusal(self.REFUSAL), "429")
+        said = plain_reason(self.REFUSAL)
+        self.assertIn("too many requests", said)
+        for junk in ("<html>", "headers", "Content-Length", "\n"):
+            self.assertNotIn(junk, said)
+        self.assertIn("503", plain_reason("Invalid response status! Got 503, expected [200]"))
+        self.assertEqual(plain_reason("  first   line \n second line"), "first line")
+        self.assertEqual(len(plain_reason("x" * 500)), 160)
+        self.assertEqual(plain_reason(""), "")
+
+    def test_after_a_refusal_the_run_asks_less_at_a_time(self):
+        from spola.app.rclone import GENTLE_CHECKERS, GENTLE_TPS
+        req = BisyncRequest(path1="/a", path2="koofr:b", workdir=Path("/w"), rclone_config=Path("/c"),
+                            filters_file=Path("/f"), backup_dir1=Path("/k"), max_delete=10)
+        usual = bisync_args("rclone", req)
+        self.assertEqual(usual[usual.index("--checkers") + 1], "16")
+        self.assertNotIn("--tpslimit", usual)
+        req.gentle = True
+        gentle = bisync_args("rclone", req)
+        self.assertEqual(gentle.count("--checkers"), 1)
+        self.assertEqual(gentle[gentle.index("--checkers") + 1], str(GENTLE_CHECKERS))
+        self.assertEqual(gentle[gentle.index("--tpslimit") + 1], str(GENTLE_TPS))
+
 
 class FindRcloneTest(unittest.TestCase):
     def test_the_windows_build_runs_only_the_rclone_it_ships(self):
