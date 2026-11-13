@@ -91,7 +91,9 @@ class InstallTest(unittest.TestCase):
         root = ET.parse(fm._uca_file(self.env)).getroot()
         share = next(a for a in root.findall("action") if a.findtext("unique-id") == "spola-share-link")
         self.assertEqual(share.findtext("name"), "Share on Koofr…")
-        self.assertIn(".Sync1.Share %f", share.findtext("command"))
+        # every selected item reaches the command: with several, the first two are asked for
+        self.assertTrue(share.findtext("command").endswith("sh %F"))
+        self.assertEqual(share.findtext("command").count(".Sync1.Share"), 2)
         kinds = {a.findtext("unique-id"): {c.tag for c in a if c.tag.endswith("files") or c.tag == "directories"}
                  for a in root.findall("action")}
         self.assertEqual(kinds["spola-deleted"], {"directories"})                  # on folders only

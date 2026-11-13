@@ -206,7 +206,13 @@ def _uca_action(action: str, method: str, label: str) -> ET.Element:
         ET.SubElement(el, "name", {XML_LANG: lang}).text = text
     ET.SubElement(el, "submenu").text = "Koofr"
     ET.SubElement(el, "unique-id").text = UCA_PREFIX + action
-    ET.SubElement(el, "command").text = _command(method, "%f")
+    command = _command(method, "%f")
+    if action == "share-link":
+        # %f is the first item only: with several selected, the first two are
+        # asked for, and Spola says that sharing takes one item at a time
+        one, two = _command(method, '"$1"'), _command(method, '"$2"')
+        command = f"sh -c '{one}; [ -z \"$2\" ] || {two}' sh %F"
+    ET.SubElement(el, "command").text = command
     ET.SubElement(el, "description").text = label
     ET.SubElement(el, "range")
     ET.SubElement(el, "patterns").text = "*"

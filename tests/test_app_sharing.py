@@ -38,9 +38,14 @@ class SharingRoutesTest(unittest.TestCase):
         self.app.activate = lambda: None
         presented = self.presented
 
+        closed = self.closed = []
+
         class SharingDialog:
             def __init__(dialog, window, remote):
                 dialog.window, dialog.remote = window, remote
+
+            def force_close(dialog):
+                closed.append(dialog.remote)
 
             def present(dialog, window):
                 self.assertIs(window, dialog.window)
@@ -48,7 +53,9 @@ class SharingRoutesTest(unittest.TestCase):
 
         self.dialog_module = SimpleNamespace(SharingDialog=SharingDialog)
 
-    def invoke(self, name, path):
+    def invoke(self, name, path, apart=True):
+        if apart:
+            self.app._share_asked = 0.0        # a request of its own, not one of several in a row
         options = GLib.VariantDict.new(None)
         options.insert_value(name, GLib.Variant("s", path))
         with mock.patch.dict("sys.modules", {"spola.gui.sharing_dialog": self.dialog_module}):
@@ -63,6 +70,30 @@ class SharingRoutesTest(unittest.TestCase):
                 self.assertEqual(self.invoke(option, path), 0)
                 self.assertEqual(self.presented, [(self.window, "/remote/work/new.txt")])
                 self.assertFalse(self.told)
+
+    def test_several_items_selected_open_nothing_and_it_is_said_once(self):
+        # a file manager asks once per selected item, one right after the other
+        # (Explorer and Dolphin start the command for each): sharing takes one item
+        for name in ("a.txt", "b.txt", "c.txt"):
+            (self.root / name).write_text("x")
+        clock = [100.0]
+        with mock.patch("spola.gui.application.time.monotonic", lambda: clock[0]):
+            for name in ("a.txt", "b.txt", "c.txt"):
+                self.invoke("share", str(self.root / name), apart=False)
+                clock[0] += 0.2
+            self.assertEqual([remote for _w, remote in self.presented], ["/remote/work/a.txt"])
+            self.assertEqual(self.closed, ["/remote/work/a.txt"])       # the window opened for the first
+            self.assertEqual(len(self.told), 1)
+            self.assertIn("one file or folder at a time", self.told[0])
+            # later, one item: as always
+            clock[0] += 5
+            self.invoke("share", str(self.root / "b.txt"), apart=False)
+            self.assertEqual([remote for _w, remote in self.presented][-1], "/remote/work/b.txt")
+            self.assertEqual(len(self.told), 1)
+            # the same item asked twice in a row (a double click on the entry) is one request
+            clock[0] += 0.1
+            self.invoke("share", str(self.root / "b.txt"), apart=False)
+            self.assertEqual(len(self.told), 1)
 
     def test_invalid_selection_does_not_open_sharing(self):
         for initialized, credentials, path in (

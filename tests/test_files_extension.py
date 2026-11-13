@@ -202,7 +202,26 @@ class ProviderTest(unittest.TestCase):
         if ext.FM:
             self.assertEqual([i.props.name for i in items], ["Spola::SyncNow", "Spola::OpenOnKoofr", "Spola::ShareLink"])
             two = self.provider._menu_items([FakeFile("/h/data/work/a"), FakeFile("/h/data/work/b")], False)
-            self.assertEqual([i.props.name for i in two], ["Spola::SyncNow"])
+            self.assertEqual([i.props.name for i in two], ["Spola::SyncNow"])        # an older Spola
+
+    def test_share_on_a_selection_asks_for_its_first_two_items(self):
+        class MenuItem:
+            def __init__(self, **props):
+                self.props = SimpleNamespace(**props)
+
+            def connect(self, signal, handler):
+                self.activate = handler
+
+        files = [FakeFile(f"/h/data/work/{name}") for name in ("a", "b", "c")]
+        with mock.patch.object(ext, "FM", SimpleNamespace(MenuItem=MenuItem)), mock.patch.object(ext, "_", lambda s: s):
+            self.provider.spola_version = 4
+            items = self.provider._menu_items(files, False)
+            self.assertEqual([i.props.name for i in items], ["Spola::SyncNow", "Spola::ShareLink"])
+            before = len(self.provider.proxy.calls)
+            items[-1].activate()
+            # Spola hears two requests in a row and says that sharing takes one item at a time
+            self.assertEqual(self.provider.proxy.calls[before:],
+                             [("Share", (ext.uri_of("/h/data/work/a"),)), ("Share", (ext.uri_of("/h/data/work/b"),))])
 
     def test_share_menu_uses_new_service_and_a_read_only_old_service_fallback(self):
         class MenuItem:
