@@ -80,10 +80,10 @@ def larger_system_font(factor: float = 7 / 6) -> int:
 
 def native_windows() -> None:
     """Windows: each window of Spola, as it shows (the main one and every
-    dialog, a window of its own with the system's title bar), gets the title
-    bar the content has, dark or light, and Spola.exe's icon at the sizes
-    the title bar and Alt+Tab draw (a run from the sources has no icon of
-    its own to give)."""
+    dialog, a window of its own with the system's title bar: see
+    winquirks.watch_dialog), gets the title bar the content has, dark or
+    light, and Spola.exe's icon at the sizes the title bar and Alt+Tab draw
+    (a run from the sources has no icon of its own to give)."""
     from spola.app import win32
     from . import winquirks
     from .ui import window_colours
@@ -109,6 +109,7 @@ def native_windows() -> None:
             window.connect("map", native)
             window.add_css_class("system-titlebar")     # the hairline under the title bar (below)
             winquirks.watch(window)     # GTK 4.24's restore and popover quirks (see winquirks.py)
+            winquirks.watch_dialog(window)      # a dialog's window: Windows' frame, centred on its parent
 
     # a hairline between the system's title bar and the content, in the text's
     # colour, faint: on a screen where Windows stretches the window a line
@@ -422,6 +423,15 @@ class SpolaApp(Adw.Application):
         window.present()
         self._share_dialog = SharingDialog(window, explorer.remote_path(pair, relative))
         self._share_dialog.present(window)
+        self._to_front(self._share_dialog)
+
+    def _to_front(self, widget) -> None:
+        """What a file manager's menu asked for, in front of the file
+        manager (Windows: see winquirks.to_front; elsewhere the desktop
+        decides, and present() has asked already)."""
+        if WINDOWS and isinstance(widget, Gtk.Widget):
+            from . import winquirks
+            winquirks.to_front(widget)
 
     def do_activate(self):
         self._window().present()
@@ -647,7 +657,9 @@ class SpolaApp(Adw.Application):
         if self.engine.cfg.pair(pair_id) is None:
             return
         window.show_pair(pair_id)
-        VersionsDialog(window, pair_id, rel, kind).present(window)
+        dialog = VersionsDialog(window, pair_id, rel, kind)
+        dialog.present(window)
+        self._to_front(dialog)
 
     def _review(self, pair_id: str) -> None:
         """From a notification: show the window on what needs attention."""
@@ -741,4 +753,8 @@ def main(argv=None) -> int:
         # the system title bar on the main window, before GTK starts (see
         # MainWindow): with GTK's own, Windows does not snap the window
         os.environ.setdefault("GTK_CSD", "0")
+        # this process was started by a click: the Spola already running, which
+        # gets the request, may put its window in front (see winquirks.py)
+        from . import winquirks
+        winquirks.allow_front()
     return SpolaApp().run(sys.argv if argv is None else argv)

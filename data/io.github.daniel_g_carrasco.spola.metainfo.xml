@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.47" date="2026-11-14" type="development">
+      <description>
+        <p>Windows: the windows Spola opens over its own (Share, Preferences, Previous Versions and the others) have Windows' own title bar and frame, so they resize smoothly and can be snapped; they open in the middle of Spola's window, and in front of File Explorer when chosen from its menu.</p>
+      </description>
+    </release>
     <release version="0.3.46" date="2026-11-14" type="development">
       <description>
         <p>Share on Koofr works on one file or folder at a time, and says so when several are selected: nothing opens and a notification says to select one. On Windows the update window says how large the download is.</p>
