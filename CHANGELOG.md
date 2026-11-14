@@ -6,6 +6,13 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.47] - 2026-11-14
+
+### Fixed
+- Windows: the windows Spola opens over its own (Share, Preferences, Previous Versions, the update and the others) have Windows' own title bar and frame, as the main window has. They used to draw their own: resizing them was jerky, worst of all from a corner, a second line ran under their top edge, and they could not be snapped.
+- Windows: Share on Koofr and Previous Versions, chosen from File Explorer's menu, open in front of File Explorer. They used to open behind it.
+- Windows: a window opened over Spola's opens in the middle of it. When Spola's window had just been shown it opened at the corner of the screen.
+
 ## [0.3.46] - 2026-11-14
 
 ### Changed

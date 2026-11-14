@@ -6,8 +6,11 @@ on Windows only (nearly transparent, a few seconds). Nothing is typed or
 clicked: Windows' own maximize and restore are asked with ShowWindow."""
 
 import ctypes
+import os
 import time
 import unittest
+from ctypes import wintypes
+from unittest import mock
 
 import _setup
 
@@ -151,6 +154,120 @@ class QuirksTest(unittest.TestCase):
         found = list(winquirks.popovers_below(self.window))
         self.assertEqual(found, [self.button.get_popover()])
         self.assertEqual(winquirks.close_open_popovers(self.window), 0)
+
+
+@unittest.skipUnless(_setup.WINDOWS, "Windows only")
+class DialogWindowTest(unittest.TestCase):
+    """A dialog's window, where the parent is GTK's own (as Spola's main
+    window is on Windows): Windows' frame and title bar, no window button in
+    the header bar, in the middle of its parent. An alert is only centred."""
+
+    WS_CAPTION, WS_THICKFRAME, WS_MINIMIZEBOX = 0x00C00000, 0x00040000, 0x00020000
+
+    def setUp(self):
+        Adw.init()
+        patch = mock.patch.dict(os.environ, {"GTK_CSD": "0"})       # as the app sets it at its start
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.user32 = ctypes.WinDLL("user32")
+        self.user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+        self.user32.GetWindowLongW.restype = ctypes.c_long
+        self.user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+        self.user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                             ctypes.c_int, wintypes.UINT]
+        toplevels = Gtk.Window.get_toplevels()
+        handler = toplevels.connect("items-changed", lambda model, position, _removed, count: [
+            winquirks.watch_dialog(model.get_item(i)) for i in range(position, position + count)])
+        self.addCleanup(toplevels.disconnect, handler)
+        self.parent = Gtk.Window(title=TITLE + "-parent", default_width=500, default_height=400, opacity=0.05)
+        self.parent.set_child(Gtk.Label(label="parent"))
+        self.parent.present()
+        self.addCleanup(self.parent.destroy)
+        self.assertTrue(spin_until(lambda: self.parent.get_mapped()))
+        spin(0.3)
+        # away from the corner a window opens at when nothing places it
+        self.user32.SetWindowPos(winquirks.hwnd_of(self.parent), None, 300, 200, 0, 0, 0x0001 | 0x0004 | 0x0010)
+        spin(0.3)
+
+    def shown(self, dialog):
+        dialog.present(self.parent)
+        self.addCleanup(dialog.force_close)
+        self.assertTrue(spin_until(lambda: dialog.get_mapped()))
+        spin(0.5)
+        root = dialog.get_root()
+        self.assertIsNot(root, self.parent)         # a window of its own
+        return root, winquirks.hwnd_of(root)
+
+    def rect(self, hwnd):
+        r = wintypes.RECT()
+        self.user32.GetWindowRect(hwnd, ctypes.byref(r))
+        return r.left, r.top, r.right, r.bottom
+
+    def assert_centred(self, hwnd):
+        left, top, right, bottom = self.rect(hwnd)
+        p_left, p_top, p_right, p_bottom = self.rect(winquirks.hwnd_of(self.parent))
+        self.assertLessEqual(abs((left + right) - (p_left + p_right)), 2)
+        self.assertLessEqual(abs((top + bottom) - (p_top + p_bottom)), 2)
+
+    def test_a_dialog_with_a_header_bar_has_windows_frame(self):
+        dialog = Adw.Dialog(title="A dialog", content_width=300, content_height=200)
+        view = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        view.add_top_bar(header)
+        view.set_content(Gtk.Label(label="content"))
+        dialog.set_child(view)
+        dialog.connect("realize", lambda d: d.get_root().set_resizable(True))      # as Spola's resizable dialogs do
+        root, hwnd = self.shown(dialog)
+        style = self.user32.GetWindowLongW(hwnd, -16)
+        self.assertIsNone(root.get_titlebar())
+        self.assertEqual(style & self.WS_CAPTION, self.WS_CAPTION)          # the system's title bar
+        self.assertTrue(style & self.WS_THICKFRAME)                         # resized by Windows
+        self.assertFalse(style & self.WS_MINIMIZEBOX)
+        self.assertFalse(header.get_show_end_title_buttons())               # the title bar has the close button
+        self.assertFalse(header.get_show_start_title_buttons())
+        self.assertFalse(header.get_show_title())                           # and the title
+        self.assert_centred(hwnd)
+
+    def test_the_title_is_said_once(self):
+        named = Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Share", subtitle="report.pdf"))
+        winquirks.title_once(named, "Share")
+        self.assertEqual((named.get_title_widget().get_title(), named.get_title_widget().get_subtitle()),
+                         ("report.pdf", ""))
+        other = Adw.HeaderBar(title_widget=Adw.WindowTitle(title="Projects", subtitle="Documents"))
+        winquirks.title_once(other, "Share")
+        self.assertEqual(other.get_title_widget().get_title(), "Projects")
+        page = Adw.NavigationPage(title="Advanced")
+        inside = Adw.HeaderBar()
+        page.set_child(inside)
+        winquirks.title_once(inside, "Preferences")
+        self.assertTrue(inside.get_show_title())                # a page's own title stays
+
+    def test_an_alert_keeps_its_frame_and_is_centred(self):
+        alert = Adw.AlertDialog(heading="A question", body="Made up.")
+        alert.add_response("ok", "OK")
+        root, hwnd = self.shown(alert)
+        self.assertIsNotNone(root.get_titlebar())
+        self.assertFalse(self.user32.GetWindowLongW(hwnd, -16) & self.WS_CAPTION == self.WS_CAPTION)
+        self.assert_centred(hwnd)
+
+    def test_a_dialog_is_put_in_front_as_it_shows(self):
+        # whether Windows grants it depends on who is in front (not this test): the request is made, on the right window
+        dialog = Adw.Dialog(title="A dialog", content_width=300, content_height=200)
+        dialog.set_child(Gtk.Label(label="content"))
+        asked = []
+        with mock.patch.object(winquirks._user32, "SetForegroundWindow", side_effect=asked.append):
+            dialog.present(self.parent)
+            self.addCleanup(dialog.force_close)
+            winquirks.to_front(dialog)          # right after present(), as the app does
+            self.assertTrue(spin_until(lambda: bool(asked)))
+            self.assertEqual(asked, [winquirks.hwnd_of(dialog.get_root())])
+
+    def test_the_middle_stays_on_the_screen(self):
+        area = (0, 0, 1920, 1040)
+        self.assertEqual(winquirks.centred((400, 300), (100, 100, 1100, 900), area), (400, 350))
+        self.assertEqual(winquirks.centred((400, 300), (-300, -200, 100, 100), area), (0, 0))        # parent off the edge
+        self.assertEqual(winquirks.centred((400, 300), (1800, 900, 2400, 1300), area), (1520, 740))
+        self.assertEqual(winquirks.centred((400, 1200), (100, 100, 1100, 900), area), (400, 0))      # taller than the screen: its top
 
 
 if __name__ == "__main__":
