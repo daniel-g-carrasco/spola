@@ -124,7 +124,7 @@ class ServiceTest(unittest.TestCase):
                     self.told.clear()
 
     def test_every_share_route_respects_custom_exclusions(self):
-        from spola.app.paths import Paths
+        from spola.app.storage import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file("p1")
@@ -238,7 +238,7 @@ class VersionsServiceTest(unittest.TestCase):
         (self.root / "docs").mkdir(parents=True)
         (self.root / "relazione.odt").write_text("today")
         self.pair = Pair("p1", str(self.root), "/data/work", initialized=True)
-        from spola.app.paths import Paths
+        from spola.app.storage import Paths
         self.paths = Paths(base / "c", base / "s", base / "d")
         for rel, text in (("relazione.odt", "yesterday"), ("docs/via.txt", "gone")):
             (self.paths.backup_dir("p1") / "20261017-123000" / rel).parent.mkdir(parents=True, exist_ok=True)

@@ -14,7 +14,7 @@ import _setup
 from spola.app import explorer
 from spola.core import places
 from spola.app.config import Pair
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 from spola.app.rclone import clean_env, default_excluded
 
 

@@ -28,6 +28,8 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk  # noqa: E402
 
+from spola import SLUG  # noqa: E402
+
 from .tray import MenuItem  # noqa: E402
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
@@ -196,7 +198,7 @@ class WinTray:
             # a large PNG for the toasts: from an .ico Windows takes a small
             # image and enlarges it (blurred at 200%)
             wintoast.register_app(self.app_id, self.title, self._png(self.app_id, TOAST_ICON_SIZE))
-            self._toasts = wintoast.Toasts(self.app_id)
+            self._toasts = wintoast.Toasts(self.app_id, SLUG)
         except OSError:
             pass                                    # an old Windows: the icon's balloons
 

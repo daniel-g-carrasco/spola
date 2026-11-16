@@ -18,7 +18,7 @@ from _setup import rclone_binary
 
 from spola.app import jobs
 from spola.app.config import Config, Pair
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 from spola.app.preflight import root_identity
 from spola.app.rclone import Kind, Mode, Result, bisync_args, clean_env
 from spola.app.runner import BisyncRun, PairBusy

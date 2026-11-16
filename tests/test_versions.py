@@ -17,7 +17,7 @@ from _setup import rclone_binary
 from spola.app import jobs, versions
 from spola.app.config import Config, Pair
 from spola.i18n import translation_for
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 
 RUN1, RUN2 = "20261015-090000", "20261017-123000"
 # the Italian names need the compiled catalogue (tools/compile_po.py): CI may not have it
@@ -155,7 +155,7 @@ class VersionsTest(unittest.TestCase):
         for path in src.rglob("*.py"):
             body = path.read_text(encoding="utf-8")
             if "backup_dir" in body and re.search(r"rmtree\(", body):
-                self.assertIn(path.name, ("jobs.py", "paths.py"), path)
+                self.assertIn(path.name, ("jobs.py", "storage.py"), path)
         self.assertNotIn("delete_backup_run", (src / "app" / "jobs.py").read_text(encoding="utf-8")
                          + (src / "gui" / "window.py").read_text(encoding="utf-8"))
 

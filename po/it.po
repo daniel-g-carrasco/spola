@@ -966,7 +966,7 @@ msgstr ""
 "avviato"
 
 #: src/spola/app/updates.py:296
-msgid "the installer is not signed by Spola: not started"
+msgid "the installer is not signed by the project: not started"
 msgstr "l'installer non è firmato da Spola: non è stato avviato"
 
 #: src/spola/app/updates.py:301
@@ -3737,8 +3737,8 @@ msgid "Check for updates"
 msgstr "Controlla gli aggiornamenti"
 
 #: src/spola/gui/window.py:2145
-msgid "Once a day, from Spola's releases"
-msgstr "Una volta al giorno, tra le versioni pubblicate di Spola"
+msgid "Every 4 hours at most, from Spola's releases"
+msgstr "Al massimo ogni 4 ore, tra le versioni pubblicate di Spola"
 
 #: src/spola/gui/window.py:2151
 msgid "File Manager"

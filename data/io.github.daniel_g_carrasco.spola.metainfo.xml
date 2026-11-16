@@ -3,7 +3,7 @@
 <component type="desktop-application">
   <id>io.github.daniel_g_carrasco.spola</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-3.0-or-later</project_license>
 
   <name>Spola</name>
   <summary>Keep your folders in sync with Koofr</summary>
@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.48" date="2026-11-16" type="development">
+      <description>
+        <p>Spola is under the GPL-3.0-or-later licence from this version (up to 0.3.47 it was MIT), and the licence's text comes with it. On Windows it looks for a newer version at start and when its window comes back, at most every 4 hours, and never offers one during a sync. The window's errors are kept in errors.log too, and saving the settings is tried again for a moment when Windows refuses it.</p>
+      </description>
+    </release>
     <release version="0.3.47" date="2026-11-14" type="development">
       <description>
         <p>Windows: the windows Spola opens over its own (Share, Preferences, Previous Versions and the others) have Windows' own title bar and frame, so they resize smoothly and can be snapped; they open in the middle of Spola's window, and in front of File Explorer when chosen from its menu.</p>

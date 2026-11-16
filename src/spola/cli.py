@@ -24,7 +24,8 @@ from spola.data import listings
 from . import APP_ID, KOOFR_APP_PASSWORDS_URL, __version__
 from spola.app.account import AccountError, Credentials, check
 from .i18n import _, ngettext
-from spola.app.paths import Paths
+from spola.app import services
+from spola.app.storage import Paths
 from spola.app.rclone import (Mode, Outcome, Result, bisync_args, confirmed_max_changes, confirmed_max_delete,
                               default_excluded, find_rclone, koofr_env, summarize as rclone_summarize)
 from spola.app.runner import BisyncRun, PairBusy, release_pair_lock, take_pair_lock
@@ -228,7 +229,7 @@ def main(argv: list[str]) -> int:
     if args.command == "forget-windows":
         return _forget_windows()
 
-    paths = Paths.from_env()
+    paths = services.app_paths()
     cfg = config.load(paths.config_file)
     for notice in cfg.notices:
         print(_("Settings: {what}").format(what=f"{notice.kind} {notice.detail} {notice.reason}".rstrip()),

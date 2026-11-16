@@ -46,8 +46,8 @@ a = Analysis(
     pathex=[str(ROOT / 'src')],
     binaries=binaries,
     datas=datas,
-    hiddenimports=['spola.gui.wintray', 'spola.app.win32', 'spola.app.winwatch', 'spola.gui.winquirks',
-                   'spola.app.minisign'],
+    hiddenimports=['spola.gui.wintray', 'spola.app.win32', 'spola.app.winsys', 'spola.app.winwatch',
+                   'spola.gui.winquirks', 'spola.app.minisign'],
     hooksconfig={'gi': {'module-versions': {'Gtk': '4.0', 'Gdk': '4.0', 'Adw': '1', 'GdkPixbuf': '2.0',
                                             'Graphene': '1.0', 'Gsk': '4.0'}}},
     excludes=['tkinter'],
@@ -66,3 +66,7 @@ exe = EXE(
 )
 
 coll = COLLECT(exe, a.binaries, a.datas, name='Spola')
+
+# the licence's text goes with the program (GPL-3.0-or-later): next to
+# Spola.exe, so the installer and the portable zip both carry it
+shutil.copy2(ROOT / 'LICENSE', Path(DISTPATH) / 'Spola' / 'LICENSE.txt')

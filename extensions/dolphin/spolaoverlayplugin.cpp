@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Spola's overlay icons in Dolphin: a KIO overlay icon plugin, the KDE
 // counterpart of extensions/spola-files.py. Same rules: getOverlays() is
 // called for every visible item on the GUI thread and answers from a cache;

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Spola's overlay icons in Dolphin (and every KDE file dialog): a KIO overlay
 # icon plugin that asks Spola over D-Bus, like the Python extension of Files.
 # It must be built against the KDE Frameworks of the system it runs on, so an

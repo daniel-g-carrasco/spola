@@ -9,7 +9,7 @@ rclone issue #9793), held for the whole life of the child. Cancelling sends
 SIGINT, which bisync turns into a graceful stop (finish or cancel transfers,
 save state); a second cancel sends a second SIGINT, which stops at once and
 leaves the next run to --recover. On Windows the lock is msvcrt's and the
-signal a Ctrl+Break (see win32.py).
+signal a Ctrl+Break (see winsys.py).
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from .log import complain
 from .rclone import Event, Kind, Outcome, Result, parse_line, summarize
 
 if WINDOWS:
-    from . import win32
+    from . import winsys
 else:
     import fcntl
 
@@ -50,7 +50,7 @@ def take_pair_lock(lock_path: Path) -> int:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | (os.O_NOINHERIT if WINDOWS else os.O_CLOEXEC), 0o600)
     if WINDOWS:
-        taken = win32.lock(fd)
+        taken = winsys.lock(fd)
     else:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -67,7 +67,7 @@ def take_pair_lock(lock_path: Path) -> int:
 
 def release_pair_lock(fd: int) -> None:
     if WINDOWS:
-        win32.unlock(fd)
+        winsys.unlock(fd)
     else:
         fcntl.flock(fd, fcntl.LOCK_UN)
     os.close(fd)
@@ -108,10 +108,10 @@ class BisyncRun:
                 text=True, encoding="utf-8", errors="replace", bufsize=1,
                 # our own process group: a Ctrl+C in the terminal that started
                 # Spola must not reach rclone behind our back
-                **(win32.popen_options() if WINDOWS else {"start_new_session": True}))
+                **(winsys.popen_options() if WINDOWS else {"start_new_session": True}))
             if WINDOWS:
                 # how interrupt() reaches it: its console is ours, or its own
-                self._proc.spola_shared_console = win32.has_console()
+                self._proc.spola_shared_console = winsys.has_console()
         except BaseException:
             self._release_lock()
             raise
@@ -137,7 +137,7 @@ class BisyncRun:
             self._interrupts += 1
             if WINDOWS:
                 # the second call, or an event that cannot be sent: at once
-                if self._interrupts > 1 or not win32.interrupt(self._proc):
+                if self._interrupts > 1 or not winsys.interrupt(self._proc):
                     self._proc.kill()
                 return
             try:

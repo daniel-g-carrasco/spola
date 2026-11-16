@@ -24,7 +24,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from spola.core import places
-from spola.i18n import _, every_translation, ngettext
+from spola.i18n import _, ngettext, translation_for
+
+# The languages Spola has a catalogue for (po/*.po; tests/test_conflicts.py
+# holds the two lists together): a copy named in one of them is a conflict
+# copy in all of them.
+LANGUAGES = ("it",)
 
 DATE = r"\d{4}-\d{2}-\d{2}"
 
@@ -46,6 +51,12 @@ class Conflict:
     @property
     def copies(self) -> list[Copy]:
         return [c for c in (self.local, self.koofr) if c is not None]
+
+
+def every_translation(message: str) -> set[str]:
+    """The message in English and in every language of LANGUAGES: names
+    written to disk in one language must be recognised in all of them."""
+    return {message} | {translation_for(language).gettext(message) for language in LANGUAGES}
 
 
 def _pattern() -> re.Pattern:

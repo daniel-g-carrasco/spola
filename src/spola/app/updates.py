@@ -1,19 +1,32 @@
-"""A newer Spola, from the GitHub releases (Windows; on Linux the Flatpak
-brings it, from GNOME Software).
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""A newer version, from the GitHub releases (Windows; on Linux the Flatpak
+brings it, from the desktop's software centre).
 
-As in p7m-extractor: the latest release from GitHub's API, standard library
-only, at most once a day at start and whenever asked. The installed build
-downloads the release's installer, checks it against the SHA-256 GitHub
-publishes for it and against Spola's own signature (minisign.py: the CI
-signs it with a key GitHub does not hold, so an installer replaced in the
-release with its digest is still refused), and starts it: Setup asks the
-running Spola to quit (rclone stopped with its state saved), replaces the
-files and starts it again. The portable build and a run from the sources
-open the release page.
+The latest release from GitHub's API, standard library only: by itself at
+start and when the window comes back, at most every CHECK_EVERY_HOURS
+(check_due), and whenever asked. The installed build downloads the
+release's installer, checks it against the SHA-256 GitHub publishes for it
+and against the project's own signature (minisign.py: the CI signs it with
+a key GitHub does not hold, so an installer replaced in the release with
+its digest is still refused), and starts it (installer_command): Setup
+asks the running app to quit, replaces the files and starts it again. The
+portable build and a run from the sources open the release page. A
+project with no release yet is NoRelease: nothing to update to, not a
+failure.
+
+What an update never does: start an installer that is not the one named
+for the release's own version (an answer that pairs a newer tag with an
+older, duly signed installer would otherwise install that older one), read
+more than the release says, or leave the verified file where another
+process of the user could swap it before Setup reads it (hold()).
+
+The module knows no app: whose releases, and which key signs them, is a
+Project the caller gives (app/services.py makes this app's).
 """
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import os
@@ -28,22 +41,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from spola import __version__
+from ..i18n import _
 from . import minisign
-from spola.i18n import _
-from .koofr_api import _ssl_context
 
-GITHUB_REPO = "daniel-g-carrasco/spola"
-RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
-LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-DOWNLOADS = f"https://github.com/{GITHUB_REPO}/releases/download/"
-# a released version only: never the "dev" builds of the CI
-INSTALLER = re.compile(r"^spola-setup-v\d+(\.\d+){1,3}-windows-x64\.exe$", re.IGNORECASE)
-PORTABLE = re.compile(r"^spola-v\d+(\.\d+){1,3}-windows-x64-portable\.zip$", re.IGNORECASE)
-DOWNLOAD_FOLDER_PREFIX = "spola-update-"
-# the releases' signing key (minisign, key id 440F2327E9BC1227); its secret
-# half is the CI's MINISIGN_SECRET_KEY
-PUBLIC_KEY = "RWQnErzpJyMPROWGTtWUJRvxMHh8hdPaJU+NhzmlE7SNKlnpn8tGNYH3"
 SIGNATURE_SUFFIX = ".minisig"
 SIGNATURE_MAX_BYTES = 4096
 # what is read at most: GitHub's answer about a release (a few tens of KB),
@@ -51,10 +51,72 @@ SIGNATURE_MAX_BYTES = 4096
 RELEASE_MAX_BYTES = 2**20
 INSTALLER_MAX_BYTES = 512 * 2**20
 CHUNK = 256 * 1024
+# a check made by itself, at start or when the window comes back: at most this
+# often. Once a day missed a release published after the morning's check
+# (14/11/2026); GitHub allows 60 requests an hour without a token
+CHECK_EVERY_HOURS = 4
 
 
 class UpdateError(Exception):
     pass
+
+
+class NoRelease(UpdateError):
+    """GitHub has no release of the project yet (it answers 404 for the
+    latest): nothing to update to, not a failure. A caller that takes every
+    UpdateError as a failure still does (its text is GitHub's answer, as
+    before); one that knows NoRelease says nothing, or says it its way: a
+    check by itself that logs it logs "GitHub answered 404" at every start."""
+
+
+@dataclass(frozen=True)
+class Project:
+    """Whose releases these are: what an app tells this module about itself."""
+    repo: str               # "owner/name" on GitHub
+    slug: str               # the file names of a release: <slug>-setup-v1.2.3-windows-x64.exe
+    exe_name: str           # the Windows executable's name: the User-Agent of the requests
+    version: str            # the version running
+    public_key: str         # the releases' signing key (minisign), its public half
+    env_prefix: str = ""    # the developer aids' variables start with it (ENV_PREFIX); "": the slug's, "MY_APP"
+
+    @property
+    def releases_url(self) -> str:
+        return f"https://github.com/{self.repo}/releases"
+
+    @property
+    def latest_release_api(self) -> str:
+        return f"https://api.github.com/repos/{self.repo}/releases/latest"
+
+    @property
+    def downloads(self) -> str:
+        return f"https://github.com/{self.repo}/releases/download/"
+
+    @property
+    def download_folder_prefix(self) -> str:
+        return f"{self.slug}-update-"
+
+    @property
+    def _prefix(self) -> str:
+        return self.env_prefix or self.slug.upper().replace("-", "_")
+
+    @property
+    def dev_release_variable(self) -> str:
+        """Developer aid: the environment variable naming a release described
+        in a local file, to try the dialog without publishing one."""
+        return f"{self._prefix}_DEV_RELEASE_API"
+
+    @property
+    def dev_downloads_variable(self) -> str:
+        """Developer aid, with dev_release_variable: the prefix the files of
+        that release must have (needed by the frozen build: release_source)."""
+        return f"{self._prefix}_DEV_RELEASE_DOWNLOADS"
+
+    def installer_name(self, version: str) -> str:
+        return f"{self.slug}-setup-v{version.strip().lstrip('vV')}-windows-x64.exe"
+
+    def is_installer(self, name: str) -> bool:
+        """A released version's installer by its name: never the "dev" builds of the CI."""
+        return bool(re.match(rf"^{re.escape(self.slug)}-setup-v\d+(\.\d+){{1,3}}-windows-x64\.exe$", name, re.IGNORECASE))
 
 
 @dataclass(frozen=True)
@@ -128,26 +190,97 @@ def parse_version(text: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
-def is_newer(candidate: str, current: str = __version__) -> bool:
+def is_newer(candidate: str, current: str) -> bool:
     a, b = parse_version(candidate), parse_version(current)
     n = max(len(a), len(b))
     return a + (0,) * (n - len(a)) > b + (0,) * (n - len(b))
 
 
+def check_due(last: str, now: datetime.datetime, every_hours: float = CHECK_EVERY_HOURS) -> bool:
+    """Whether a check made by itself is due now. `last` is when the last
+    one was made, as the settings keep it (check_stamp); a date alone, as
+    the once-a-day check wrote it, counts from that day's midnight. An empty
+    or unreadable value is due, and so is one in the future (a clock put
+    back would otherwise stop the checks until it got there again)."""
+    try:
+        then = datetime.datetime.fromisoformat(last.strip())
+    except (AttributeError, TypeError, ValueError):
+        return True
+    if then.tzinfo is not None:
+        then = then.astimezone().replace(tzinfo=None)    # the settings' times are local
+    return then > now or now - then >= datetime.timedelta(hours=every_hours)
+
+
+def check_stamp(now: datetime.datetime) -> str:
+    """The time of a check, as the settings keep it: "2026-11-14T10:23:05"."""
+    return now.replace(microsecond=0, tzinfo=None).isoformat()
+
+
 def installed_build() -> bool:
-    """The Inno Setup installation (its uninstaller next to Spola.exe), not
+    """The Inno Setup installation (its uninstaller next to the exe), not
     the portable zip nor the sources."""
     return (sys.platform == "win32" and bool(getattr(sys, "frozen", False))
             and (Path(sys.executable).parent / "unins000.exe").is_file())
 
 
-def _get(url: str, timeout: float):
-    request = urllib.request.Request(url, headers={"User-Agent": f"Spola/{__version__}",
+def checks_by_itself(platform: str | None = None, frozen: bool | None = None) -> bool:
+    """Whether the checks made by themselves (check_due says when) are for
+    this run: the Windows build only. The Flatpak's updates come from the
+    desktop's software centre, and a run from the sources (the developer's,
+    the tests') asks nobody unless asked."""
+    platform = sys.platform if platform is None else platform
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    return platform == "win32" and frozen
+
+
+def distribution_channel(environ=None) -> str:
+    """How this run was delivered: "flatpak", "installed" (Setup),
+    "portable" (the zip) or "source". Never inferred from a release."""
+    environ = os.environ if environ is None else environ
+    if environ.get("FLATPAK_ID") or Path("/.flatpak-info").is_file():
+        return "flatpak"
+    if installed_build():
+        return "installed"
+    if getattr(sys, "frozen", False):
+        return "portable"
+    return "source"
+
+
+def automatic_install_supported() -> bool:
+    """An update can be installed without the user's hands: Setup's build only."""
+    return distribution_channel() == "installed"
+
+
+def automatic_install_allowed(*, enabled: bool, opted_in: bool, channel: str,
+                              signed_installer: bool, dirty: bool) -> bool:
+    """The rule only, for an update installed without asking: the checks on
+    (`enabled`), the user's choice (`opted_in`), Setup's build (`channel`),
+    an installer signed for the release, and no unsaved work (`dirty`). The
+    download must still verify the signature before anything runs."""
+    return enabled and opted_in and channel == "installed" and signed_installer and not dirty
+
+
+def ssl_context():
+    """The frozen Windows build ships a CA bundle: MSYS2's OpenSSL does not
+    always see the Windows certificate store."""
+    import ssl
+    context = ssl.create_default_context()
+    bundled = Path(getattr(sys, "_MEIPASS", "")) / "certs" / "ca-bundle.crt"
+    if getattr(sys, "frozen", False) and bundled.is_file():
+        try:
+            context.load_verify_locations(cafile=str(bundled))
+        except (ssl.SSLError, OSError):
+            pass
+    return context
+
+
+def _get(project: Project, url: str, timeout: float):
+    request = urllib.request.Request(url, headers={"User-Agent": f"{project.exe_name}/{project.version}",
                                                    "Accept": "application/vnd.github+json"})
-    return urllib.request.urlopen(request, timeout=timeout, context=_ssl_context())
+    return urllib.request.urlopen(request, timeout=timeout, context=ssl_context())
 
 
-def parse_release(data: dict) -> Release:
+def parse_release(project: Project, data: dict) -> Release:
     tag = str(data.get("tag_name") or "")
     if not tag:
         raise UpdateError(_("unexpected answer from GitHub"))
@@ -159,50 +292,76 @@ def parse_release(data: dict) -> Release:
         assets.append(Asset(name, str(a.get("browser_download_url") or ""), int(a.get("size") or 0),
                             digest[7:] if digest.startswith("sha256:") else "",
                             signatures.get(name + SIGNATURE_SUFFIX, "")))
-    return Release(tag.lstrip("vV"), str(data.get("html_url") or RELEASES_URL), str(data.get("body") or ""), assets)
+    return Release(tag.lstrip("vV"), str(data.get("html_url") or project.releases_url), str(data.get("body") or ""),
+                   assets)
 
 
-def latest_release(timeout: float = 15.0) -> Release:
-    # developer aid, as SPOLA_DEV_REMOTE: a release described in a local file,
-    # to try the dialog without publishing one; never in the built app
-    url = LATEST_RELEASE_API
-    if not getattr(sys, "frozen", False):
-        url = os.environ.get("SPOLA_DEV_RELEASE_API") or url
+def release_source(project: Project, environ=None, frozen: bool | None = None) -> tuple[str, str]:
+    """Where the latest release is asked, and the prefix its files must
+    have: GitHub's. Developer aid, to try the whole update without
+    publishing a release: project.dev_release_variable names another answer
+    (a local file, a local server); from the sources it is enough, the
+    frozen build also needs project.dev_downloads_variable (the prefix of
+    its files' addresses). Either way the installer must still be signed
+    with the project's key and named for the release's version: these
+    variables change where a file is fetched, never what is trusted."""
+    environ = os.environ if environ is None else environ
+    frozen = bool(getattr(sys, "frozen", False)) if frozen is None else frozen
+    api = environ.get(project.dev_release_variable)
+    downloads = environ.get(project.dev_downloads_variable)
+    if api and (downloads or not frozen):
+        return api, downloads or project.downloads
+    return project.latest_release_api, project.downloads
+
+
+def latest_release(project: Project, timeout: float = 15.0) -> Release:
+    url = release_source(project)[0]
     try:
-        with _get(url, timeout) as response:
+        with _get(project, url, timeout) as response:
             raw = response.read(RELEASE_MAX_BYTES + 1)
         if len(raw) > RELEASE_MAX_BYTES:
             raise UpdateError(_("unexpected answer from GitHub"))
         data = json.loads(raw)
     except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise NoRelease(_("GitHub answered {code}").format(code=e.code)) from None
         raise UpdateError(_("GitHub answered {code}").format(code=e.code)) from None
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise UpdateError(str(getattr(e, "reason", e))) from None
-    return parse_release(data)
+    return parse_release(project, data)
 
 
-def installer_name(version: str) -> str:
-    return f"spola-setup-v{version.strip().lstrip('vV')}-windows-x64.exe"
-
-
-def installer_of(release: Release) -> Asset | None:
-    """The release's installer: the one named for the release's own version
-    (an answer that pairs a newer tag with an older, duly signed installer
-    would otherwise install that older one), from Spola's own releases,
-    with the SHA-256 GitHub gives for it and its signature. Else None: the
-    dialog then opens the release page."""
-    wanted = installer_name(release.version).lower()
+def installer_of(project: Project, release: Release) -> Asset | None:
+    """The release's installer: the one named for the release's own version,
+    from the project's own releases, with the SHA-256 GitHub gives for it
+    and its signature. Else None: the dialog then opens the release page."""
+    wanted = project.installer_name(release.version).lower()
+    downloads = release_source(project)[1]
     return next((a for a in release.assets
-                 if INSTALLER.match(a.name) and a.name.lower() == wanted and a.url.startswith(DOWNLOADS)
-                 and a.sha256 and a.signature_url.startswith(DOWNLOADS)), None)
+                 if project.is_installer(a.name) and a.name.lower() == wanted and a.url.startswith(downloads)
+                 and a.sha256 and a.signature_url.startswith(downloads)), None)
 
 
 def per_user_install() -> bool:
-    """Spola installed for this user only (under the profile's local app
-    data), as Setup does by default: an update then never needs to elevate."""
+    """Installed for this user only (under the profile's local app data), as
+    Setup does by default: an update then never needs to elevate."""
     local = os.environ.get("LOCALAPPDATA", "")
     return bool(local) and os.path.normcase(os.path.abspath(sys.executable)).startswith(
         os.path.normcase(os.path.abspath(local)) + os.sep)
+
+
+def installer_command(installer: Path, restart: bool = False) -> list[str]:
+    """Setup as the app starts it: silent but with its progress shown, no
+    restart of Windows, and for this user only when the app is installed
+    for this user (no elevation). `restart`: the app quits as soon as Setup
+    has started, so Setup cannot see it running (its mutex): /RESTARTAPP=1
+    asks Setup to start it again at the end (the app's .iss must read it)."""
+    args = [str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
+    if per_user_install():
+        args.append("/CURRENTUSER")
+    if restart:
+        args.append("/RESTARTAPP=1")
+    return args
 
 
 _held: list = []        # the handles of the installers kept open (see hold)
@@ -210,11 +369,11 @@ _held: list = []        # the handles of the installers kept open (see hold)
 
 def hold(path: Path) -> None:
     """Windows: the verified installer kept open, with no write or delete
-    sharing, until Spola exits: no other process of the user can replace or
-    rename it between the check and the moment Setup reads it (and reads
-    it again, elevated, when Spola is installed for all users: the file of
-    a process of the user would then run as an administrator). Setup only
-    needs to read it. Elsewhere nothing to do."""
+    sharing, until the app exits: no other process of the user can replace
+    or rename it between the check and the moment Setup reads it (and
+    reads it again, elevated, when the app is installed for all users: the
+    file of a process of the user would then run as an administrator).
+    Setup only needs to read it. Elsewhere nothing to do."""
     if sys.platform != "win32":
         return
     import ctypes
@@ -239,19 +398,19 @@ def release_held() -> None:
         ctypes.windll.kernel32.CloseHandle(_held.pop())
 
 
-def download_folder() -> Path:
+def download_folder(project: Project) -> Path:
     """A new folder of its own for an installer, in the temporary folder."""
-    return Path(tempfile.mkdtemp(prefix=DOWNLOAD_FOLDER_PREFIX))
+    return Path(tempfile.mkdtemp(prefix=project.download_folder_prefix))
 
 
-def clean_downloads() -> None:
+def clean_downloads(project: Project) -> None:
     """The installers of earlier updates, gone (Setup has finished with them
-    by the time Spola starts again)."""
-    for folder in Path(tempfile.gettempdir()).glob(DOWNLOAD_FOLDER_PREFIX + "*"):
+    by the time the app starts again)."""
+    for folder in Path(tempfile.gettempdir()).glob(project.download_folder_prefix + "*"):
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | None = None,
+def download(project: Project, asset: Asset, dest: Path, progress: Callable[[int, int], None] | None = None,
              cancelled: threading.Event | None = None) -> Path:
     """The asset, in dest, checked against its size, its SHA-256 and its
     signature: a file that does not match is removed; without a SHA-256 or
@@ -263,9 +422,9 @@ def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | No
     part = dest.with_name(dest.name + ".part")
     digest, signed = hashlib.sha256(), minisign.blake2b()
     try:
-        with _get(asset.signature_url, 30) as response:
+        with _get(project, asset.signature_url, 30) as response:
             signature = response.read(SIGNATURE_MAX_BYTES).decode("utf-8", "replace")
-        with _get(asset.url, 30) as response, open(part, "wb") as out:
+        with _get(project, asset.url, 30) as response, open(part, "wb") as out:
             total = int(response.headers.get("Content-Length") or asset.size or 0)
             limit = asset.size or INSTALLER_MAX_BYTES
             done = 0
@@ -287,13 +446,13 @@ def download(asset: Asset, dest: Path, progress: Callable[[int, int], None] | No
         if (asset.size and done != asset.size) or digest.hexdigest().lower() != asset.sha256.lower():
             raise UpdateError(_("the file downloaded does not match the release: not started"))
         try:
-            trusted = minisign.verify(signed.digest(), signature, PUBLIC_KEY)
+            trusted = minisign.verify(signed.digest(), signature, project.public_key)
         except minisign.SignatureError:
             trusted = ""
         # the comment names the file: another release's installer, signed
         # too, is not this one
         if f"file:{asset.name}" not in trusted.split():
-            raise UpdateError(_("the installer is not signed by Spola: not started"))
+            raise UpdateError(_("the installer is not signed by the project: not started"))
         part.replace(dest)
         hold(dest)
         return dest

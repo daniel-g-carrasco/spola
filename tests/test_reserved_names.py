@@ -12,7 +12,7 @@ import _setup
 
 from spola.app import jobs
 from spola.app.config import Config, Pair
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 from spola.app.rclone import Mode, clean_env, reserved_exclude_lines
 
 

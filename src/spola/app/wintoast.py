@@ -1,18 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Notifications on Windows 10 and 11: the toasts of the Windows Runtime
-(Windows.UI.Notifications), through ctypes, no extra module.
+(Windows.UI.Notifications), through ctypes, no extra module. GLib has no
+notifications on Windows (Gio.Notification does nothing there).
 
-A balloon of the notification area icon reaches the notification centre
-only now and then, and without "Do not disturb" it is lost: a toast is
-Spola's own, with its name and icon, and stays in the centre. Windows shows
-the toasts of an app that has an AppUserModelID: Setup gives the Start menu
-shortcut Spola's (the documented way), and Spola writes the same identity
-under HKCU\\Software\\Classes\\AppUserModelId, for the portable build and a
-run from the sources. A click on a toast comes back through its Activated
-event, while Spola runs.
+Windows shows the toasts of an app that has an AppUserModelID: Setup gives
+the Start menu shortcut the app's (the documented way), and the app writes
+the same identity under HKCU\\Software\\Classes\\AppUserModelId
+(register_app), for the portable build and a run from the sources. A click
+on a toast comes back through its Activated event, while the app runs.
 
 Every interface is called through its vtable: the IIDs and the order of the
 methods are those of windows.ui.notifications.h and windows.data.xml.dom.h
-(mingw-w64).
+(mingw-w64). Imported only on Windows.
 """
 
 from __future__ import annotations
@@ -59,7 +58,7 @@ STATICS_CREATE_NOTIFIER_WITH_ID = 7
 NOTIFIER_SHOW = 6
 FACTORY_CREATE = 6
 TOAST_ADD_ACTIVATED, TOAST_REMOVE_ACTIVATED = 11, 12
-KEPT_TOASTS = 20        # the latest ones, whose click still reaches Spola
+KEPT_TOASTS = 20        # the latest ones, whose click still reaches the app
 TOAST2_PUT_TAG, TOAST2_PUT_GROUP = 6, 8
 XMLIO_LOAD_XML = 6
 
@@ -183,9 +182,9 @@ def register_app(app_id: str, display_name: str, icon: str = "") -> None:
 
 class Toasts:
     """Raises WinRTError when the Windows Runtime cannot be reached (an old
-    Windows): the caller falls back to the icon's balloons."""
+    Windows): the caller then does without notifications."""
 
-    def __init__(self, app_id: str, group: str = "spola"):
+    def __init__(self, app_id: str, group: str):
         self.app_id, self.group = app_id, group
         hr = combase.RoInitialize(RO_INIT_SINGLETHREADED)
         if hr < 0 and hr != RPC_E_CHANGED_MODE:
@@ -239,8 +238,8 @@ class Toasts:
 
     @staticmethod
     def _let_go(toast, handler, token: int) -> None:
-        """An old toast: its click no longer reaches Spola (Windows then just
-        opens it), and nothing of it is kept."""
+        """An old toast: its click no longer reaches the app (Windows then
+        just opens it), and nothing of it is kept."""
         try:
             if handler is not None:
                 _call(toast, TOAST_REMOVE_ACTIVATED, token, argtypes=(ctypes.c_int64,))

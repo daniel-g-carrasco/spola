@@ -24,7 +24,7 @@ from pathlib import Path
 from spola.data import listings
 from . import versions
 from .config import Config, Pair
-from .paths import Paths
+from .storage import Paths
 from .preflight import (CaseRename, News, Problem, Refused, case_renames as find_case_renames, check_koofr_desktop,
                         check_root_identity, folder_moves, koofr_desktop_config, news as preflight_news,
                         refused_paths, successor)

@@ -39,7 +39,7 @@ from pathlib import Path
 from spola.core import places
 from .config import Pair
 from spola.i18n import translation_for, _
-from .paths import Paths
+from .storage import Paths
 
 RUN_NAME = "%Y%m%d-%H%M%S"
 MANIFEST = ".spola.json"           # <run>.spola.json, next to the run folder

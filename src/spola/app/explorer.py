@@ -20,7 +20,7 @@ import re
 from .config import Pair
 from spola.i18n import _
 from .koofr_api import web_url
-from .paths import Paths
+from .storage import Paths
 
 VERBS = ("Spola.OpenOnKoofr", "Spola.CopyKoofrLink", "Spola.Versions", "Spola.Deleted")
 CLASSES = r"Software\Classes"

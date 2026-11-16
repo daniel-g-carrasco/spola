@@ -20,7 +20,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from spola import APP_ID, APP_NAME, __version__  # noqa: E402
-from spola.app import updates  # noqa: E402
+from spola.app import services, updates  # noqa: E402
 from spola.i18n import _  # noqa: E402
 
 
@@ -28,7 +28,8 @@ class UpdateDialog(Adw.Dialog):
     def __init__(self, release: updates.Release):
         super().__init__(title=_("Update Available"), content_width=480, content_height=580)
         self.release = release
-        self.installer = updates.installer_of(release) if updates.installed_build() else None
+        self.project = services.project()
+        self.installer = updates.installer_of(self.project, release) if updates.installed_build() else None
         self._cancel = threading.Event()
         self.connect("closed", lambda *_: self._cancel.set())
 
@@ -105,8 +106,8 @@ class UpdateDialog(Adw.Dialog):
 
         def work() -> None:
             try:
-                dest = updates.download_folder() / self.installer.name
-                updates.download(self.installer, dest, progress, self._cancel)
+                dest = updates.download_folder(self.project) / self.installer.name
+                updates.download(self.project, self.installer, dest, progress, self._cancel)
             except Exception as e:      # whatever it is, said: never a dialog stuck on "Downloading…"
                 GLib.idle_add(self._failed, _("Download failed: {error}").format(error=e))
                 return
@@ -141,10 +142,8 @@ class UpdateDialog(Adw.Dialog):
         try:
             # Setup asks Spola to quit (rclone stopped with its state saved),
             # replaces the files and starts it again; its progress shows
-            args = [str(installer), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]
-            if updates.per_user_install():
-                args.append("/CURRENTUSER")         # as it was installed: no elevation
-            subprocess.Popen(args, close_fds=True)
+            # (for this user only when installed so: no elevation)
+            subprocess.Popen(updates.installer_command(installer), close_fds=True)
         except OSError as e:
             self._failed(_("Cannot start the installer: {error}").format(error=e.strerror or e))
         return False

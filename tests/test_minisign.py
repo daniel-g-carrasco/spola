@@ -1,28 +1,29 @@
-#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Minisign signatures checked with the standard library: Ed25519 against
 RFC 8032's vectors, and signatures made by minisign 0.12 itself."""
 
 import base64
 import unittest
 
-import _setup  # noqa: F401
+import _setup
 
-from spola.app import minisign
+minisign = _setup.shared("app.minisign")
 
-# a key of the tests' own (minisign -G -W), never Spola's
-PUBLIC_KEY = "RWR7SJiRpYyOYfMs5NsaotSrG3B4wGxiTvXOWkzu4JCT3e240QSuHElq"
+# keys of the tests' own (minisign -G -W), never an app's
+PUBLIC_KEY = "RWQMccIhoxFpIpjmBF7VA4pGfyWT1iCQXrPPfL3OC0gerwz8+Pa1hCr5"
+OTHER_KEY = "RWTSzTYlR1v714B5c6HETr9ngR+4foxB5690jJ42YOErEOJ+m4XSOQlQ"
 PAYLOAD = b"installer" * 1000
-# minisign -S -m payload -t "timestamp:1792398099 file:spola-setup-v9-windows-x64.exe hashed" (and v8)
+# minisign -S -m payload -t "timestamp:1792398099 file:my-app-setup-v9-windows-x64.exe hashed" (and v8)
 SIGNED_V9 = (
     "untrusted comment: signature from minisign secret key\n"
-    "RUR7SJiRpYyOYTjY8y9f5xQs4K0f1/VnY5nfhx92xYh0ROEhmhIgOa2L0LoAiY/j94qPDaF0/iYheQNA+394mJGnMBXICA7BTA0=\n"
-    "trusted comment: timestamp:1792398099 file:spola-setup-v9-windows-x64.exe hashed\n"
-    "Qs+9uJ0rlFwspS9yeKoD/xfGxiBTlMs0BIzyXEVY+tRp+oh26MKy3J3MmQuZMaRh4seA9ImGsaGouHgIzgYfDg==\n")
+    "RUQMccIhoxFpIsavUPjcxBgFDHAWmZETSZwE73+9cjA3+QIogq83eXzEk8uBEGBJwUABshj1XqSL+AFO9bUdrNp2W0pwPE1MVAI=\n"
+    "trusted comment: timestamp:1792398099 file:my-app-setup-v9-windows-x64.exe hashed\n"
+    "kqv4WCVKnCMX2jEHSMyvIKnA2LpuVNIxxN5swXul9850txLFOdljUKgweb1AcUgFcWxRI79YPYl80tNEC6twDw==\n")
 SIGNED_V8 = (
     "untrusted comment: signature from minisign secret key\n"
-    "RUR7SJiRpYyOYTjY8y9f5xQs4K0f1/VnY5nfhx92xYh0ROEhmhIgOa2L0LoAiY/j94qPDaF0/iYheQNA+394mJGnMBXICA7BTA0=\n"
-    "trusted comment: timestamp:1792398099 file:spola-setup-v8-windows-x64.exe hashed\n"
-    "VMcRAgf4XsA2FSeekO08xvUjl0zYLCU+vpe9mCCJ/KfpgB9pAAOnQhZFMVowHAmE16JaTXRW+jA1dRWK+y3BAw==\n")
+    "RUQMccIhoxFpIsavUPjcxBgFDHAWmZETSZwE73+9cjA3+QIogq83eXzEk8uBEGBJwUABshj1XqSL+AFO9bUdrNp2W0pwPE1MVAI=\n"
+    "trusted comment: timestamp:1792398099 file:my-app-setup-v8-windows-x64.exe hashed\n"
+    "mInfugV3ItC+2wLbrZR6h0PQgvADY3woO31wx0179y5mgrI1dz3bi7m37Xs6UnAZepo2eMwoX8+HR5sRpybbDg==\n")
 
 
 def digest_of(data: bytes) -> bytes:
@@ -58,7 +59,7 @@ class Ed25519Test(unittest.TestCase):
 class MinisignTest(unittest.TestCase):
     def test_a_signature_made_by_minisign(self):
         self.assertEqual(minisign.verify(digest_of(PAYLOAD), SIGNED_V9, PUBLIC_KEY),
-                         "timestamp:1792398099 file:spola-setup-v9-windows-x64.exe hashed")
+                         "timestamp:1792398099 file:my-app-setup-v9-windows-x64.exe hashed")
         # as a file written on Windows
         self.assertTrue(minisign.verify(digest_of(PAYLOAD), SIGNED_V9.replace("\n", "\r\n"), PUBLIC_KEY))
 
@@ -70,17 +71,16 @@ class MinisignTest(unittest.TestCase):
         lines[2] = SIGNED_V8.split("\n")[2]
         with self.assertRaisesRegex(minisign.SignatureError, "trusted comment"):
             minisign.verify(digest_of(PAYLOAD), "\n".join(lines), PUBLIC_KEY)
-        # Spola's own key: not the one that signed it
-        from spola.app import updates
+        # another key: not the one that signed it
         with self.assertRaisesRegex(minisign.SignatureError, "another key"):
-            minisign.verify(digest_of(PAYLOAD), SIGNED_V9, updates.PUBLIC_KEY)
+            minisign.verify(digest_of(PAYLOAD), SIGNED_V9, OTHER_KEY)
         # the legacy form, over the whole file
         raw = base64.b64decode(lines[1])
         lines = SIGNED_V9.split("\n")
         lines[1] = base64.b64encode(b"Ed" + raw[2:]).decode()
         with self.assertRaisesRegex(minisign.SignatureError, "prehashed"):
             minisign.verify(digest_of(PAYLOAD), "\n".join(lines), PUBLIC_KEY)
-        for text in ("", "<html>Not Found</html>", SIGNED_V9.replace("RUR7", "RUR*")):
+        for text in ("", "<html>Not Found</html>", SIGNED_V9.replace("RUQM", "RUQ*")):
             with self.assertRaises(minisign.SignatureError):
                 minisign.verify(digest_of(PAYLOAD), text, PUBLIC_KEY)
 

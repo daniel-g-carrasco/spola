@@ -6,6 +6,16 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.48] - 2026-11-16
+
+### Changed
+- Spola is free software under the GNU General Public License, version 3 or later (GPL-3.0-or-later), from this version: it now shares some of its modules with the author's other apps, which are under that licence. The versions up to 0.3.47 were released under the MIT licence and stay so. The Files and Dolphin extensions and the Noctalia plugin follow the same licence. The licence's text comes with the program: LICENSE.txt in Spola's folder on Windows, in the app's licences folder in the Flatpak.
+- Windows: Spola looks for a newer version at start and when its window comes back, at most every 4 hours. It used to look once a day, at start only, so a version published after the morning's check waited until the next day. A newer version found while a folder is syncing is offered when the sync is over.
+- The window's errors are kept in a file too (errors.log in Spola's state folder, at most about 1 MB, then one older file): started at login or from the tray nobody reads them otherwise. The troubleshooting text in About says where it is.
+
+### Fixed
+- Windows: saving the settings is tried again for a moment when Windows refuses it (an antivirus or the search indexer holding the file just written), instead of failing at once.
+
 ## [0.3.47] - 2026-11-14
 
 ### Fixed
@@ -774,7 +784,9 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.46...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.48...main
+[0.3.48]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.48
+[0.3.47]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.47
 [0.3.46]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.46
 [0.3.45]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.45
 [0.3.38]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.38

@@ -48,9 +48,9 @@ from spola.core import activity as activity_mod
 from . import account as account_mod
 from .account import Credentials
 from .config import Config, Pair
-from spola.i18n import _, count, every_translation, ngettext
+from spola.i18n import _, count, ngettext
 from .log import complain
-from .paths import Paths
+from .storage import Paths
 from .rclone import (MODIFY_WINDOW_NS, Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes,
                      plain_reason,
                      confirmed_max_delete, default_excluded, summarize as rclone_summarize, describe, excluded_by,
@@ -85,7 +85,7 @@ def conflict_name_pattern() -> re.Pattern:
     """Conflict copies, as named in any of Spola's languages (the desktop
     language may have changed since they were made) and as named by the first
     versions (name.conflict1.ext)."""
-    words = every_translation("conflict-local") | every_translation("conflict-koofr")
+    words = conflicts_mod.every_translation("conflict-local") | conflicts_mod.every_translation("conflict-koofr")
     alternatives = "|".join(re.escape(w) for w in sorted(words))
     return re.compile(rf"\.(?:conflict\d+|(?:{alternatives})-\d{{4}}-\d{{2}}-\d{{2}}-\d+)(?:\.[^/.]*)?$")
 

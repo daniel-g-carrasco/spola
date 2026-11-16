@@ -11,7 +11,7 @@ import subprocess
 from dataclasses import dataclass, field
 
 from spola.i18n import _
-from .paths import Paths
+from .storage import Paths
 from .rclone import koofr_env, no_window, obscure, remote_spec
 
 TIMEOUT = 60

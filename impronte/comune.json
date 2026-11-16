@@ -1,0 +1,290 @@
+{
+  "format": 1,
+  "group": "comune",
+  "upstream_version": "57225299c7d45f38badae2e75a014a347e3826da",
+  "mappings": [
+    [
+      "comune/src/i18n.py",
+      "src/spola/i18n.py"
+    ],
+    [
+      "comune/src/app/paths.py",
+      "src/spola/app/paths.py"
+    ],
+    [
+      "comune/src/app/log.py",
+      "src/spola/app/log.py"
+    ],
+    [
+      "comune/src/app/errorlog.py",
+      "src/spola/app/errorlog.py"
+    ],
+    [
+      "comune/src/app/updates.py",
+      "src/spola/app/updates.py"
+    ],
+    [
+      "comune/src/app/minisign.py",
+      "src/spola/app/minisign.py"
+    ],
+    [
+      "comune/src/app/diagnostics.py",
+      "src/spola/app/diagnostics.py"
+    ],
+    [
+      "comune/src/app/win32.py",
+      "src/spola/app/win32.py"
+    ],
+    [
+      "comune/src/app/wintoast.py",
+      "src/spola/app/wintoast.py"
+    ],
+    [
+      "comune/src/data/atomic.py",
+      "src/spola/data/atomic.py"
+    ],
+    [
+      "comune/tests/test_impronte.py",
+      "tests/test_impronte.py"
+    ],
+    [
+      "comune/tests/test_strati.py",
+      "tests/test_strati.py"
+    ],
+    [
+      "comune/tests/_userfolders.py",
+      "tests/_userfolders.py"
+    ],
+    [
+      "comune/tests/test_userfolders.py",
+      "tests/test_userfolders.py"
+    ],
+    [
+      "comune/tests/_ceilings.py",
+      "tests/_ceilings.py"
+    ],
+    [
+      "comune/tests/test_ceilings.py",
+      "tests/test_ceilings.py"
+    ],
+    [
+      "comune/tests/test_i18n.py",
+      "tests/test_i18n.py"
+    ],
+    [
+      "comune/tests/test_paths.py",
+      "tests/test_paths.py"
+    ],
+    [
+      "comune/tests/test_log.py",
+      "tests/test_log.py"
+    ],
+    [
+      "comune/tests/test_errorlog.py",
+      "tests/test_errorlog.py"
+    ],
+    [
+      "comune/tests/test_updates.py",
+      "tests/test_updates.py"
+    ],
+    [
+      "comune/tests/test_minisign.py",
+      "tests/test_minisign.py"
+    ],
+    [
+      "comune/tests/test_diagnostics.py",
+      "tests/test_diagnostics.py"
+    ],
+    [
+      "comune/tests/test_win32.py",
+      "tests/test_win32.py"
+    ],
+    [
+      "comune/tests/test_wintoast.py",
+      "tests/test_wintoast.py"
+    ],
+    [
+      "comune/tests/test_atomic.py",
+      "tests/test_atomic.py"
+    ],
+    [
+      "comune/tests/test_tool_run_tests.py",
+      "tests/test_tool_run_tests.py"
+    ],
+    [
+      "comune/tools/run_tests.py",
+      "tools/run_tests.py"
+    ]
+  ],
+  "replacements": [],
+  "files": [
+    {
+      "source": "comune/src/app/diagnostics.py",
+      "target": "src/spola/app/diagnostics.py",
+      "sha256": "acc4d968fe443db423b4460316d1613b39d55ae6d52f248644d8c95f7d2928ca",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/errorlog.py",
+      "target": "src/spola/app/errorlog.py",
+      "sha256": "b4cb25ef43d13b43b7efe4c39c4bbd049aa176cea311d0376ce674b0ea2cc8fa",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/log.py",
+      "target": "src/spola/app/log.py",
+      "sha256": "7011ab26a317036014401bc483768226ba2c49c326c589b76eef9d47033f8475",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/minisign.py",
+      "target": "src/spola/app/minisign.py",
+      "sha256": "c28cea775dabd1b9c6a7b019f9078fd0a3c045426151e870fb25840ffd1763bb",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/paths.py",
+      "target": "src/spola/app/paths.py",
+      "sha256": "72bcde6896effa78425cf9a41599ca100cf60b42da082f928785507b0e751b2e",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/updates.py",
+      "target": "src/spola/app/updates.py",
+      "sha256": "4fbeef789c0cd357114976329048de8f4a394bbcd512e7dbdb6c78701521e458",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/win32.py",
+      "target": "src/spola/app/win32.py",
+      "sha256": "bab7b6cb37d1be1e7b59972598a6ff1d5eba908a6bb97805a1fd549d310ecd08",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/app/wintoast.py",
+      "target": "src/spola/app/wintoast.py",
+      "sha256": "a7e3c41ae49f989db66b031fde371aebc0245d8f7f4b8df1b3ce074487d640b3",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/data/atomic.py",
+      "target": "src/spola/data/atomic.py",
+      "sha256": "3d35a3f14a1402e0b0028cdaba26adb1b1e77b59a0d8f6b3d92a04c8fdc95340",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/src/i18n.py",
+      "target": "src/spola/i18n.py",
+      "sha256": "c36fab10baae8d21d886e0f07a42bff4de66a7113c804797fd63a200ed4aaea4",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/_ceilings.py",
+      "target": "tests/_ceilings.py",
+      "sha256": "99cc7cdecf1c1c4865240c338f35e604b5e3b0fda572d3ddb41dd89b7de11dde",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/_userfolders.py",
+      "target": "tests/_userfolders.py",
+      "sha256": "3216ed2c8196d46c8befb6a27fed0f49be2d545dd16f48ec2d37919b3e76b263",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_atomic.py",
+      "target": "tests/test_atomic.py",
+      "sha256": "dae88b3523d246e4b7ebda27b2ea41d06d1d1884b80fedb0d688acc8c24ea2c5",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_ceilings.py",
+      "target": "tests/test_ceilings.py",
+      "sha256": "51eedacbcc8feb2f86b5d5916fc2496ca8837f28e29d682d5130084cfc90b16c",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_diagnostics.py",
+      "target": "tests/test_diagnostics.py",
+      "sha256": "83084c4063f1128b62f5308960cce82574b23d24d391c90deeecb20067627c62",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_errorlog.py",
+      "target": "tests/test_errorlog.py",
+      "sha256": "cef22a77d469a3ca98621f4b9e71b22b17bfe744fa625f78dea6217778cb3a45",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_i18n.py",
+      "target": "tests/test_i18n.py",
+      "sha256": "cb3d57da964dc87ba7f5a10cb4775632a8b2c81990f5dce1770b17616d1211ad",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_impronte.py",
+      "target": "tests/test_impronte.py",
+      "sha256": "271d05d9b09709f69bd148b8ac4c307d2b9b77d5b5e6ed32dd0ba3f0e82fd6d1",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_log.py",
+      "target": "tests/test_log.py",
+      "sha256": "21cee2168fa28c09dcda6c7a0252ea1d76b3488c03819ddc40a41e0294dc2eff",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_minisign.py",
+      "target": "tests/test_minisign.py",
+      "sha256": "f0603b234348ed64084ea9db9ad8f875a45acf362f54a43c20741d5652a723be",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_paths.py",
+      "target": "tests/test_paths.py",
+      "sha256": "d935b8ebb7a2f94037502d9e28073a783f4d4c456ced77969e54f57d52066b1b",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_strati.py",
+      "target": "tests/test_strati.py",
+      "sha256": "a5c53211f2a1ef63220a6c6bab0db2b02365d7a1500a19bc999e78ede0993125",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_tool_run_tests.py",
+      "target": "tests/test_tool_run_tests.py",
+      "sha256": "1dee09549f7478a6f229cba1f7c0deca5c03d38a788f3d81c172f04de60cafc0",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_updates.py",
+      "target": "tests/test_updates.py",
+      "sha256": "91e81b68ac7f48ae14f1ad8f009700ac2485ba68d1ea0f0543c2461515c5a912",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_userfolders.py",
+      "target": "tests/test_userfolders.py",
+      "sha256": "c1aed7fcf92dcc6cd12dc4fed3265f14c27f75ea90b3dfdc9f38638b6a85c660",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_win32.py",
+      "target": "tests/test_win32.py",
+      "sha256": "d7d112b90d7e5c79d1fd8c9cc345482aeb7f0e38ad95c79ff0af37b001c36394",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tests/test_wintoast.py",
+      "target": "tests/test_wintoast.py",
+      "sha256": "43bdf6fb068fe83c2c8e6a68c34cb9ab01c0eb3a7154887cc7b04dc0485a95ff",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    },
+    {
+      "source": "comune/tools/run_tests.py",
+      "target": "tools/run_tests.py",
+      "sha256": "1497654ea569f3b6aad1b4fff73ec2852b887eee1b3316268d998bf4b4c5fa8f",
+      "baseline_version": "57225299c7d45f38badae2e75a014a347e3826da"
+    }
+  ]
+}

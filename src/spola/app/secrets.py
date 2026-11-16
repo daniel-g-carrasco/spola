@@ -11,7 +11,7 @@ from __future__ import annotations
 from spola import APP_ID, WINDOWS
 
 if WINDOWS:
-    from .win32 import credential_clear as clear, credential_lookup as _lookup, credential_store as store  # noqa: F401
+    from .winsys import credential_clear as clear, credential_lookup as _lookup, credential_store as store  # noqa: F401
 
     def lookup(user: str) -> str | None:
         return _lookup(user) if user else None

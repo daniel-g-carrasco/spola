@@ -110,7 +110,7 @@ class SharingRoutesTest(unittest.TestCase):
                 self.assertEqual(len(self.told), 1)
 
     def test_custom_exclusions_are_refused_before_dialog_loading(self):
-        from spola.app.paths import Paths
+        from spola.app.storage import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file(self.pair.id)
@@ -122,7 +122,7 @@ class SharingRoutesTest(unittest.TestCase):
         self.assertEqual(len(self.told), 1)
 
     def test_unreadable_exclusions_do_not_open_sharing(self):
-        from spola.app.paths import Paths
+        from spola.app.storage import Paths
         base = Path(self.tmp.name)
         paths = Paths(base / "config", base / "state", base / "data")
         filters = paths.filters_file(self.pair.id)

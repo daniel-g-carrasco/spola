@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
 """Spola in Files (Nautilus), Nemo and Caja: sync emblems on files and
 folders, and a few context menu entries. The three share their extension
 API (Nemo and Caja are forks of Nautilus), so this one file serves them all:

@@ -219,10 +219,10 @@ def koofr_desktop_state(autostart_dir: Path | None = None, koofr_dir: Path | Non
         # Koofr.lnk in the Startup folder). Not its logs: the processes are
         # in sight, and server.log, written as it quits, would keep it
         # "running" for a quarter of an hour after.
-        from . import win32
-        names = win32.process_names()
+        from . import winsys
+        names = winsys.process_names()
         running = bool(names & set(KOOFR_DESKTOP_PROCESSES)) or any("koofr" in name for name in names)
-        return KoofrDesktopState(running, any(_starts_koofr_desktop(line) for line in win32.login_commands()))
+        return KoofrDesktopState(running, any(_starts_koofr_desktop(line) for line in winsys.login_commands()))
     running = False
     try:
         for entry in os.scandir("/proc"):
@@ -256,10 +256,10 @@ CAN_TURN_OFF_KOOFR_DESKTOP_LOGIN = os.name == "nt"
 def turn_off_koofr_desktop_login() -> int:
     """Windows: turn off what starts Koofr Desktop at login, as Task Manager
     does. How many entries; PermissionError for one of the machine's."""
-    from . import win32
-    entries = [e for e in win32.login_entries() if _starts_koofr_desktop(e.text)]
+    from . import winsys
+    entries = [e for e in winsys.login_entries() if _starts_koofr_desktop(e.text)]
     for entry in entries:
-        win32.turn_off(entry)
+        winsys.turn_off(entry)
     return len(entries)
 
 

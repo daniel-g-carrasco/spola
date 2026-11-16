@@ -15,7 +15,8 @@ from _setup import FIXTURES
 from spola.data import listings
 from spola.app.config import Config, Pair, load, normalize_remote, save
 from spola.app.jobs import prune_backups
-from spola.app.paths import Paths, nearest_folder
+from spola.app.paths import nearest_folder
+from spola.app.storage import Paths
 
 
 class ListingTest(unittest.TestCase):
@@ -201,6 +202,26 @@ class PruneTest(unittest.TestCase):
                 (root / name / "f").write_text("x")
             self.assertEqual(prune_backups(paths, "p", 30, now), 1)
             self.assertEqual(sorted(os.listdir(root)), sorted([new, "not-a-run"]))
+
+
+
+class PatientSaveTest(unittest.TestCase):
+    def test_a_rename_refused_for_an_instant_still_saves(self):
+        # Windows: an antivirus or the indexer holds the file just written
+        real, refused = os.replace, []
+
+        def replace(source, target):
+            if str(target).endswith("config.json") and len(refused) < 2:
+                refused.append(target)
+                raise PermissionError(13, "in use")
+            real(source, target)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config.json"
+            with mock.patch("os.replace", replace):
+                save(Config(user="a@b.c"), path)
+            self.assertEqual(len(refused), 2)
+            self.assertEqual(load(path).user, "a@b.c")
+            self.assertEqual([p.name for p in Path(tmp).iterdir() if p.name.startswith(".config-")], [])
 
 
 if __name__ == "__main__":

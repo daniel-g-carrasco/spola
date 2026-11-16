@@ -27,7 +27,7 @@ from spola.app.account import Credentials  # noqa: E402
 from spola.app.config import Config, Pair  # noqa: E402
 from spola.app.engine import Engine  # noqa: E402
 from spola.app import engine as engine_mod  # noqa: E402
-from spola.app.paths import Paths  # noqa: E402
+from spola.app.storage import Paths  # noqa: E402
 from spola.app.trash import Entry  # noqa: E402
 from spola.gui.window import TrashDialog, VersionsDialog  # noqa: E402
 from test_trash_search import spin_until  # noqa: E402

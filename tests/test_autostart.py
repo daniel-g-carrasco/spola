@@ -2,8 +2,10 @@
 """The autostart entry outside the Flatpak: written, removed, never touching
 a file Spola did not write."""
 
+import os
 import tempfile
 import unittest
+from unittest import mock
 
 import _setup
 
@@ -44,16 +46,30 @@ if __name__ == "__main__":
 
 @unittest.skipUnless(_setup.WINDOWS, "Windows only")
 class WindowsTest(unittest.TestCase):
-    """The Run key and the Credential Manager, for real (a CI runner)."""
+    """The Run key and the Credential Manager, for real. The Run key is one of
+    the test's own (as test_explorer.py does): on a computer with Spola
+    installed the user's own Run key, which starts it at login, is never
+    written by a test."""
 
     def test_run_key(self):
-        from spola.app import win32
-        before = win32.autostart_command()
-        self.addCleanup(win32.set_autostart, before)
-        autostart.apply(True)
-        self.assertIn("--background", win32.autostart_command())
-        autostart.apply(False)
-        self.assertIsNone(win32.autostart_command())
+        import winreg
+
+        from spola.app import winsys
+        scratch = rf"Software\SpolaTest-{os.getpid()}"
+
+        def remove():
+            for key in (scratch + r"\Run", scratch):
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+                except OSError:
+                    pass
+        self.addCleanup(remove)
+        with mock.patch.object(winsys, "RUN_KEY", scratch + r"\Run"):
+            self.assertIsNone(winsys.autostart_command())       # a new profile has no key: none
+            autostart.apply(True)
+            self.assertIn("--background", winsys.autostart_command())
+            autostart.apply(False)
+            self.assertIsNone(winsys.autostart_command())
 
     def test_credential_manager(self):
         from spola.app import secrets

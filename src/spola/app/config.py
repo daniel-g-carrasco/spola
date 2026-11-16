@@ -1,8 +1,9 @@
 """Settings and folder pairs, stored as JSON in $XDG_CONFIG_HOME/spola.
 
 The password is never here: it lives in the keyring (see secrets.py).
-Writes are atomic (temporary file, fsync, rename) so a crash or a full disk
-can never leave a half-written file behind, and the file as it was before
+Writes are atomic (temporary file, fsync, rename, the rename tried again
+for a moment when Windows refuses it: data/atomic.py) so a crash or a full
+disk can never leave a half-written file behind, and the file as it was before
 stays next to it (config.json.bak): a damaged file, or one that is gone, is
 replaced by that previous save rather than by nothing, and what happened is
 told (Config.notices). The file carries a format version: an older format
@@ -21,6 +22,8 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+
+from spola.data import atomic
 
 CONFIG_VERSION = 1
 # from one format version to the next, in order: {from_version: step}
@@ -80,8 +83,8 @@ class Config:
     conflict_rule: str = "ask"           # for new conflicts: "ask", "newer", "both"
     upload_limit_kb: int = 0             # KiB/s to Koofr, 0 = no limit
     download_limit_kb: int = 0           # KiB/s from Koofr, 0 = no limit
-    check_updates: bool = True           # Windows: a newer release, once a day at start
-    last_update_check: str = ""          # ISO date of the last check made on its own
+    check_updates: bool = True           # Windows: a newer release, every 4 hours at most (updates.check_due)
+    last_update_check: str = ""          # when the last check made on its own was: ISO time (a date alone when the check was once a day)
     explorer_status: bool = True         # Windows: the sync status in File Explorer (cloudfiles.py)
     explorer_menu: bool = True           # Windows: "Open on Koofr", "Copy Koofr Share Link" (explorer.py)
     # settings of a newer Spola this one does not know, written back as they were
@@ -264,7 +267,8 @@ def save(cfg: Config, path: Path) -> None:
             f.flush()
             os.fsync(f.fileno())
         _keep_previous(path)
-        os.replace(tmp, path)
+        # an antivirus or the indexer may hold the file just written for an instant
+        atomic.replace_patiently(tmp, path)
     except BaseException:
         try:
             os.unlink(tmp)

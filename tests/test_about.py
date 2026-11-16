@@ -24,7 +24,7 @@ if Gdk.Display.get_default() is None:
 
 from spola.gui import window  # noqa: E402
 from spola.app.config import Config, Pair  # noqa: E402
-from spola.app.paths import Paths  # noqa: E402
+from spola.app.storage import Paths  # noqa: E402
 
 
 def spin(cond, timeout=10.0) -> bool:

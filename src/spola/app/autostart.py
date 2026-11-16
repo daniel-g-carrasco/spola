@@ -66,12 +66,12 @@ def windows_command() -> str:
 
 def apply(enabled: bool, connection=None, environ=None) -> None:
     if WINDOWS:
-        from . import win32
-        current = win32.autostart_command()
+        from . import winsys
+        current = winsys.autostart_command()
         if enabled:
-            win32.set_autostart(windows_command())
+            winsys.set_autostart(windows_command())
         elif current is not None:
-            win32.set_autostart(None)
+            winsys.set_autostart(None)
         return
     if in_flatpak():
         if connection is not None:

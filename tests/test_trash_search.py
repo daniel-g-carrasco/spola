@@ -14,7 +14,7 @@ from spola.app import engine as engine_mod
 from spola.app.account import Credentials
 from spola.app.config import Config
 from spola.app.engine import Engine
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 from spola.app.trash import Entry
 
 

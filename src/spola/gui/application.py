@@ -3,6 +3,7 @@ the tray icon and the window; closing the window only hides it."""
 
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 import time
@@ -22,13 +23,15 @@ from spola.app.status import StatusFile  # noqa: E402
 from spola.app.engine import Engine, Status  # noqa: E402
 from spola.i18n import _  # noqa: E402
 from spola.app.log import complain  # noqa: E402
-from spola.app.paths import Paths, in_flatpak  # noqa: E402
+from spola.app import services  # noqa: E402
+from spola.app.paths import in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
 from .ui import progress_text, run_in_thread, status_badge, status_text, time_left, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = PACKAGE_DIR.parent.parent / "data" / "icons"
-UPDATE_CHECK_DELAY_S = 60
+UPDATE_CHECK_DELAY_S = 60      # after the start: the syncs come first
+UPDATE_RECHECK_DELAY_S = 5     # after the window comes back (from the tray, or from the taskbar)
 
 
 def settings_notice_text(notice: config.Notice) -> str:
@@ -146,6 +149,9 @@ class SpolaApp(Adw.Application):
         # the last request to share: several in a row are one selection of several items
         self._share_asked, self._share_path, self._share_told, self._share_dialog = 0.0, "", False, None
         self._quit_done = False
+        self._update_checks = False     # the checks made by themselves: on in do_startup (Windows)
+        self._update_timer = 0
+        self._held_update = None        # (release, asked): found while a sync was running
         self.explorer_status = None         # Windows: the sync status in File Explorer
         self._last_summary = ""
 
@@ -161,7 +167,7 @@ class SpolaApp(Adw.Application):
         if not in_flatpak() and SOURCE_ICONS.is_dir():
             Gtk.IconTheme.get_for_display(Gdk.Display.get_default()).add_search_path(str(SOURCE_ICONS))
 
-        paths = Paths.from_env()
+        paths = services.app_paths()
         cfg = config.load(paths.config_file)
         self.engine = Engine(paths, cfg)
         for notice in cfg.notices:
@@ -173,6 +179,7 @@ class SpolaApp(Adw.Application):
         self.engine.connect("pairs-changed", lambda *_: self._refresh_tray())
         self.engine.connect("pairs-changed", self.register_explorer)
         self.engine.connect("status-changed", lambda *_: self._refresh_tray())
+        self.engine.connect("status-changed", lambda *_: self.sync_finished())
         self.engine.connect("attention", self._on_attention)
         self._load_credentials()
 
@@ -233,18 +240,40 @@ class SpolaApp(Adw.Application):
             except OSError as e:        # said; the extension already there keeps working
                 complain("updating the file manager extension", e)
         if WINDOWS:
-            # once a day, a while after start: the syncs come first
-            GLib.timeout_add_seconds(UPDATE_CHECK_DELAY_S, self._daily_update_check)
+            # a while after start, and when the window comes back (window_came_back)
+            self._update_checks = True
+            self._schedule_update_check(UPDATE_CHECK_DELAY_S)
             from spola.app import updates
-            run_in_thread(updates.clean_downloads, lambda *_: None)     # the installers of earlier updates
+            project = services.project()
+            run_in_thread(lambda: updates.clean_downloads(project), lambda *_: None)    # earlier updates' installers
 
     # -- a newer Spola (Windows: on Linux the Flatpak brings it) ----------------------
 
-    def _daily_update_check(self) -> bool:
+    def window_came_back(self) -> None:
+        """The window seen again (shown from the tray, restored from the
+        taskbar): a check, if the last one is old enough."""
+        self._schedule_update_check(UPDATE_RECHECK_DELAY_S)
+
+    def _schedule_update_check(self, delay_s: int) -> None:
+        # one waiting at a time: a window hidden and shown again and again
+        # makes one check at most, and only when updates.check_due says so
+        if self._update_checks and not self._update_timer:
+            self._update_timer = GLib.timeout_add_seconds(delay_s, self._automatic_update_check)
+
+    def _automatic_update_check(self) -> bool:
+        """A check made by itself, at most every updates.CHECK_EVERY_HOURS
+        (a date alone, as the once-a-day check of Spola 0.3.47 and earlier
+        wrote it, counts from that day's midnight). It opens no dialog: a
+        newer version is a banner (and a notification with the window not
+        in front), held back while a sync runs (_offer_update)."""
+        self._update_timer = 0
         cfg = self.engine.cfg
-        today = time.strftime("%Y-%m-%d")
-        if cfg.check_updates and cfg.last_update_check != today:
-            cfg.last_update_check = today
+        if not cfg.check_updates:
+            return False
+        from spola.app import updates
+        now = datetime.datetime.now()
+        if updates.check_due(cfg.last_update_check, now):
+            cfg.last_update_check = updates.check_stamp(now)
             self.engine.save_config()
             self.check_updates(manual=False)
         return False
@@ -257,25 +286,46 @@ class SpolaApp(Adw.Application):
                 if manual:
                     self._window().toast(_("The check for updates failed: {error}").format(error=error))
                 return
-            if not updates.is_newer(release.version):
+            if not updates.is_newer(release.version, __version__):
                 if manual:
                     self._window().toast(_("Spola {version} is up to date").format(version=__version__))
                 return
-            # the banner in every case, in the window that is there or in
-            # the one made later (Spola may be in the tray with none). The
-            # dialog only when asked for; a notification when the window is
-            # not in front
-            self.update_found = release
-            if self.window is not None:
-                self.window.show_update(release.version, lambda: self._show_update(release))
-            if manual:
-                self._show_update(release)
-            elif self.window is None or not self.window.is_active():
-                self.tray.notify(_("Spola {version} is available").format(version=release.version),
-                                 _("Click to see what is new and update."), lambda: self._show_update(release),
-                                 tag="update")
+            self._offer_update(release, manual)
 
-        run_in_thread(updates.latest_release, done)
+        project = services.project()
+        run_in_thread(lambda: updates.latest_release(project), done)
+
+    def _syncing(self) -> bool:
+        """A real sync is being prepared or running (not a preview)."""
+        return self.engine is not None and self.engine.active is not None
+
+    def _offer_update(self, release, manual: bool) -> None:
+        """The banner in every case, in the window that is there or in the
+        one made later (Spola may be in the tray with none). The dialog only
+        when asked for; a notification when the window is not in front.
+        Nothing while a sync runs (an update closes Spola, and its sync with
+        it): held until the engine is idle again (sync_finished)."""
+        if self._syncing():
+            asked = manual or (self._held_update is not None and self._held_update[1])
+            self._held_update = (release, asked)
+            return
+        self.update_found = release
+        if self.window is not None:
+            self.window.show_update(release.version, lambda: self._show_update(release))
+        if manual:
+            self._show_update(release)
+        elif self.window is None or not self.window.is_active():
+            self.tray.notify(_("Spola {version} is available").format(version=release.version),
+                             _("Click to see what is new and update."), lambda: self._show_update(release),
+                             tag="update")
+
+    def sync_finished(self) -> None:
+        """The engine's state changed: what was found during a sync, offered
+        now that none runs."""
+        if self._held_update is not None and not self._syncing():
+            release, asked = self._held_update
+            self._held_update = None
+            self._offer_update(release, asked)
 
     def _show_update(self, release) -> None:
         from .update_dialog import UpdateDialog

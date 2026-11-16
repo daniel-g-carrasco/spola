@@ -38,7 +38,7 @@ On [Margine OS](https://margine.dev): `ujust install-spola`, and `ujust install-
 
 ### Windows
 
-Every [release](https://github.com/daniel-g-carrasco/spola/releases) has an installer (`spola-setup-…-windows-x64.exe`, for your user only, no administrator needed) and a portable zip. Spola checks for a newer release once a day and offers it; an update is installed only if it carries Spola's own signature. The installer is not signed with a Windows certificate yet, so SmartScreen warns the first time: *More info*, then *Run anyway*.
+Every [release](https://github.com/daniel-g-carrasco/spola/releases) has an installer (`spola-setup-…-windows-x64.exe`, for your user only, no administrator needed) and a portable zip. Spola checks for a newer release at start and when its window comes back, at most every 4 hours, and offers it when no sync is running; an update is installed only if it carries Spola's own signature. The installer is not signed with a Windows certificate yet, so SmartScreen warns the first time: *More info*, then *Run anyway*.
 
 The installer and the zip have a [minisign](https://jedisct1.github.io/minisign/) signature next to them (`.minisig`). To check one by hand:
 
@@ -168,4 +168,6 @@ python3 tools/compile_po.py --update       # refresh po/spola.pot and po/*.po
 
 ## License
 
-MIT
+GPL-3.0-or-later (the GNU General Public License, version 3 or later), see [LICENSE](LICENSE). Spola shares
+some of its modules with the author's other apps, which are under this licence; the versions up to 0.3.47
+were released under the MIT licence, and they stay so.

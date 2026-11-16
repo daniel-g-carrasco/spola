@@ -27,7 +27,7 @@ from spola.app.account import Credentials, Quota
 from spola.app.config import Config, Pair
 from spola.app.conflicts import decide
 from spola.app.engine import Engine, PairRuntime, Status, conflict_name_pattern, slept
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 from spola.app import preflight
 from spola.app.preflight import rename_plan, root_identity
 from spola.app import jobs

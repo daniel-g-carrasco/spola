@@ -57,7 +57,7 @@ class SnapshotTest(unittest.TestCase):
         with contextlib.redirect_stderr(io.StringIO()) as said:
             data = status.snapshot(engine)
         self.assertEqual([p["id"] for p in data["pairs"]], ["p2"])
-        self.assertIn("spola: the status of work: TypeError", said.getvalue())     # said, with its traceback
+        self.assertIn(": the status of work: TypeError", said.getvalue())     # said, with its traceback
 
     def test_written_whole_and_removed(self):
         with tempfile.TemporaryDirectory() as tmp:

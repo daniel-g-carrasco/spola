@@ -16,7 +16,7 @@ from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
 from spola import APP_ID, APP_NAME, KOOFR_APP_PASSWORDS_URL, WINDOWS  # noqa: E402
 from spola.app import account, autostart, conflicts, file_managers, jobs, koofr_api  # noqa: E402
 from spola.core import activity, filetree  # noqa: E402
-from spola.app import diagnostics, preflight, secrets  # noqa: E402
+from spola.app import preflight, report, secrets  # noqa: E402
 from . import plan_tree  # noqa: E402
 from spola.app.engine import Engine, Status  # noqa: E402
 from spola.core.grouping import expected_remote, group_pairs  # noqa: E402
@@ -87,6 +87,10 @@ class MainWindow(_WindowBase):
         self._state_file = engine.paths.state / "window.json"
         self._restore_state()
         self.connect("close-request", lambda *_: self.save_state() and False)
+        # seen again: shown from the tray (map), or restored from the taskbar
+        # (GTK keeps a minimized window mapped: only `suspended` changes)
+        self.connect("map", lambda *_args: self._came_back())
+        self.connect("notify::suspended", lambda *_args: self._on_screen() and self._came_back())
 
         self.toasts = Adw.ToastOverlay()
         self.nav = Adw.NavigationView()
@@ -117,6 +121,15 @@ class MainWindow(_WindowBase):
             from .import_dialog import koofr_desktop_has_folders
             self.import_button.set_visible(koofr_desktop_has_folders())
         self.update_overall()
+
+    def _on_screen(self) -> bool:
+        """The window can be seen: shown (not hidden in the tray) and not minimized."""
+        return bool(self.get_mapped()) and not self.is_suspended()
+
+    def _came_back(self) -> None:
+        came_back = getattr(self.app, "window_came_back", None)     # (a stand-in app in the tests has none)
+        if came_back is not None:
+            came_back()     # a check for updates, if the last one is old enough
 
     def show_update(self, version: str, asked) -> None:
         """The banner of a newer version; asked() opens what it brings."""
@@ -2142,7 +2155,7 @@ class PreferencesDialog(Adw.PreferencesDialog):
         auto.connect("notify::active", lambda r, _p: self._set_autostart(r.get_active()))
         group.add(auto)
         if WINDOWS:
-            updates = Adw.SwitchRow(title=_("Check for updates"), subtitle=_("Once a day, from Spola's releases"),
+            updates = Adw.SwitchRow(title=_("Check for updates"), subtitle=_("Every 4 hours at most, from Spola's releases"),
                                     active=cfg.check_updates)
             updates.connect("notify::active", lambda r, _p: self._set("check_updates", r.get_active()))
             group.add(updates)
@@ -2648,22 +2661,29 @@ class PreviewDialog(Adw.Dialog):
         self.close()
 
 
+def toolkit_versions() -> str:
+    """GLib's, GTK's and libadwaita's versions, for a report (app/report.py)."""
+    return (f"GLib {GLib.MAJOR_VERSION}.{GLib.MINOR_VERSION}.{GLib.MICRO_VERSION}, "
+            f"GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}, "
+            f"libadwaita {Adw.get_major_version()}.{Adw.get_minor_version()}.{Adw.get_micro_version()}")
+
+
 def about_dialog(parent, engine: Engine | None = None, present: bool = True) -> Adw.AboutDialog:
     from spola import WEBSITE, __version__
     dialog = Adw.AboutDialog(
         application_name=APP_NAME, application_icon=APP_ID, version=__version__,
-        developer_name="Daniel Grasso", license_type=Gtk.License.MIT_X11, website=WEBSITE,
+        developer_name="Daniel Grasso", license_type=Gtk.License.GPL_3_0, website=WEBSITE,
         comments=_("Keep your folders in sync with Koofr.\nNot affiliated with Koofr."))
     dialog.add_credit_section(_("Sync engine"), ["rclone https://rclone.org"])
     if engine is not None:
         # Troubleshooting: what a report needs, with its Save button; the
         # slow part (rclone's version, the listings, the room the backups
         # take) follows
-        head = diagnostics.summary(engine)
+        head = report.summary(engine, toolkit_versions())
         dialog.set_debug_info_filename("spola-debug-info.txt")
         dialog.set_debug_info(head + "\n" + _("Measuring the space taken by the logs and backups…"))
         paths, rclone, pair_ids = engine.paths, engine.rclone, [pair.id for pair in engine.cfg.pairs]
-        run_in_thread(lambda: diagnostics.storage(paths, rclone, pair_ids),
+        run_in_thread(lambda: report.storage(paths, rclone, pair_ids),
                       lambda text, error: dialog.set_debug_info(head + "\n" + (text if error is None else str(error))))
     if present:
         dialog.present(parent)

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 from spola.app import jobs
-from spola.app.paths import Paths
+from spola.app.storage import Paths
 
 
 class KeptListingsTest(unittest.TestCase):

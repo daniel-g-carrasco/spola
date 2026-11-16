@@ -1,13 +1,16 @@
-"""Minisign signatures, verified with the standard library only: Spola's
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Minisign signatures, verified with the standard library only: the
 releases sign the Windows installer (the key's secret half in the CI, the
-public half here), and an update runs only an installer signed with it.
+public half in updates.py), and an update runs only an installer signed
+with it.
 
 Ed25519 as in RFC 8032 (its reference verification, section 6: slow by the
 standards of C, a few milliseconds for the one signature of an update);
 the signature of minisign's prehashed form ("ED"), over the BLAKE2b-512 of
 the file, and its global signature over the trusted comment, which names
 the file: a signature of another release's installer is not taken for
-this one's.
+this one's. Tested against RFC 8032's vectors and against signatures made
+by minisign itself (tests/test_minisign.py).
 """
 
 from __future__ import annotations

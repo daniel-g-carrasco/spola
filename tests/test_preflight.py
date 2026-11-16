@@ -153,50 +153,58 @@ class KoofrDesktopTest(unittest.TestCase):
 
     @unittest.skipUnless(_setup.WINDOWS, "Windows only")
     def test_windows_processes_and_login_commands(self):
-        from spola.app import win32
-        names = win32.process_names()
+        from spola.app import winsys
+        names = winsys.process_names()
         self.assertTrue(any(name.startswith("python") for name in names), sorted(names)[:20])
-        self.assertIsInstance(win32.login_commands(), list)
+        self.assertIsInstance(winsys.login_commands(), list)
 
     @unittest.skipUnless(_setup.WINDOWS, "Windows only")
     def test_windows_startup_folder(self):
         # Koofr Desktop's installer puts Koofr.lnk in the Startup folder; a
         # shortcut renamed still points to storagegui.exe, and one turned off
         # in Task Manager (StartupApproved, first byte odd) starts nothing
-        from spola.app import win32
+        from spola.app import winsys
         target = r"C:\Users\u\AppData\Local\koofr\storagegui.exe"
         lnk = b"L\x00\x00\x00" + b"\x00" * 72 + target.encode("utf-16-le") + b"\x00\x00"
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / "Avvio.lnk").write_bytes(lnk)
             (Path(tmp) / "desktop.ini").write_text("[.ShellClassInfo]")
-            entries = win32.startup_folder_entries(tmp, {})
+            entries = winsys.startup_folder_entries(tmp, {})
             self.assertEqual(len(entries), 1)
             self.assertIn("storagegui", entries[0].casefold())
             on, off = b"\x02" + b"\x00" * 11, b"\x03" + b"\x00" * 11
-            self.assertEqual(len(win32.startup_folder_entries(tmp, {"avvio.LNK": on})), 1)
-            self.assertEqual(win32.startup_folder_entries(tmp, {"avvio.LNK": off}), [])
-        self.assertTrue(win32.approved(None))
-        self.assertTrue(win32.approved(b"\x06" + b"\x00" * 11))
-        self.assertFalse(win32.approved(b"\x07" + b"\x00" * 11))
+            self.assertEqual(len(winsys.startup_folder_entries(tmp, {"avvio.LNK": on})), 1)
+            self.assertEqual(winsys.startup_folder_entries(tmp, {"avvio.LNK": off}), [])
+        self.assertTrue(winsys.approved(None))
+        self.assertTrue(winsys.approved(b"\x06" + b"\x00" * 11))
+        self.assertFalse(winsys.approved(b"\x07" + b"\x00" * 11))
 
     @unittest.skipUnless(_setup.WINDOWS, "Windows only")
     def test_windows_turn_off_as_task_manager_does(self):
-        # a value of our own in the user's StartupApproved\Run, removed after
+        # under a key of the test's own, as Task Manager writes the user's
+        # StartupApproved\Run: the user's own is never written by a test
         import winreg
-        from spola.app import win32
+        from unittest import mock
+
+        from spola.app import winsys
         name = f"spola-test-{os.getpid()}"
-        entry = win32.LoginEntry("x", winreg.HKEY_CURRENT_USER, "Run", name)
-        path = win32.APPROVED_KEY + "\\Run"
+        scratch = rf"Software\SpolaTest-{os.getpid()}"
+        entry = winsys.LoginEntry("x", winreg.HKEY_CURRENT_USER, "Run", name)
+        path = scratch + "\\Approved\\Run"
         try:
-            win32.turn_off(entry, now=0)
+            with mock.patch.object(winsys, "APPROVED_KEY", scratch + "\\Approved"):
+                winsys.turn_off(entry, now=0)
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
                 data, kind = winreg.QueryValueEx(key, name)
             self.assertEqual(kind, winreg.REG_BINARY)
             self.assertEqual(len(data), 12)
-            self.assertFalse(win32.approved(data))
+            self.assertFalse(winsys.approved(data))
         finally:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE) as key:
-                winreg.DeleteValue(key, name)
+            for key in (path, scratch + "\\Approved", scratch):
+                try:
+                    winreg.DeleteKey(winreg.HKEY_CURRENT_USER, key)
+                except OSError:
+                    pass
 
     def test_koofr_desktop_state(self):
         from spola.app.preflight import KoofrDesktopState

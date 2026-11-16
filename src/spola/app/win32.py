@@ -1,41 +1,20 @@
-"""What Spola needs from Windows itself, through ctypes and winreg: the lock
-on a pair, a graceful stop of rclone, the app password in the Credential
-Manager, the start at login. Imported only on Windows.
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""What the app needs from Windows itself, through ctypes: the title bars
+in the content's colour, the executable's icon on every window, the files
+that would run when opened. Imported only on Windows.
 
-The graceful stop. On Linux Spola sends rclone SIGINT, and bisync finishes
-or cancels its transfers and saves its state. On Windows the same comes from
-a console control event (Go delivers Ctrl+Break as os.Interrupt), which only
-reaches a process attached to the same console. Spola from a terminal (the
-CLI) starts rclone in its own process group on that console and sends it
-Ctrl+Break. The window has no console: rclone gets one of its own, without
-a window, and Spola attaches to it for the moment it takes to send the event.
+Every function sets the argtypes and restype of what it calls: without
+them ctypes passes and returns C ints, and a HANDLE (64 bit) comes back
+truncated to 32, a mistake that shows only now and then.
 """
 
 from __future__ import annotations
 
 import ctypes
-import msvcrt
 import os
-import signal
-import struct
-import subprocess
-import time
-import winreg
+import threading
+import uuid
 from ctypes import wintypes
-from dataclasses import dataclass
-
-from spola import APP_ID, APP_NAME
-
-kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
-
-CTRL_BREAK_EVENT = 1
-
-kernel32.GetConsoleWindow.restype = wintypes.HWND
-kernel32.GetConsoleCP.restype = wintypes.UINT
-kernel32.AttachConsole.argtypes = [wintypes.DWORD]
-kernel32.SetConsoleCtrlHandler.argtypes = [ctypes.c_void_p, wintypes.BOOL]
-kernel32.GenerateConsoleCtrlEvent.argtypes = [wintypes.DWORD, wintypes.DWORD]
 
 
 # -- the title bar -----------------------------------------------------------------
@@ -86,10 +65,10 @@ def title_bars(dark: bool, background: tuple[int, int, int] | None = None,
                     break
             for attribute, colour in colours:
                 dwmapi.DwmSetWindowAttribute(hwnd, attribute, ctypes.byref(colour), ctypes.sizeof(colour))
-            # one pixel of DWM's frame under the content, at the top. The
-            # app is system DPI aware (GTK scales by whole numbers only): on a
-            # screen whose scale is not the main one's Windows stretches the
-            # window, and the seam between the title bar and the content
+            # one pixel of DWM's frame under the content, at the top. When
+            # Windows stretches the window (a system DPI aware process on a
+            # screen whose scale is not the main one's, as the app was until
+            # 2026-11-13) the seam between the title bar and the content
             # showed what was behind the window
             if user32.GetWindowLongW(hwnd, GWL_STYLE) & WS_CAPTION == WS_CAPTION:
                 dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARGINS(0, 0, 1, 0)))
@@ -99,8 +78,76 @@ def title_bars(dark: bool, background: tuple[int, int, int] | None = None,
     user32.EnumWindows(visit, 0)
 
 
+# -- the screen's dpi ---------------------------------------------------------------
+
+PER_MONITOR_AWARE_V2 = -4               # DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (Windows 10 1703)
+PROCESS_PER_MONITOR_DPI_AWARE = 2       # Windows 8.1's per monitor, and DPI_AWARENESS_PER_MONITOR_AWARE
+
+
+def per_monitor_dpi() -> bool:
+    """The process follows each screen's dpi (per monitor v2, else Windows
+    8.1's per monitor), as the manifest asks for the built exe. Called
+    before the toolkit opens the display, it makes a run from the sources
+    behave as the exe (without it GTK's GDK makes the process system DPI
+    aware). False when it was set already (the manifest) or Windows does
+    not know it."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.SetProcessDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.SetProcessDpiAwarenessContext.restype = wintypes.BOOL
+        return bool(user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(PER_MONITOR_AWARE_V2)))
+    except AttributeError:
+        pass
+    try:
+        shcore = ctypes.WinDLL("shcore")
+        shcore.SetProcessDpiAwareness.argtypes = [ctypes.c_int]
+        shcore.SetProcessDpiAwareness.restype = ctypes.c_long
+        return shcore.SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0
+    except (AttributeError, OSError):
+        return False
+
+
+def per_monitor_aware() -> bool:
+    """This thread's windows follow each screen's dpi (per monitor, v1 or v2);
+    False when system aware or unaware (Windows stretches the window)."""
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.GetThreadDpiAwarenessContext.argtypes = []
+        user32.GetThreadDpiAwarenessContext.restype = ctypes.c_void_p
+        user32.GetAwarenessFromDpiAwarenessContext.argtypes = [ctypes.c_void_p]
+        user32.GetAwarenessFromDpiAwarenessContext.restype = ctypes.c_int
+        context = user32.GetThreadDpiAwarenessContext()
+        return user32.GetAwarenessFromDpiAwarenessContext(context) == PROCESS_PER_MONITOR_DPI_AWARE
+    except AttributeError:
+        pass
+    try:
+        shcore = ctypes.WinDLL("shcore")
+        shcore.GetProcessDpiAwareness.argtypes = [wintypes.HANDLE, ctypes.POINTER(ctypes.c_int)]
+        shcore.GetProcessDpiAwareness.restype = ctypes.c_long
+        awareness = ctypes.c_int()
+        return (shcore.GetProcessDpiAwareness(None, ctypes.byref(awareness)) == 0
+                and awareness.value == PROCESS_PER_MONITOR_DPI_AWARE)
+    except (AttributeError, OSError):
+        return False
+
+
+def window_dpi(hwnd: int) -> int:
+    """The dpi of the screen the window is on, as Windows draws it (240 at
+    250%); 0 when unknown (no window, Windows before 10 1607)."""
+    if not hwnd:
+        return 0
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    try:
+        user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+        user32.GetDpiForWindow.restype = wintypes.UINT
+    except AttributeError:
+        return 0
+    return int(user32.GetDpiForWindow(hwnd))
+
+
 SM_CXICON, SM_CXSMICON = 11, 49
 ICON_SMALL, ICON_BIG, WM_SETICON = 0, 1, 0x0080
+IMAGE_ICON, LR_LOADFROMFILE = 1, 0x0010
 _icons: dict[tuple[str, int], int] = {}     # kept for the life of the process: a window does not copy its icon
 
 
@@ -114,11 +161,25 @@ def _exe_icon(exe: str, size: int) -> int:
     return _icons[(exe, size)]
 
 
-def window_icons(exe: str) -> None:
+def _file_icon(ico: str, size: int) -> int:
+    """The icon of an .ico file at this size; 0 when it cannot be read."""
+    if (ico, size) not in _icons:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.LoadImageW.argtypes = [wintypes.HINSTANCE, wintypes.LPCWSTR, wintypes.UINT, ctypes.c_int,
+                                      ctypes.c_int, wintypes.UINT]
+        user32.LoadImageW.restype = wintypes.HANDLE
+        _icons[(ico, size)] = user32.LoadImageW(None, ico, IMAGE_ICON, size, size, LR_LOADFROMFILE) or 0
+    return _icons[(ico, size)]
+
+
+def window_icons(exe: str, ico: str = "") -> None:
     """This process's windows with the exe's icon, at the sizes Windows draws
-    for each window's DPI (the title bar's small one, Alt+Tab's big one).
+    for each window's DPI (the title bar's small one; the big one, which
+    Alt+Tab and the taskbar button draw: measured on Windows 11, a window
+    with a red small icon and a blue big one has a blue taskbar button).
     GTK gives Windows a 48-pixel icon, which the title bar shrinks badly to
-    16."""
+    16. `ico`, when given, is an .ico file that takes the exe's place (a
+    run from the sources, which has no exe of its own)."""
     user32 = ctypes.windll.user32
     user32.GetDpiForWindow.argtypes = [wintypes.HWND]
     user32.GetSystemMetricsForDpi.argtypes = [ctypes.c_int, wintypes.UINT]
@@ -133,7 +194,8 @@ def window_icons(exe: str) -> None:
         if owner.value == pid:
             dpi = user32.GetDpiForWindow(hwnd) or 96
             for kind, metric in ((ICON_SMALL, SM_CXSMICON), (ICON_BIG, SM_CXICON)):
-                icon = _exe_icon(exe, user32.GetSystemMetricsForDpi(metric, dpi))
+                size = user32.GetSystemMetricsForDpi(metric, dpi)
+                icon = _file_icon(ico, size) if ico else _exe_icon(exe, size) if exe else 0
                 if icon:
                     user32.SendMessageW(hwnd, WM_SETICON, kind, icon)
         return True
@@ -157,7 +219,8 @@ RUNS_WHEN_OPENED = frozenset((
 def runs_when_opened(path: str) -> bool:
     """Opening this file would run it (ShellExecute): a program, a script, a
     shortcut. "Fattura.pdf.exe" counts by its last extension, as Windows
-    reads it."""
+    reads it. An app that opens files it did not make (downloads, files
+    shared by others) shows such a file in its folder instead."""
     ext = os.path.splitext(path)[1].lower()
     if not ext:
         return False
@@ -172,295 +235,202 @@ def runs_when_opened(path: str) -> bool:
         return False
 
 
-# -- the lock on a pair ----------------------------------------------------------
+# -- a file on another computer -----------------------------------------------------
 
-def lock(fd: int) -> bool:
-    """An exclusive lock on the file's first byte, released when the process
-    ends however it ends. False if another process holds it."""
-    os.lseek(fd, 0, os.SEEK_SET)
-    try:
-        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
-    except OSError:
+DRIVE_REMOTE = 4
+
+
+def on_network(path: str) -> bool:
+    """The file is on another computer: a UNC path, or a drive letter
+    mapped to a share (GetDriveTypeW says DRIVE_REMOTE). What an app
+    writes for such a file can go to the computer's own folders instead:
+    a shared server's folder belongs to everybody."""
+    full = os.path.abspath(path)
+    sep = os.sep
+    if full.startswith(sep + sep):
+        return True
+    drive = os.path.splitdrive(full)[0]
+    if not drive:
         return False
-    return True
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetDriveTypeW.argtypes = [wintypes.LPCWSTR]
+    kernel32.GetDriveTypeW.restype = wintypes.UINT
+    return kernel32.GetDriveTypeW(drive + sep) == DRIVE_REMOTE
 
 
-def unlock(fd: int) -> None:
-    os.lseek(fd, 0, os.SEEK_SET)
+# -- a folder chosen by the Windows shell -------------------------------------------
+
+class _GUID(ctypes.Structure):
+    _fields_ = [("data1", ctypes.c_uint32), ("data2", ctypes.c_uint16), ("data3", ctypes.c_uint16),
+                ("data4", ctypes.c_ubyte * 8)]
+
+    @classmethod
+    def parse(cls, text):
+        return cls.from_buffer_copy(uuid.UUID(text).bytes_le)
+
+
+_FILE_OPEN_DIALOG = _GUID.parse("dc1c5a9c-e88a-4dde-a5a1-60f82a20aef7")
+_IID_FILE_OPEN_DIALOG = _GUID.parse("d57c7288-d4ad-4768-be02-9d969532d960")
+_IID_SHELL_ITEM = _GUID.parse("43826d1e-e718-42ee-bc55-a1e261c37bfe")
+_IID_OLE_WINDOW = _GUID.parse("00000114-0000-0000-C000-000000000046")
+_CANCELLED = 0x800704C7
+
+
+def _com_checked(hr):
+    if hr & 0x80000000:
+        code = hr & 0xffffffff
+        # Win32 HRESULTs carry the system error code in the low word.
+        native_code = code & 0xffff if (code >> 16) & 0x1fff == 7 else code
+        message = ctypes.FormatError(native_code).strip()
+        raise OSError(f"{message} (0x{code:08X})")
+
+
+def _com_method(pointer, slot, *types, result=ctypes.c_long):
+    table = ctypes.cast(pointer, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    return ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *types)(table[slot])
+
+
+def _com_release(pointer):
+    if pointer:
+        _com_method(pointer, 2, result=ctypes.c_ulong)(pointer)
+
+
+_SHELL_LINK = _GUID.parse("00021401-0000-0000-C000-000000000046")
+_IID_SHELL_LINK_W = _GUID.parse("000214F9-0000-0000-C000-000000000046")
+_IID_PERSIST_FILE = _GUID.parse("0000010b-0000-0000-C000-000000000046")
+_RPC_E_CHANGED_MODE = 0x80010106
+
+
+def shortcut(target: str, link: str) -> None:
+    """A shortcut (.lnk) at `link` to the file `target`, made by the shell
+    (IShellLinkW::SetPath, IPersistFile::Save): what Explorer makes with
+    "Create shortcut", for a name in any language. OSError when it cannot
+    be made. COM is set up for this call's thread and left as it was."""
+    ole = ctypes.WinDLL("ole32")
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    ole.CoCreateInstance.argtypes = [ctypes.POINTER(_GUID), ctypes.c_void_p, wintypes.DWORD,
+                                    ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)]
+    ole.CoCreateInstance.restype = ctypes.c_long
+    started = ole.CoInitializeEx(None, 2)       # STA; a thread already in another apartment keeps it
+    if started < 0 and started & 0xffffffff != _RPC_E_CHANGED_MODE:
+        _com_checked(started)
+    made, persist = ctypes.c_void_p(), ctypes.c_void_p()
     try:
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-    except OSError:
-        pass
-
-
-# -- rclone as a child -------------------------------------------------------------
-
-def has_console() -> bool:
-    """Attached to a console, with a window or not (a terminal, a service
-    runner); the window built without one has none."""
-    return bool(kernel32.GetConsoleCP())
-
-
-def popen_options() -> dict:
-    """How to start rclone so that interrupt() can reach it. Without a
-    console of ours, rclone gets one without a window (CREATE_NO_WINDOW):
-    a new console with its window hidden is shown all the same where
-    Windows Terminal hosts the consoles (the default since Windows 11
-    22H2), flashing at every run."""
-    if has_console():
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
-    return {"creationflags": subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP}
-
-
-def interrupt(proc: subprocess.Popen) -> bool:
-    """Ctrl+Break to rclone: the graceful stop. False if it could not be sent
-    (the caller then stops the process)."""
-    if getattr(proc, "spola_shared_console", False):
-        try:
-            proc.send_signal(signal.CTRL_BREAK_EVENT)
-            return True
-        except OSError:
-            return False
-    if not kernel32.AttachConsole(proc.pid):
-        return False
-    try:
-        kernel32.SetConsoleCtrlHandler(None, True)      # the event is not for Spola
-        return bool(kernel32.GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, proc.pid))
+        _com_checked(ole.CoCreateInstance(ctypes.byref(_SHELL_LINK), None, 1, ctypes.byref(_IID_SHELL_LINK_W),
+                                          ctypes.byref(made)))
+        _com_checked(_com_method(made, 20, wintypes.LPCWSTR)(made, target))                 # SetPath
+        _com_checked(_com_method(made, 0, ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p))(
+            made, ctypes.byref(_IID_PERSIST_FILE), ctypes.byref(persist)))
+        _com_checked(_com_method(persist, 6, wintypes.LPCWSTR, wintypes.BOOL)(persist, link, True))   # Save
     finally:
-        kernel32.FreeConsole()
-        kernel32.SetConsoleCtrlHandler(None, False)
+        _com_release(persist)
+        _com_release(made)
+        if started >= 0:
+            ole.CoUninitialize()
 
 
-# -- the app password, in the Credential Manager ---------------------------------------
+def choose_folder_native(title: str, initial: str | None = None, owner: int = 0,
+                         cancelled: threading.Event | None = None) -> str | None:
+    """Run on a dedicated worker: path on accept, None on cancel, OSError on failure.
 
-CRED_TYPE_GENERIC = 1
-CRED_PERSIST_LOCAL_MACHINE = 2
-ERROR_NOT_FOUND = 1168
+    The worker owns every COM interface and memory allocation for its complete
+    lifetime. The integer owner HWND may be obtained by the window's main thread.
+    https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nf-shobjidl_core-imodalwindow-show
+    """
+    ole = ctypes.WinDLL("ole32")
+    shell = ctypes.WinDLL("shell32")
+    ole.CoInitializeEx.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    ole.CoInitializeEx.restype = ctypes.c_long
+    ole.CoUninitialize.argtypes = []
+    ole.CoUninitialize.restype = None
+    ole.CoCreateInstance.argtypes = [ctypes.POINTER(_GUID), ctypes.c_void_p, wintypes.DWORD,
+                                    ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p)]
+    ole.CoCreateInstance.restype = ctypes.c_long
+    ole.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+    ole.CoTaskMemFree.restype = None
+    shell.SHCreateItemFromParsingName.argtypes = [wintypes.LPCWSTR, ctypes.c_void_p, ctypes.POINTER(_GUID),
+                                                ctypes.POINTER(ctypes.c_void_p)]
+    shell.SHCreateItemFromParsingName.restype = ctypes.c_long
 
+    dialog, initial_item, selected = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_void_p()
+    name = ctypes.c_void_p()
+    timer = 0
+    timer_errors = []
+    close_posted = False
+    ole_window = ctypes.c_void_p()
+    user = ctypes.WinDLL("user32", use_last_error=True)
+    timer_proc = ctypes.WINFUNCTYPE(None, wintypes.HWND, wintypes.UINT, ctypes.c_size_t, wintypes.DWORD)
+    user.SetTimer.argtypes = [wintypes.HWND, ctypes.c_size_t, wintypes.UINT, timer_proc]
+    user.SetTimer.restype = ctypes.c_size_t
+    user.KillTimer.argtypes = [wintypes.HWND, ctypes.c_size_t]
+    user.KillTimer.restype = wintypes.BOOL
+    user.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    user.PostMessageW.restype = wintypes.BOOL
 
-class CREDENTIAL(ctypes.Structure):
-    _fields_ = [
-        ("Flags", wintypes.DWORD),
-        ("Type", wintypes.DWORD),
-        ("TargetName", wintypes.LPWSTR),
-        ("Comment", wintypes.LPWSTR),
-        ("LastWritten", wintypes.FILETIME),
-        ("CredentialBlobSize", wintypes.DWORD),
-        ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
-        ("Persist", wintypes.DWORD),
-        ("AttributeCount", wintypes.DWORD),
-        ("Attributes", ctypes.c_void_p),
-        ("TargetAlias", wintypes.LPWSTR),
-        ("UserName", wintypes.LPWSTR),
-    ]
+    @timer_proc
+    def on_timer(_hwnd, _message, _timer, _time):
+        nonlocal close_posted
+        if cancelled is not None and cancelled.is_set() and not close_posted:
+            try:
+                handle = wintypes.HWND()
+                _com_checked(_com_method(ole_window, 3, ctypes.POINTER(wintypes.HWND))(ole_window, ctypes.byref(handle)))
+                if handle:
+                    # Close() from a TIMERPROC returns S_OK without closing on
+                    # Windows 11. IOleWindow identifies our own dialog without
+                    # searching by title/class; posting lets its modal loop exit.
+                    if not user.PostMessageW(handle, 0x0010, 0, 0):
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    close_posted = True
+            except OSError as error:
+                timer_errors.append(error)
 
-
-advapi32.CredWriteW.argtypes = [ctypes.POINTER(CREDENTIAL), wintypes.DWORD]
-advapi32.CredReadW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
-                               ctypes.POINTER(ctypes.POINTER(CREDENTIAL))]
-advapi32.CredDeleteW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD]
-advapi32.CredFree.argtypes = [ctypes.c_void_p]
-
-
-def _target(user: str) -> str:
-    return f"{APP_ID}:{user}"
-
-
-def credential_store(user: str, password: str) -> None:
-    blob = password.encode("utf-16-le")
-    buffer = (ctypes.c_ubyte * len(blob)).from_buffer_copy(blob)
-    cred = CREDENTIAL(Type=CRED_TYPE_GENERIC, TargetName=_target(user),
-                      Comment=f"{APP_NAME}: Koofr ({user})", CredentialBlobSize=len(blob),
-                      CredentialBlob=ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ubyte)),
-                      Persist=CRED_PERSIST_LOCAL_MACHINE, UserName=user)
-    if not advapi32.CredWriteW(ctypes.byref(cred), 0):
-        raise OSError(ctypes.get_last_error(), "the password could not be saved in the Credential Manager")
-
-
-def credential_lookup(user: str) -> str | None:
-    found = ctypes.POINTER(CREDENTIAL)()
-    if not advapi32.CredReadW(_target(user), CRED_TYPE_GENERIC, 0, ctypes.byref(found)):
-        if ctypes.get_last_error() == ERROR_NOT_FOUND:
+    # A dedicated worker has no previously selected incompatible apartment.
+    _com_checked(ole.CoInitializeEx(None, 2 | 4))  # STA, disable obsolete OLE1 DDE
+    try:
+        _com_checked(ole.CoCreateInstance(ctypes.byref(_FILE_OPEN_DIALOG), None, 1,
+                                      ctypes.byref(_IID_FILE_OPEN_DIALOG), ctypes.byref(dialog)))
+        _com_checked(_com_method(dialog, 0, ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p))(
+            dialog, ctypes.byref(_IID_OLE_WINDOW), ctypes.byref(ole_window)))
+        flags = wintypes.DWORD()
+        _com_checked(_com_method(dialog, 10, ctypes.POINTER(wintypes.DWORD))(dialog, ctypes.byref(flags)))
+        # Folder, filesystem, existing path, unchanged CWD, no Recent Items entry.
+        options = flags.value | 0x20 | 0x40 | 0x800 | 0x8 | 0x02000000
+        _com_checked(_com_method(dialog, 9, wintypes.DWORD)(dialog, options))
+        _com_checked(_com_method(dialog, 17, wintypes.LPCWSTR)(dialog, title))
+        if initial and os.path.isdir(initial):
+            _com_checked(shell.SHCreateItemFromParsingName(initial, None, ctypes.byref(_IID_SHELL_ITEM),
+                                                       ctypes.byref(initial_item)))
+            _com_checked(_com_method(dialog, 12, ctypes.c_void_p)(dialog, initial_item))
+        if cancelled is not None:
+            if cancelled.is_set():
+                return None
+            timer = user.SetTimer(None, 0, 100, on_timer)
+            if not timer:
+                raise ctypes.WinError(ctypes.get_last_error())
+        answer = _com_method(dialog, 3, wintypes.HWND)(dialog, owner or None)
+        if timer_errors:
+            raise timer_errors[0]
+        if answer & 0xffffffff == _CANCELLED:
             return None
-        raise OSError(ctypes.get_last_error(), "the Credential Manager could not be read")
-    try:
-        size = found.contents.CredentialBlobSize
-        return ctypes.string_at(found.contents.CredentialBlob, size).decode("utf-16-le")
+        _com_checked(answer)
+        _com_checked(_com_method(dialog, 20, ctypes.POINTER(ctypes.c_void_p))(dialog, ctypes.byref(selected)))
+        if not selected:
+            raise OSError("Windows returned no selected folder.")
+        _com_checked(_com_method(selected, 5, ctypes.c_int, ctypes.POINTER(ctypes.c_void_p))(
+            selected, ctypes.c_int(0x80058000), ctypes.byref(name)))  # SIGDN_FILESYSPATH
+        if not name:
+            raise OSError("Windows returned no filesystem path for the folder.")
+        return ctypes.wstring_at(name)
     finally:
-        advapi32.CredFree(found)
-
-
-def credential_clear(user: str) -> None:
-    if not advapi32.CredDeleteW(_target(user), CRED_TYPE_GENERIC, 0) and ctypes.get_last_error() != ERROR_NOT_FOUND:
-        raise OSError(ctypes.get_last_error(), "the password could not be removed from the Credential Manager")
-
-
-# -- start at login ----------------------------------------------------------------------
-
-RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-
-
-def set_autostart(command: str | None) -> None:
-    """The command started at login (None: none), in the user's Run key.
-    A new profile may not have the key yet (a CI runner has none): made
-    when there is a command to write, nothing to remove otherwise."""
-    if command:
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, command)
-        return
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
-            winreg.DeleteValue(key, APP_NAME)
-    except FileNotFoundError:
-        pass
-
-
-def autostart_command() -> str | None:
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as key:
-            return winreg.QueryValueEx(key, APP_NAME)[0]
-    except FileNotFoundError:
-        return None
-
-
-# -- Koofr Desktop: is it running, or started at login? -----------------------------------
-
-TH32CS_SNAPPROCESS = 0x2
-INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-
-
-class PROCESSENTRY32W(ctypes.Structure):
-    _fields_ = [
-        ("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
-        ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD),
-        ("cntThreads", wintypes.DWORD), ("th32ParentProcessID", wintypes.DWORD),
-        ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260),
-    ]
-
-
-kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
-kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-
-
-def process_names() -> set[str]:
-    """The programs running now, lower case, without ".exe"."""
-    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
-    if not snapshot or snapshot == INVALID_HANDLE_VALUE:
-        return set()
-    names = set()
-    try:
-        entry = PROCESSENTRY32W(dwSize=ctypes.sizeof(PROCESSENTRY32W))
-        found = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
-        while found:
-            name = entry.szExeFile.casefold()
-            names.add(name[:-4] if name.endswith(".exe") else name)
-            found = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
-    finally:
-        kernel32.CloseHandle(snapshot)
-    return names
-
-
-APPROVED_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
-RUN32_KEY = r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Run"
-
-
-def _values(root, path: str) -> dict[str, object]:
-    found = {}
-    try:
-        with winreg.OpenKey(root, path) as key:
-            i = 0
-            while True:
-                try:
-                    name, value, _kind = winreg.EnumValue(key, i)
-                except OSError:
-                    break
-                found[name] = value
-                i += 1
-    except OSError:
-        pass
-    return found
-
-
-def approved(data) -> bool:
-    """A StartupApproved value: the first byte odd is an entry turned off in
-    Task Manager or in Settings (3), even is on (2, 6); none is on."""
-    return not (isinstance(data, bytes) and data and data[0] & 1)
-
-
-def shortcut_text(path: str) -> str:
-    """What a shortcut (.lnk) holds, as text to look into: its target is
-    stored both as ANSI and as UTF-16 strings."""
-    try:
-        with open(path, "rb") as f:
-            data = f.read(64 * 1024)
-    except OSError:
-        return ""
-    return data.decode("latin-1") + " " + data.decode("utf-16-le", errors="replace")
-
-
-def _folder_entries(folder: str, approvals: dict[str, object]) -> list[tuple[str, str]]:
-    """(file name, text) of the files of a Startup folder not turned off."""
-    off = {name.casefold() for name, data in approvals.items() if not approved(data)}
-    found = []
-    try:
-        names = os.listdir(folder)
-    except OSError:
-        return found
-    for name in names:
-        if name.casefold() in off or name.casefold() == "desktop.ini":
-            continue
-        path = os.path.join(folder, name)
-        found.append((name, f"{name} {shortcut_text(path)}" if name.casefold().endswith(".lnk") else name))
-    return found
-
-
-def startup_folder_entries(folder: str, approvals: dict[str, object]) -> list[str]:
-    """The files of a Startup folder that are not turned off, each as its
-    name and, for a shortcut, what it points to."""
-    return [text for _name, text in _folder_entries(folder, approvals)]
-
-
-@dataclass(frozen=True)
-class LoginEntry:
-    """Something started at login, not turned off."""
-    text: str           # what it starts, to look into
-    root: int           # the hive of its StartupApproved value
-    approval: str       # "Run", "Run32" or "StartupFolder"
-    name: str           # the name of its value: the Run value's, the file's
-
-
-def login_entries() -> list[LoginEntry]:
-    """What starts at login for this user and is not turned off: the Run
-    keys (the user's and the machine's, 64 and 32 bit) and the Startup
-    folders."""
-    found = []
-    for root, run, approval in ((winreg.HKEY_CURRENT_USER, RUN_KEY, "Run"),
-                                (winreg.HKEY_LOCAL_MACHINE, RUN_KEY, "Run"),
-                                (winreg.HKEY_LOCAL_MACHINE, RUN32_KEY, "Run32")):
-        approvals = _values(root, APPROVED_KEY + "\\" + approval)
-        found += [LoginEntry(f"{name} {value}", root, approval, name)
-                  for name, value in _values(root, run).items() if approved(approvals.get(name))]
-    for base, root in ((os.environ.get("APPDATA"), winreg.HKEY_CURRENT_USER),
-                       (os.environ.get("ProgramData"), winreg.HKEY_LOCAL_MACHINE)):
-        if base:
-            startup = os.path.join(base, "Microsoft", "Windows", "Start Menu", "Programs", "Startup")
-            found += [LoginEntry(text, root, "StartupFolder", name)
-                      for name, text in _folder_entries(startup, _values(root, APPROVED_KEY + "\\StartupFolder"))]
-    return found
-
-
-def login_commands() -> list[str]:
-    """The entries of login_entries(), as text to look into."""
-    return [entry.text for entry in login_entries()]
-
-
-def turn_off(entry: LoginEntry, now: float | None = None) -> None:
-    """Turned off as Task Manager does it: the entry stays where it is and
-    Windows skips it; Task Manager or Settings turn it on again. One of the
-    machine's needs an administrator (PermissionError)."""
-    filetime = int(((time.time() if now is None else now) + 11644473600) * 10_000_000)
-    with winreg.CreateKeyEx(entry.root, APPROVED_KEY + "\\" + entry.approval, 0, winreg.KEY_SET_VALUE) as key:
-        winreg.SetValueEx(key, entry.name, 0, winreg.REG_BINARY, struct.pack("<IQ", 3, filetime))
+        if timer:
+            user.KillTimer(None, timer)
+        if name:
+            ole.CoTaskMemFree(name)
+        _com_release(ole_window)
+        _com_release(selected)
+        _com_release(initial_item)
+        _com_release(dialog)
+        ole.CoUninitialize()

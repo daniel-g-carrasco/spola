@@ -2,10 +2,12 @@
 """A newer version is a banner in the window for as long as the window is
 there, also when it was found while Spola had no window (in the tray); the
 dialog opens only when asked for; a notification when the window is not in
-front. The window and the application are too large to build here (they
+front; nothing while a sync runs, offered when it is over. A check made by
+itself comes every 4 hours at most. The window and the application are too large to build here (they
 need the engine): their two methods are run on stand-ins that hold only
 what the methods touch."""
 
+import datetime
 import locale
 import types
 import unittest
@@ -47,9 +49,12 @@ class FakeWindow:
     show_update = MainWindow.show_update
 
 
-def app_with(window):
-    app = types.SimpleNamespace(window=window, dialogs=[], notes=[])
+def app_with(window, syncing: bool = False):
+    app = types.SimpleNamespace(window=window, dialogs=[], notes=[], _held_update=None,
+                                engine=types.SimpleNamespace(active=object() if syncing else None))
     app._show_update = lambda release: app.dialogs.append(release.version)
+    for name in ("_offer_update", "_syncing", "sync_finished"):
+        setattr(app, name, types.MethodType(getattr(application.SpolaApp, name), app))
     app.tray = types.SimpleNamespace(notify=lambda title, body, on_click, tag=None: app.notes.append((title, on_click)))
     return app
 
@@ -113,6 +118,57 @@ class BannerTest(unittest.TestCase):
             application.SpolaApp.check_updates(app, manual=False)
         self.assertFalse(app.window.update_banner.get_revealed())
         self.assertEqual((app.dialogs, app.notes), ([], []))
+
+
+class DuringASyncTest(unittest.TestCase):
+    def test_found_during_a_sync_nothing_until_it_is_over(self):
+        app = app_with(FakeWindow(active=False), syncing=True)
+        check(app, manual=False)
+        self.assertFalse(app.window.update_banner.get_revealed())
+        self.assertEqual((app.dialogs, app.notes), ([], []))
+        app.sync_finished()                              # another state, the sync still running
+        self.assertEqual(app.notes, [])
+        app.engine.active = None
+        app.sync_finished()
+        self.assertTrue(app.window.update_banner.get_revealed())
+        self.assertEqual((app.dialogs, len(app.notes)), ([], 1))
+        app.sync_finished()                              # offered once
+        self.assertEqual(len(app.notes), 1)
+
+    def test_asked_for_during_a_sync_the_dialog_when_it_is_over(self):
+        app = app_with(FakeWindow(active=True), syncing=True)
+        check(app, manual=True)
+        self.assertEqual(app.dialogs, [])
+        check(app, manual=False)                         # a check by itself later keeps the question
+        app.engine.active = None
+        app.sync_finished()
+        self.assertEqual(app.dialogs, ["99.0.0"])
+
+
+class WhenTest(unittest.TestCase):
+    def run_check(self, last: str, enabled: bool = True) -> tuple[list, str]:
+        asked, saved = [], []
+        cfg = types.SimpleNamespace(check_updates=enabled, last_update_check=last)
+        app = types.SimpleNamespace(_update_timer=7, check_updates=lambda manual: asked.append(manual),
+                                    engine=types.SimpleNamespace(cfg=cfg, save_config=lambda: saved.append(1)))
+        self.assertFalse(application.SpolaApp._automatic_update_check(app))
+        self.assertEqual(app._update_timer, 0)
+        self.assertEqual(len(saved), len(asked))
+        return asked, cfg.last_update_check
+
+    def test_every_four_hours_at_most(self):
+        now = datetime.datetime.now()
+        asked, last = self.run_check((now - datetime.timedelta(hours=1)).isoformat(timespec="seconds"))
+        self.assertEqual(asked, [])
+        asked, last = self.run_check((now - datetime.timedelta(hours=5)).isoformat(timespec="seconds"))
+        self.assertEqual(asked, [False])
+        self.assertEqual(len(last), len("2026-11-14T10:23:05"))
+
+    def test_a_date_of_the_once_a_day_check_counts_from_its_midnight(self):
+        yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+        self.assertEqual(self.run_check(yesterday)[0], [False])
+        self.assertEqual(self.run_check("")[0], [False])
+        self.assertEqual(self.run_check(yesterday, enabled=False)[0], [])
 
 
 if __name__ == "__main__":

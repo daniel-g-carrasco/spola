@@ -353,7 +353,7 @@ Deciso il 2026-10-10: `--filesystem=home`, con la possibilità di restringere a 
 Struttura, sul modello di p7m-extractor e pdf-cropper:
 
 ```
-README.md, LICENSE (MIT, come le altre app e come rclone)
+README.md, LICENSE (GPL-3.0-or-later dalla versione dopo la 0.3.47; MIT fino alla 0.3.47, come rclone)
 src/<pacchetto>/          codice dell'app, in quattro strati dal 10/11/2026 (appendice AQ):
   core/                   la logica pura
   data/                   i formati non di Spola (gli elenchi di bisync)
@@ -943,3 +943,19 @@ Segnalato da Daniel sulla 0.3.46: la finestra «Condividi» ha un doppio bordo i
 
 **Non verificato**: il trascinamento vero di un angolo con il puntatore e il primo piano dal menu di Esplora file (servono un clic vero e lo Spola installato): li prova Daniel. Il titolo non è ripetuto (`title_once`): la barra del dialogo che direbbe da sola il titolo della finestra non lo mostra, e quella con titolo e seconda riga («Condividi» e il nome del file) tiene solo la seconda.
 
+
+## Appendice AU. Il modello unico: le copie comuni e la GPL (2026-11-16, dopo la 0.3.47)
+
+Daniel ha deciso il 16/11/2026 un modello unico per le sue app (`app-template`, cartella `comune\`, documenti 14-16): i moduli che ogni programma ha uguali sono **copie identiche byte per byte** del modello, con l'impronta in `impronte/comune.json` e la prova `tests/test_impronte.py`. **Non si cambiano qui**: la modifica si fa nel modello e torna con `tools\impronte.py --target <Spola> --apply`, in un commit di Spola.
+
+| Copie del modello (modello 5722529) | Di Spola, intorno |
+|---|---|
+| `i18n.py`, `app/paths.py`, `app/log.py`, `app/errorlog.py`, `app/updates.py`, `app/minisign.py`, `app/diagnostics.py`, `app/win32.py`, `app/wintoast.py`, `data/atomic.py`; le loro prove; `tests/test_strati.py`, `tests/_userfolders.py`, `tests/_ceilings.py`, `tools/run_tests.py` | `app/services.py` (i nomi di Spola ai moduli comuni), `app/storage.py` (i file di ogni coppia nelle cartelle comuni), `app/winsys.py` (lock, arresto gentile di rclone, Gestione credenziali, avvio al login, Koofr Desktop), `app/report.py` (il testo di Informazioni), `tests/_setup.py`, `tests/_strati.py`, `tools/run_tests_config.py` |
+
+Che cosa cambia per chi usa Spola: il controllo degli aggiornamenti su Windows ogni 4 ore al massimo, all'avvio e quando la finestra torna, e nulla proposto durante una sincronizzazione; gli errori della finestra anche in `errors.log` nella cartella dello stato; il salvataggio delle impostazioni ritentato per un istante se Windows rifiuta il rename. Le cartelle di Spola restano quelle di prima.
+
+**Licenza**: con file GPL dentro, Spola è GPL-3.0-or-later dalla prossima versione (sezione 9 del documento 14 del modello); fino alla 0.3.47 resta MIT. Estensioni di Files e Dolphin e plugin di Noctalia: la stessa licenza.
+
+**Prove sul PC di Daniel**: con Spola installata e aperta, la guardia delle cartelle vede le sue scritture (elenchi, registri): si lancia con `SPOLA_TESTS_USER_FOLDERS=warn` e si guarda l'elenco. Le prove del registro di Windows usano chiavi proprie (`Software\SpolaTest-<pid>`), salvo `ShellTest` di `test_explorer.py`, che scrive e toglie un verbo di prova sotto `Software\Classes\*\shell` (la shell lo legge solo lì), e la prova della Gestione credenziali, con un utente di prova. La serie intera va lanciata in primo piano: in un processo senza console molte prove che avviano rclone falliscono con 0xC0000142.
+
+**Rilascio 0.3.48 (16/11/2026).** È la prima versione GPL. Il testo della licenza viaggia con il programma: `spola.spec` copia `LICENSE` come `LICENSE.txt` accanto a `Spola.exe` (quindi nell'installer e nello zip portabile; il CI lo confronta con `cmp`), la ricetta Flatpak lo installa in `/app/share/licenses/io.github.daniel_g_carrasco.spola/`. L'installer non mostra una pagina da accettare: la GPL non chiede di accettarla per usare il programma, e gli aggiornamenti silenziosi non devono fermarsi.
