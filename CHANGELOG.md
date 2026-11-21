@@ -6,6 +6,18 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.49] - 2026-11-21
+
+### Fixed
+- A folder you left out with a line of your own in a folder's exclusions (for instance `- /music/**`) is left out for all of Spola, as it always was for the sync itself. Spola used to look into it all the same for the names Koofr refuses: a file with an emoji in its name there made the folder say "1 file left out" and ask for a look, although nothing in that folder is ever synced, and renaming the file did not clear it, because a change in a folder left out starts no sync. The file managers showed what is in such a folder as waiting to be synced: they show it as not synced now, and so does File Explorer on Windows.
+- The exclusions are read in one place, as rclone reads them, for everything that needs them (the names Koofr refuses, the folder monitor, the status in the file managers, sharing): rules deeper than the first level (`- /projects/cache/**`), folder rules (`cache/`) and `+` rules are followed by the folder monitor too, which read only the simplest ones. A change to the exclusions made while Spola runs, in its window or in the file by hand, reaches the monitor at the next sync: it used to wait for Spola to be started again.
+- The list of the files Koofr refuses follows what is on the disk: a file renamed or deleted leaves it at once, and the list is checked again when Review is opened. It used to change only at the end of the next sync, so a file that was no longer there could stay in it.
+- Sync Now always answers. What the sync did, or that the folder was already up to date, is said in a notification when the window is not in front (Sync Now from the tray or from a file manager used to say nothing), and also when a sync of that folder was on its way already. When no sync can start it says why (the folder is paused, waits for its first alignment, for a confirmation or for a repair). When the folder has to wait for another one that is syncing, it says which. Sync All Now is one answer, not one a folder.
+- A folder whose sync waits for another folder's to end says so ("It starts as soon as the sync in progress is done"): "Changes waiting to be synced" alone, for as long as a large upload of another folder lasted, looked like a sync that never starts.
+
+### Added
+- Sync Now when a folder is in sync but for a few files (names Koofr refuses, conflicts): a button next to Review… on the folder's page, and a row in the Files Not Synced window, which looks at the names again first. After renaming the files elsewhere, the sync can be asked for there.
+
 ## [0.3.48] - 2026-11-16
 
 ### Changed
@@ -784,7 +796,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.48...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.49...main
+[0.3.49]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.49
 [0.3.48]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.48
 [0.3.47]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.47
 [0.3.46]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.46

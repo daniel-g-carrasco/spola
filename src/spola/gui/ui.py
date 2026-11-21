@@ -130,7 +130,8 @@ def status_detail(engine: Engine, pair_id: str, short: bool) -> str:
         if syncing_for_real(engine, pair_id):
             return progress_text(rt.stats, rt.activity.deletes_queued)[0]
         return rt.message
-    if rt.status is Status.PENDING and engine.confirmed_waiting(pair_id):
+    if rt.status is Status.PENDING and (engine.confirmed_waiting(pair_id) or engine.waits_behind(pair_id)):
+        # one folder syncs at a time: "changes waiting" alone would not say for what
         return _("starts after the sync in progress") if short else \
             _("It starts as soon as the sync in progress is done.")
     if rt.status is Status.CONFLICTS:
@@ -235,6 +236,47 @@ def run_in_thread(work, done) -> None:
             result, error = None, e
         GLib.idle_add(lambda: done(result, error) and False)
     threading.Thread(target=target, daemon=True).start()
+
+
+def run_summary(rt) -> str:
+    """What the run that just ended well did, for the answer to Sync Now:
+    "3 files to Koofr", "" when the folder was already up to date. The files
+    Koofr refuses are said too: "up to date" with files left out would be
+    half the truth."""
+    summary = describe(rt.last_outcome.plan)
+    if not rt.refused:
+        return summary
+    left = ngettext("{n} file left out", "{n} files left out", len(rt.refused)).format(n=len(rt.refused))
+    return f"{summary}, {left}" if summary else _("nothing new to sync, {left_out}").format(left_out=left)
+
+
+class SyncAnswers:
+    """What Sync Now found, folder by folder, as one message that grows
+    while the folders asked for end one after the other: Sync All Now with
+    sixteen folders is one answer, not sixteen in a row."""
+
+    def __init__(self):
+        self.done: list[str] = []       # "“name”: 3 files to Koofr"
+        self.idle: list[str] = []       # the names of the folders with nothing to do
+
+    def add(self, name: str, summary: str) -> None:
+        if summary:
+            self.done.append(_("“{name}”: {summary}").format(name=name, summary=summary))
+        elif name not in self.idle:
+            self.idle.append(name)
+
+    def idle_text(self) -> str:
+        if len(self.idle) == 1:
+            return _("“{name}” was already up to date").format(name=self.idle[0])
+        return ngettext("{n} folder was already up to date", "{n} folders were already up to date",
+                        len(self.idle)).format(n=len(self.idle)) if self.idle else ""
+
+    def text(self) -> str:
+        return "\n".join([*self.done, *([self.idle_text()] if self.idle else [])])
+
+    def clear(self) -> None:
+        self.done.clear()
+        self.idle.clear()
 
 
 def escape(text: str) -> str:

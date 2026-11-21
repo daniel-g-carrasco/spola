@@ -80,7 +80,7 @@ class ExplorerStatus:
 
     def _mark(self, pair_id: str, root: str, workdir, touched=()) -> None:
         """In sync: what bisync's last listing holds, which is what both
-        sides agree on. Excluded: what the default filters leave out, in
+        sides agree on. Excluded: what the pair's filters leave out, in
         the root and the folders that hold what was just marked. Each item
         once in a session, but what the run touched again: a file
         downloaded replaces its placeholder."""
@@ -100,8 +100,12 @@ class ExplorerStatus:
         todo_paths = {e.path for e in todo}
         listed_folders = {e.path for e in entries if e.is_dir}
         folders = {""} | {rel.rpartition("/")[0] for rel in todo_paths} | listed_folders.intersection(todo_paths)
+        # the pair's own exclusions too (the same answer the engine gives the
+        # runs and the monitor); the default ones for a pair it does not know
+        rt = getattr(self.engine, "runtime", {}).get(pair_id)
+        excluded = rt.states.excluded if rt is not None else default_excluded
         for folder in sorted(folders):
-            self._mark_excluded(root, folder, done)
+            self._mark_excluded(root, folder, done, excluded)
         cloudfiles.mark_in_sync(root)
 
     @staticmethod
@@ -125,7 +129,7 @@ class ExplorerStatus:
             self._marked.setdefault(pair_id, set()).add(rel)
 
     @staticmethod
-    def _mark_excluded(root: str, folder: str, done: set[str]) -> None:
+    def _mark_excluded(root: str, folder: str, done: set[str], excluded=default_excluded) -> None:
         try:
             items = list(os.scandir(os.path.join(root, *folder.split("/"))))
         except OSError:
@@ -135,7 +139,7 @@ class ExplorerStatus:
             if rel in done or item.is_symlink() or item.is_junction():
                 continue            # a link: what it points to is not ours (node_modules into OneDrive)
             is_dir = item.is_dir(follow_symlinks=False)
-            if default_excluded(rel + "/" if is_dir else rel) and cloudfiles.mark_excluded(item.path, is_dir):
+            if excluded(rel + "/" if is_dir else rel) and cloudfiles.mark_excluded(item.path, is_dir):
                 done.add(rel)
 
     # -- the worker -------------------------------------------------------------------

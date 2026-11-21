@@ -79,8 +79,8 @@ kept() {   # SCENE_KEPT=1: copies of Projects/budget-2026.ods kept by three earl
     [ -n "${SCENE_KEPT:-}" ] || return 0
     /usr/bin/python3 -c "
 import os, sys, time; sys.path.insert(0, '$1/src')
-from spola import config, versions; from spola.paths import Paths
-p = Paths.from_env(); c = config.load(p.config_file)
+from spola.app import config, versions; from spola.app.services import app_paths
+p = app_paths(); c = config.load(p.config_file)
 pair = next(x for x in c.pairs if x.name == 'Projects')
 for days, reason, size in ((0.9, 'replaced', 48213), (4.3, 'conflict', 47120), (12.6, 'replaced', 39874)):
     run = time.strftime(versions.RUN_NAME, time.localtime(time.time() - days * 86400))
@@ -101,8 +101,8 @@ pairs() {   # quick ones first, the slow one (Photos) last
     # (a phone hotspot is a metered connection: Spola would pause)
     /usr/bin/python3 -c "
 import sys; sys.path.insert(0, '$(dirname "$(dirname "$bin")")/src')
-from spola import config; from spola.paths import Paths
-p = Paths.from_env(); c = config.load(p.config_file)
+from spola.app import config; from spola.app.services import app_paths
+p = app_paths(); c = config.load(p.config_file)
 c.pause_on_metered = c.pause_on_power_saver = False; config.save(c, p.config_file)"
 }
 

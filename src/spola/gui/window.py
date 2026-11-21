@@ -21,13 +21,13 @@ from . import plan_tree  # noqa: E402
 from spola.app.engine import Engine, Status  # noqa: E402
 from spola.core.grouping import expected_remote, group_pairs  # noqa: E402
 from spola.i18n import _, count, ngettext, pgettext  # noqa: E402
-from spola.app.rclone import Mode, Outcome, Result, describe, windows_reserved_names_matter  # noqa: E402
+from spola.app.rclone import Mode, Outcome, Result, windows_reserved_names_matter  # noqa: E402
 from spola.app.runner import newest_log  # noqa: E402
 from spola.app import trash as trash_mod  # noqa: E402
 from .trash_search import TrashSearchRow  # noqa: E402
-from .ui import (display_path, escape, file_details, progress_text, reveal, run_in_thread, pair_status_text,
-                 place_name, status_badge, status_css, status_detail, status_icon, status_line, status_text,
-                 syncing_for_real, when)
+from .ui import (SyncAnswers, display_path, escape, file_details, progress_text, reveal, run_in_thread, run_summary,
+                 pair_status_text, place_name, status_badge, status_css, status_detail, status_icon, status_line,
+                 status_text, syncing_for_real, when)
 
 PREVIEW_LIMIT = 300
 STATE_VERSION = 2       # window.json of the first layout (600 px wide) is ignored
@@ -104,6 +104,9 @@ class MainWindow(_WindowBase):
         engine.connect("pair-changed", lambda _e, pid: self._update_row(pid))
         engine.connect("pairs-changed", lambda _e: self._rebuild_rows())
         engine.connect("status-changed", lambda _e: self.update_overall())
+        self._answers: Adw.ToastOverlay | None = None
+        self._idle_toast: Adw.Toast | None = None
+        self._idle_answers = SyncAnswers()
         engine.connect("run-finished", self._on_run_finished)
         self.nav.connect("popped", lambda _n, page: page.detach() if isinstance(page, PairPage) else None)
         self._rebuild_rows()
@@ -146,16 +149,51 @@ class MainWindow(_WindowBase):
         self.toasts.add_toast(Adw.Toast(title=escape(text), timeout=8, button_label=_("Review"),
                                         action_name="app.review", action_target=GLib.Variant("s", pair_id)))
 
+    def sync_now(self, pair_id: str) -> None:
+        """Sync Now for one folder, never left without an answer: what the
+        run did comes when it ends (_on_run_finished), and why none starts
+        is said at once."""
+        why = self.engine.sync_now(pair_id)
+        if why:
+            self._answer(Adw.Toast(title=escape(why), timeout=8))
+
+    def answers_in(self, overlay: Adw.ToastOverlay | None) -> None:
+        """Where the answers to Sync Now show: a dialog open over the window
+        (its own overlay: a toast of the window would be behind it), or the
+        window (None)."""
+        self._answers = overlay
+        self._idle_toast = None
+        self._idle_answers.clear()
+
+    def _answer(self, toast: Adw.Toast) -> None:
+        (self._answers or self.toasts).add_toast(toast)
+
     def _on_run_finished(self, _engine, pair_id: str, reason: str) -> None:
-        """A click on Sync Now deserves an answer, even when nothing changed."""
-        if reason != "manual" or not self.get_visible():
+        """A click on Sync Now deserves an answer, even when nothing changed
+        (with the window not in front the application says it in a
+        notification). The folders with nothing to do share one toast:
+        Sync All Now is one answer."""
+        if reason != "manual" or not self.is_active():
             return
         pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
         if pair is None or rt is None or rt.last_outcome is None or rt.last_outcome.result is not Result.OK:
             return
-        summary = describe(rt.last_outcome.plan)
-        self.toast(_("“{name}”: {summary}").format(name=pair.name, summary=summary) if summary
-                   else _("“{name}” was already up to date").format(name=pair.name))
+        summary = run_summary(rt)
+        if summary:
+            self._answer(Adw.Toast(title=escape(_("“{name}”: {summary}").format(name=pair.name, summary=summary)),
+                                   timeout=5))
+            return
+        self._idle_answers.add(pair.name, "")
+        if self._idle_toast is None:
+            self._idle_toast = Adw.Toast(timeout=5)
+
+            def dismissed(toast) -> None:
+                if toast is self._idle_toast:
+                    self._idle_toast = None
+                    self._idle_answers.clear()
+            self._idle_toast.connect("dismissed", dismissed)
+        self._idle_toast.set_title(escape(self._idle_answers.idle_text()))
+        self._answer(self._idle_toast)          # shown already: its time starts again
 
     # -- remembered size ------------------------------------------------------------
 
@@ -416,7 +454,15 @@ class MainWindow(_WindowBase):
         rt = self.engine.runtime.get(pair_id)
         if rt is None:
             return
+        # the names Koofr refuses, held against the disk before they are shown:
+        # a file renamed or deleted since the last run is not one of them
+        left = self.engine.recheck_refused(pair_id)
         self.show_pair(pair_id)
+        if left and not rt.refused and not rt.conflicts and rt.status not in (
+                Status.NEEDS_SETUP, Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
+            self.toast(_("“{name}”: no file is left out any more").format(
+                name=self.engine.cfg.pair(pair_id).name))
+            return
         if rt.status is Status.NEEDS_REPAIR and rt.gone:
             self.ask_gone(pair_id)
         elif rt.status is Status.NEEDS_REPAIR and self.engine.kept_listings(pair_id):
@@ -648,7 +694,7 @@ class AttentionBanner:
         self.widget.set_title(escape(title))
         if status is Status.ERROR and len(waiting) == 1:
             self.widget.set_button_label(_("Try Again"))
-            self._do = lambda: engine.request_sync(pair_id, "manual")
+            self._do = lambda: self.window.sync_now(pair_id)
         else:
             # the most serious first; the next one after it
             self.widget.set_button_label(_("Review"))
@@ -880,6 +926,14 @@ class PairPage(Adw.NavigationPage):
         self.status_row = Adw.ActionRow(subtitle_lines=0)
         self.icon = StatusIcon()
         self.status_row.add_prefix(self.icon)
+        # in sync but for a few files (conflicts, names Koofr refuses): Review
+        # is the main action, and a sync can still be asked for. An icon: two
+        # buttons with words leave no room for the status in a narrow window
+        self.sync_button = Gtk.Button(icon_name="view-refresh-symbolic", tooltip_text=_("Sync Now"),
+                                      valign=Gtk.Align.CENTER, css_classes=["flat"], visible=False)
+        self.sync_button.update_property([Gtk.AccessibleProperty.LABEL], [_("Sync Now")])
+        self.sync_button.connect("clicked", lambda *_: self.window.sync_now(self.pair_id))
+        self.status_row.add_suffix(self.sync_button)
         self.action_button = Gtk.Button(valign=Gtk.Align.CENTER)
         self.action_button.connect("clicked", lambda *_: self._primary())
         self.status_row.add_suffix(self.action_button)
@@ -1013,6 +1067,8 @@ class PairPage(Adw.NavigationPage):
         self.action_button.set_label(label)
         self.action_button.set_css_classes(css)
         self.action_button.set_sensitive(sensitive)
+        self.sync_button.set_visible(rt.status in (Status.CONFLICTS, Status.SKIPPED))
+        self.sync_button.set_sensitive(signed_in and not pair.paused and not self.engine.cfg.paused_all)
 
         if self.keep.get_active() == pair.paused:
             self.keep.set_active(not pair.paused)
@@ -1061,7 +1117,7 @@ class PairPage(Adw.NavigationPage):
         elif rt.status is Status.SYNCING:
             self.engine.stop(self.pair_id)
         else:
-            self.engine.request_sync(self.pair_id, "manual")
+            self.window.sync_now(self.pair_id)
 
     def _preview(self) -> None:
         PreviewDialog(self.window, self.pair_id, Mode.SYNC, False, _("Preview"),
@@ -1964,13 +2020,31 @@ class LeftOutDialog(Adw.Dialog):
         view.add_top_bar(header)
         self.page = Adw.PreferencesPage()
         self.group: Adw.PreferencesGroup | None = None
+        # after a rename made elsewhere (the file manager, a terminal): look
+        # again now. A row under the list, not a button in the header bar:
+        # there it left no room for the title in a narrow window
+        self.sync = Adw.ActionRow(title=_("Sync Now"), subtitle=_("Look at the names again and sync"),
+                                  activatable=True)
+        self.sync.add_suffix(Gtk.Image(icon_name="view-refresh-symbolic"))
+        self.sync.connect("activated", lambda *_: self._sync())
+        self.actions = Adw.PreferencesGroup()
+        self.actions.add(self.sync)
         self.shown: tuple | None = None
         self.toasts = Adw.ToastOverlay(child=self.page)
         view.set_content(self.toasts)
         self.set_child(view)
         self._handler = self.engine.connect("pair-changed", lambda _e, pid: self._fill() if pid == pair_id else None)
-        self.connect("closed", lambda *_: self.engine.disconnect(self._handler))
+        self.window.answers_in(self.toasts)         # what Sync Now finds is said here, over the window
+        self.connect("closed", lambda *_: self._closed())
         self._fill()
+
+    def _closed(self) -> None:
+        self.engine.disconnect(self._handler)
+        self.window.answers_in(None)
+
+    def _sync(self) -> None:
+        self.engine.recheck_refused(self.pair_id)       # what is gone leaves the list at once
+        self.window.sync_now(self.pair_id)
 
     def _fill(self) -> None:
         pair, rt = self.engine.cfg.pair(self.pair_id), self.engine.runtime.get(self.pair_id)
@@ -1995,6 +2069,9 @@ class LeftOutDialog(Adw.Dialog):
             row.connect("activated", lambda _r, p=refused.path: reveal(self.window, os.path.join(pair.local, p)))
             self.group.add(row)
         self.page.add(self.group)
+        if self.actions.get_parent() is not None:
+            self.page.remove(self.actions)
+        self.page.add(self.actions)             # under the list, also after the list is made again
         self.rename_all.set_visible(any(new for _item, new in preflight.rename_plan(pair.local, items, pair.remote)))
 
     def _rename_all(self) -> None:

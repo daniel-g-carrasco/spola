@@ -53,7 +53,7 @@ from .log import complain
 from .storage import Paths
 from .rclone import (MODIFY_WINDOW_NS, Event, Kind, Mode, Outcome, Result, bisync_args, confirmed_max_changes,
                      plain_reason,
-                     confirmed_max_delete, default_excluded, summarize as rclone_summarize, describe, excluded_by,
+                     confirmed_max_delete, summarize as rclone_summarize, describe,
                      find_rclone, fold_case_renames, koofr_env, no_window, relative_path, remote_spec)
 from spola.core.states import PathStates, ancestors_and_self
 from .runner import BisyncRun, PairBusy
@@ -109,12 +109,6 @@ class Status(enum.IntEnum):
     NEEDS_SETUP = 7
     PAUSED = 8
     OK = 9
-
-
-def quick_ignore(rel: str) -> bool:
-    """Changes that never deserve a run: what the default filters leave out
-    (temporary files, trash folders, node_modules...)."""
-    return default_excluded(rel)
 
 
 def space_of(rclone: str, paths: Paths, creds: Credentials | None,
@@ -238,6 +232,7 @@ class Task:
     max_changes: int | None = None      # likewise for the files changed here at once
     links_at_risk: list = field(default_factory=list)   # jobs.LinkAtRisk: public links the run would remove
     links_ok: frozenset = frozenset()   # a confirmed run: the links its preview said would stop working
+    asked: bool = False                 # Sync Now was pressed for it, also once it was on its way: its end is said
 
 
 def lost_link_message(risk) -> str:
@@ -312,13 +307,14 @@ class PairRuntime:
     listing_serial: int = 0         # readings of the last listing asked for: only the latest applies
     backup_run: str = ""            # the run folder of the real run in progress (versions.py)
     ran_resync: bool = False        # the run in progress is a resync (also one a sync turned into)
-    states: PathStates = field(default_factory=lambda: PathStates(excluded=default_excluded))
+    states: PathStates = field(default_factory=PathStates)     # .excluded: the pair's own filters (Engine._runtime)
     run_roots: tuple = ("", "")             # (path1, path2) of the run in progress
     busy_since: float = 0.0                 # monotonic: since when runs wait for files being written
     busy_source: int = 0                    # the run again once they may have settled
     pending_busy: list = field(default_factory=list)    # new files the run in progress leaves out
     activity: activity_mod.RunActivity = field(default_factory=activity_mod.RunActivity)
     watcher: TreeWatcher | None = None
+    watcher_filters: tuple = ()             # the filter file as it was when the monitor chose its folders
 
 
 class Engine(GObject.Object):
@@ -375,7 +371,9 @@ class Engine(GObject.Object):
         self._activity_since = int(time.time() * 1000)
         self._activity_seen: set[str] = set()
         self._activity_busy = False
-        self.runtime: dict[str, PairRuntime] = {p.id: PairRuntime() for p in cfg.pairs}
+        self.runtime: dict[str, PairRuntime] = {}
+        for pair in cfg.pairs:
+            self._runtime(pair)
         self.recent = Recent(paths.state / "recent.json")
         self.queue: list[Task] = []
         self.active: Task | None = None         # the real run, being prepared or running
@@ -581,7 +579,7 @@ class Engine(GObject.Object):
         # rclone's fragments of downloads cut short (a crash, a kill), a day old
         for pair in list(self.cfg.pairs):
             try:
-                jobs.remove_stale_partials(pair.local, jobs.exclusion_patterns(jobs.read_filters(self.paths, pair)))
+                jobs.remove_stale_partials(pair.local, jobs.excluded_for(self.paths, pair))
             except Exception as e:      # said; tried again tomorrow
                 complain(f"removing rclone's leftovers in {pair.name}", e)
         return True
@@ -658,8 +656,17 @@ class Engine(GObject.Object):
 
     # -- pairs -----------------------------------------------------------------
 
+    def _runtime(self, pair: Pair) -> PairRuntime:
+        """The pair's runtime, made if it is not there: its states for the
+        file managers leave out what the pair's own filters leave out."""
+        rt = self.runtime.get(pair.id)
+        if rt is None:
+            rt = self.runtime[pair.id] = PairRuntime()
+            rt.states.excluded = jobs.excluded_for(self.paths, pair)
+        return rt
+
     def _setup_pair(self, pair: Pair) -> None:
-        rt = self.runtime.setdefault(pair.id, PairRuntime())
+        rt = self._runtime(pair)
         rt.status = self._idle_status(pair, rt)
         self._refresh_listing(pair, rt)
         self.refresh_versions(pair.id)
@@ -900,28 +907,71 @@ class Engine(GObject.Object):
 
     # -- requests ----------------------------------------------------------------
 
-    def sync_all(self, reason: str) -> None:
-        for pair in self.cfg.pairs:
-            self.request_sync(pair.id, reason)
+    def sync_all(self, reason: str) -> str:
+        """Every folder that may run. For Sync Now ("manual"): "" when at
+        least one run follows, else why none does (with one folder its own
+        reason, with several that none can)."""
+        whys = [self.request_sync(pair.id, reason) for pair in self.cfg.pairs]
+        if reason != "manual" or not all(whys):
+            return ""
+        if not whys:
+            return _("There is no folder to sync yet.")
+        return whys[0] if len(whys) == 1 else _("No folder can sync now: each one says why on its page.")
 
-    def request_sync(self, pair_id: str, reason: str) -> None:
-        """An automatic or "sync now" run, if the pair may run."""
+    def waits_behind(self, pair_id: str) -> str:
+        """The name of the folder whose sync is in progress while this pair's
+        own run waits its turn behind it (one folder syncs at a time); ""
+        when the pair is not waiting for another."""
+        if self.active is None or self.active.pair_id == pair_id:
+            return ""
+        if not any(t.pair_id == pair_id and not t.dry_run for t in self.queue):
+            return ""
+        other = self.cfg.pair(self.active.pair_id)
+        return other.name if other is not None else ""
+
+    def sync_now(self, pair_id: str) -> str:
+        """Sync Now for one folder, with what there is to tell the user at
+        once: why no run follows, or that the run waits for another folder's
+        sync to end; "" when it starts now. What the run did is said when it
+        ends ("run-finished" with the reason "manual")."""
+        why = self.request_sync(pair_id, "manual")
+        other = "" if why else self.waits_behind(pair_id)
+        if other:
+            pair = self.cfg.pair(pair_id)
+            return _("“{name}” syncs as soon as “{other}” is done.").format(name=pair.name, other=other)
+        return why
+
+    def request_sync(self, pair_id: str, reason: str) -> str:
+        """An automatic or "sync now" run, if the pair may run. Sync Now
+        ("manual") is never left without an answer: "" when a run follows
+        (its end is said with "run-finished" and the reason "manual", also
+        when the run was on its way already), else why none does, in words
+        for the user. An automatic request gets "" either way."""
+        asked = reason == "manual"
         pair = self.cfg.pair(pair_id)
-        if pair is None or not pair.initialized or pair.paused:
-            return
+        if pair is None:
+            return ""
+        if not pair.initialized:
+            return _("“{name}” waits for its first alignment: confirm that first.").format(name=pair.name) if asked else ""
+        if pair.paused:
+            return _("“{name}” is paused: turn on Keep in Sync first.").format(name=pair.name) if asked else ""
         rt = self.runtime[pair_id]
-        if rt.status in (Status.NEEDS_REPAIR, Status.NEEDS_CONFIRMATION):
-            return      # waiting for the user
+        if rt.status is Status.NEEDS_REPAIR:        # waiting for the user
+            return _("“{name}” needs a repair first: see Review.").format(name=pair.name) if asked else ""
+        if rt.status is Status.NEEDS_CONFIRMATION:
+            return _("“{name}” waits for your confirmation first: see Review.").format(name=pair.name) if asked else ""
         if self.confirmed_waiting(pair_id):
-            return      # the run the user confirmed does it, and goes even on a metered network
-        if self.blocked_reason() and reason != "manual":
+            # the run the user confirmed does it, and goes even on a metered network
+            return _("“{name}” syncs as soon as the sync in progress ends.").format(name=pair.name) if asked else ""
+        if self.blocked_reason() and not asked:
             if rt.run is None:
                 self._set_status(pair, rt, Status.PAUSED)
-            return
+            return ""
         if rt.debounce_source:
             GLib.source_remove(rt.debounce_source)
             rt.debounce_source = 0
-        self._enqueue(Task(pair_id, Mode.SYNC, reason=reason))
+        self._enqueue(Task(pair_id, Mode.SYNC, reason=reason, asked=asked))
+        return ""
 
     def preview(self, pair_id: str, mode: Mode, force: bool,
                 callback: Callable[[Outcome | None, str], None] | None = None,
@@ -1537,6 +1587,7 @@ class Engine(GObject.Object):
         if pair is None or rt is None or not jobs.write_filters(self.paths, pair, text):
             return False
         self.invalidate_preview(pair_id)
+        self._follow_filters(pair, rt)
         if pair.initialized:
             self.queue = [t for t in self.queue if t.pair_id != pair_id or t.dry_run]
             if rt.run is None or (rt.task and rt.task.dry_run):
@@ -1683,10 +1734,16 @@ class Engine(GObject.Object):
         running_same = (self.active is not None and self.active.pair_id == task.pair_id
                         and not self.active.dry_run and not task.dry_run and task.reason not in ("confirmed",))
         if duplicate:
+            if task.asked:      # the run on its way answers the user who asked
+                for queued in self.queue:
+                    if queued.pair_id == task.pair_id and queued.mode == task.mode and not queued.dry_run:
+                        queued.asked = True
             return
         if running_same:
             # it will run again afterwards if the changes need it
             self.runtime[task.pair_id].rerun_requested = True
+            if task.asked:
+                self.active.asked = True
             return
         rt = self.runtime.get(task.pair_id)
         if (not task.dry_run and rt is not None and rt.preview is not None and rt.preview.running
@@ -1701,6 +1758,9 @@ class Engine(GObject.Object):
             self.queue.insert(0, task)
         else:
             self.queue.append(task)
+        if not task.dry_run and self.active is not None and task.pair_id in self.runtime:
+            # its turn comes after the sync in progress: the views say so (waits_behind)
+            self.emit("pair-changed", task.pair_id)
         GLib.idle_add(self._next)
 
     # -- running -----------------------------------------------------------------
@@ -1759,6 +1819,7 @@ class Engine(GObject.Object):
         # A preview leaves the pair's status alone: it decides nothing.
         self._set_lane(task, task)
         rt.task = task
+        self._follow_filters(pair, rt)          # the filter file may have been edited by hand
         if task.reason != "confirmed":          # a confirmation remembers what it answered
             rt.before_run = (rt.status, rt.message)
         if not task.dry_run:
@@ -2123,7 +2184,7 @@ class Engine(GObject.Object):
                     for risk in task.links_at_risk:
                         self.emit("attention", pair.id, "link-lost", lost_link_message(risk))
                 if not task.dry_run:
-                    self.emit("run-finished", pair.id, task.reason)
+                    self.emit("run-finished", pair.id, "manual" if task.asked else task.reason)
             if task.callback:
                 task.callback(outcome, "")
         finally:
@@ -2343,10 +2404,62 @@ class Engine(GObject.Object):
     def _start_watcher(self, pair: Pair, rt: PairRuntime) -> None:
         if rt.watcher or not pair.initialized or pair.paused or not os.path.isdir(pair.local):
             return
-        patterns = jobs.exclusion_patterns(jobs.read_filters(self.paths, pair))
+        # what the pair's filters leave out is not watched: the same answer
+        # the scan of the names Koofr refuses and the states get (jobs.excluded_for)
+        rt.watcher_filters = jobs.filters_stamp(self.paths, pair)
         rt.watcher = TreeWatcher(pair.local, lambda rel, pid=pair.id: self._on_local_change(pid, rel),
-                                 ignore=lambda rel: quick_ignore(rel) or excluded_by(rel, patterns))
+                                 ignore=jobs.excluded_for(self.paths, pair))
         rt.watcher.start()
+
+    def _follow_filters(self, pair: Pair, rt: PairRuntime) -> None:
+        """The exclusions changed since the monitor chose its folders (the
+        dialog, the file edited by hand): it chooses again, the names Koofr
+        refuses that are now left out leave the list, and the file managers
+        ask again. Cheap when nothing changed: asked before every run."""
+        if rt.watcher is None or rt.watcher_filters == jobs.filters_stamp(self.paths, pair):
+            return
+        rt.watcher.stop()
+        rt.watcher = None
+        self._start_watcher(pair, rt)
+        self._drop_refused(pair, rt, lambda r: rt.states.excluded(r.path + ("/" if r.is_dir else "")))
+        self.emit("root-changed", pair.id)
+
+    def _drop_refused(self, pair: Pair, rt: PairRuntime, gone) -> int:
+        """Take out of the list of the names Koofr refuses the ones `gone`
+        says are no longer a matter (not there any more, left out by the
+        filters): the list follows the disk, not the last run. Returns how
+        many left it."""
+        dropped = {r.path for r in rt.refused if gone(r)}
+        if not dropped:
+            return 0
+        rt.refused = [r for r in rt.refused if r.path not in dropped]
+        rt.pending_refused = [r for r in rt.pending_refused if r.path not in dropped]
+        rt.states.refused = {r.path for r in rt.refused}
+        changed = set()
+        for path in dropped:
+            changed.update(ancestors_and_self(path))
+        self.emit("paths-changed", pair.id, sorted(changed))
+        if rt.run is None and rt.status is Status.SKIPPED:
+            self._set_status(pair, rt, self._idle_status(pair, rt))
+        else:
+            self.emit("pair-changed", pair.id)
+        return len(dropped)
+
+    def recheck_refused(self, pair_id: str) -> int:
+        """The names Koofr refuses, held against the disk (when the user
+        looks at them): a file renamed or deleted while nobody watched, or
+        in a folder now left out, leaves the list at once, and a run follows
+        to sync what took its place. Returns how many left the list."""
+        pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
+        if pair is None or rt is None or not rt.refused:
+            return 0
+        dropped = self._drop_refused(pair, rt, lambda r: (
+            not os.path.lexists(os.path.join(pair.local, r.path))
+            or rt.states.excluded(r.path + ("/" if r.is_dir else ""))))
+        if dropped and pair.initialized:
+            self.invalidate_preview(pair_id)
+            self.request_sync(pair_id, "recheck")
+        return dropped
 
     def _on_local_change(self, pair_id: str, rel: str) -> None:
         pair, rt = self.cfg.pair(pair_id), self.runtime.get(pair_id)
@@ -2354,6 +2467,11 @@ class Engine(GObject.Object):
             return
         if pair.initialized:
             self.emit("paths-changed", pair_id, rt.states.mark_pending(rel))
+        if rt.refused:
+            # a name Koofr refused, renamed or deleted (or the folder that held
+            # it): it leaves the list now, not at the end of the next run
+            self._drop_refused(pair, rt, lambda r: (r.path == rel or r.path.startswith(rel + "/"))
+                               and not os.path.lexists(os.path.join(pair.local, r.path)))
         if rt.preview is not None:
             self.invalidate_preview(pair_id)
         if rt.run is not None and not (rt.task and rt.task.dry_run):

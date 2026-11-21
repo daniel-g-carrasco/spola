@@ -79,6 +79,34 @@ class MarkTest(unittest.TestCase):
                 self.assertEqual(relative(excluded), ["Thumbs.db"])            # only what is new, next to it
 
 
+    def test_what_the_pairs_own_filters_leave_out_is_marked_excluded(self):
+        """A folder left out with a line added to the pair's filters used to
+        stay "waiting" in File Explorer for ever: only the default exclusions
+        were looked at."""
+        from spola.app.rclone import DEFAULT_FILTERS
+        from spola.core.filters import Filters
+        with tempfile.TemporaryDirectory() as tmp:
+            workdir = Path(tmp) / "work"
+            workdir.mkdir()
+            (workdir / "x..y.path1.lst").write_bytes(LISTING.encode())
+            (workdir / "x..y.path2.lst").write_bytes(LISTING.encode())
+            root = os.path.join(tmp, "root")
+            for rel in ("music/album/a.flac", "new.txt", ".cache/x"):
+                Path(root, rel).parent.mkdir(parents=True, exist_ok=True)
+                Path(root, rel).write_text("x")
+            own = Filters(DEFAULT_FILTERS + "- /music/**\n").excluded
+            engine = SimpleNamespace(connect=lambda *a: None,
+                                     runtime={"p": SimpleNamespace(states=SimpleNamespace(excluded=own))})
+            excluded = []
+            with (mock.patch.object(cloudfiles, "mark_in_sync", lambda p: True),
+                  mock.patch.object(cloudfiles, "in_sync", lambda p: True),
+                  mock.patch.object(cloudfiles, "mark_excluded", lambda p, d: excluded.append(p) or True)):
+                status = ExplorerStatus(engine, "", "0")
+                status.stop()
+                status._mark("p", root, workdir)
+            self.assertEqual(sorted(os.path.relpath(p, root) for p in excluded), [".cache", "music"])
+
+
 class CopiedTest(unittest.TestCase):
     def test_a_file_copied_is_marked_at_once_if_its_root_is_connected(self):
         engine = SimpleNamespace(connect=lambda *a: None)

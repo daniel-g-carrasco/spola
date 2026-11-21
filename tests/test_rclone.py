@@ -9,7 +9,7 @@ from _setup import fixture_lines
 
 from spola.app.rclone import (DEFAULT_EXCLUDES, DEFAULT_FILTERS, FORBIDDEN_FLAGS, BisyncRequest, Event, Kind, Mode,
                               Plan, Result, bisync_args, clean_env, confirmed_max_delete, conflict_suffix,
-                              default_excluded, describe, effective_max_delete, exclude_lines, excluded_by,
+                              default_excluded, describe, effective_max_delete, exclude_lines,
                               fold_case_renames, koofr_env, parse_line, relative_path, remote_spec, summarize)
 
 
@@ -281,14 +281,15 @@ class ParseTest(unittest.TestCase):
         bisync_args("rclone", request(extra_test_flags=["--conflict-loser", "num"]))     # the one Spola uses
 
     def test_a_pairs_own_exclusions(self):
-        from spola.app.jobs import exclusion_patterns
-        patterns = exclusion_patterns("# mine\n- *.tmp\n+ keep.tmp\n- build/**\n-  /Trash/**\n")
-        self.assertEqual(patterns, ["*.tmp", "build/**", "/Trash/**"])
-        self.assertTrue(excluded_by("a/b.tmp", patterns))
-        self.assertTrue(excluded_by("src/build/x.o", patterns))
-        self.assertTrue(excluded_by("Trash/x", patterns))
-        self.assertFalse(excluded_by("a/Trash/x", patterns))
-        self.assertFalse(excluded_by("a/b.txt", patterns))
+        # read as rclone reads them (core/filters.py, test_filters.py)
+        from spola.core.filters import Filters
+        excluded = Filters("# mine\n- *.tmp\n+ keep.tmp\n- build/**\n- /Trash/**\n").excluded
+        self.assertTrue(excluded("a/b.tmp"))
+        self.assertTrue(excluded("a/keep.tmp"))         # the first rule that matches wins
+        self.assertTrue(excluded("src/build/x.o"))
+        self.assertTrue(excluded("Trash/x"))
+        self.assertFalse(excluded("a/Trash/x"))
+        self.assertFalse(excluded("a/b.txt"))
 
     def test_a_side_with_nothing_left(self):
         # recorded with rclone 1.75: a side emptied or gone stops bisync; a

@@ -26,7 +26,7 @@ from spola.app.log import complain  # noqa: E402
 from spola.app import services  # noqa: E402
 from spola.app.paths import in_flatpak  # noqa: E402
 from .tray import MenuItem, TrayIcon  # noqa: E402
-from .ui import progress_text, run_in_thread, status_badge, status_text, time_left, tray_icon  # noqa: E402
+from .ui import SyncAnswers, progress_text, run_summary, run_in_thread, status_badge, status_text, time_left, tray_icon  # noqa: E402
 from .window import MainWindow, PreferencesDialog, about_dialog  # noqa: E402
 
 SOURCE_ICONS = PACKAGE_DIR.parent.parent / "data" / "icons"
@@ -128,6 +128,7 @@ def native_windows() -> None:
         style.connect(change, restyled)
 
 
+SYNC_ANSWER_S = 60          # folders that end closer than this answer one Sync Now together
 SHARE_BURST_S = 1.5        # requests to share closer than this are one selection of several items
 
 
@@ -146,6 +147,7 @@ class SpolaApp(Adw.Application):
         self.window: MainWindow | None = None
         self.tray: TrayIcon | None = None
         self._quitting = False
+        self._sync_answers, self._answered_at = SyncAnswers(), 0.0      # what Sync Now found, said in one notification
         # the last request to share: several in a row are one selection of several items
         self._share_asked, self._share_path, self._share_told, self._share_dialog = 0.0, "", False, None
         self._quit_done = False
@@ -181,6 +183,7 @@ class SpolaApp(Adw.Application):
         self.engine.connect("status-changed", lambda *_: self._refresh_tray())
         self.engine.connect("status-changed", lambda *_: self.sync_finished())
         self.engine.connect("attention", self._on_attention)
+        self.engine.connect("run-finished", self._on_run_finished)
         self._load_credentials()
 
         review = Gio.SimpleAction.new("review", GLib.VariantType.new("s"))
@@ -190,7 +193,7 @@ class SpolaApp(Adw.Application):
         share.connect("activate", lambda _a, param: self._share(param.get_string()))
         self.add_action(share)
         for name, handler in (("quit", self._quit), ("show", lambda: self.activate()),
-                              ("sync-all", lambda: self.engine.sync_all("manual")),
+                              ("sync-all", self._sync_all),
                               ("pause-all", lambda: self.engine.set_paused_all(not self.engine.cfg.paused_all)),
                               ("about", lambda: about_dialog(self._window(), self.engine)),
                               ("import-koofr-desktop", lambda: self._window().import_koofr_desktop()),
@@ -640,7 +643,7 @@ class SpolaApp(Adw.Application):
             MenuItem(separator=True),
             *files,
             MenuItem(separator=True),
-            MenuItem(_("Sync Now"), (lambda: engine.sync_all("manual")) if engine.creds and not paused else None,
+            MenuItem(_("Sync Now"), self._sync_all if engine.creds and not paused else None,
                      name="sync-now"),
             MenuItem(_("Resume") if paused else _("Pause"), lambda: engine.set_paused_all(not paused),
                      name="resume" if paused else "pause"),
@@ -689,6 +692,35 @@ class SpolaApp(Adw.Application):
             path = os.path.dirname(path)
         if path:
             Gtk.FileLauncher.new(Gio.File.new_for_path(path)).launch(None, None, None, None)
+
+    def _sync_all(self) -> None:
+        """Sync Now for every folder (the window's menu, the tray): when no
+        run follows, it says why instead of doing nothing in silence."""
+        why = self.engine.sync_all("manual")
+        if not why:
+            return
+        if self.window is not None and self.window.is_active():
+            self.window.toast(why)
+        else:
+            self._tell(why)
+
+    def _on_run_finished(self, _engine, pair_id: str, reason: str) -> None:
+        """Sync Now asked from where there is no window to answer in (the
+        tray, a file manager, a shell's widget), or with the window behind
+        others: what the run found is a notification, one for all the
+        folders asked together, also when there was nothing to do."""
+        from spola.app.rclone import Result
+        if reason != "manual" or (self.window is not None and self.window.is_active()):
+            return
+        pair, rt = self.engine.cfg.pair(pair_id), self.engine.runtime.get(pair_id)
+        if pair is None or rt is None or rt.last_outcome is None or rt.last_outcome.result is not Result.OK:
+            return      # what went wrong is the folder's status, and its own notification
+        now = time.monotonic()
+        if now - self._answered_at > SYNC_ANSWER_S:
+            self._sync_answers.clear()          # another request: another answer
+        self._answered_at = now
+        self._sync_answers.add(pair.name, run_summary(rt))
+        self._tell(self._sync_answers.text())
 
     def _tell(self, message: str, title: str = APP_NAME) -> None:
         if WINDOWS:

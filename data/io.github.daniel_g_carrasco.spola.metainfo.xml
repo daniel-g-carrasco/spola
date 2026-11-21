@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.49" date="2026-11-21" type="development">
+      <description>
+        <p>A folder left out with a line of your own in a folder's exclusions is left out for all of Spola: a name Koofr refuses in it is no longer reported, and what it holds is shown as not synced. The list of the files Koofr refuses follows what is on the disk, and is checked again when Review is opened. Sync Now always answers: what the sync did, why it cannot start, or which folder it waits for; it is there also when a folder is in sync but for a few files.</p>
+      </description>
+    </release>
     <release version="0.3.48" date="2026-11-16" type="development">
       <description>
         <p>Spola is under the GPL-3.0-or-later licence from this version (up to 0.3.47 it was MIT), and the licence's text comes with it. On Windows it looks for a newer version at start and when its window comes back, at most every 4 hours, and never offers one during a sync. The window's errors are kept in errors.log too, and saving the settings is tried again for a moment when Windows refuses it.</p>

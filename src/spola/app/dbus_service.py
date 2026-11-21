@@ -208,7 +208,9 @@ class SyncService:
                 (uri,) = params.unpack()
                 found = self.locate(uri)
                 if found:
-                    self.engine.request_sync(found[0].id, "manual")
+                    why = self.engine.sync_now(found[0].id)
+                    if why:
+                        self.tell(why)          # a menu entry that does nothing would look broken
                 else:
                     self._not_synced(uri)
                 invocation.return_value(None)

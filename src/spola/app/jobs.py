@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spola.core.filters import Filters
 from spola.data import listings
 from . import versions
 from .config import Config, Pair
@@ -32,7 +33,7 @@ from spola.i18n import _, translation_for
 from .koofr_api import user_agent
 from .log import complain
 from .rclone import (DEFAULT_FILTERS, BisyncRequest, Mode, allowed_changes, conflict_suffix, default_excluded,
-                     effective_max_delete, exclude_lines, excluded_by, no_window, remote_spec, reserved_exclude_lines,
+                     effective_max_delete, exclude_lines, no_window, remote_spec, reserved_exclude_lines,
                      windows_reserved_names_matter)
 
 
@@ -120,7 +121,7 @@ class Job:
 
 
 def being_written(root: str, previous: list[listings.Entry], now: float,
-                  settle_s: float | None = None) -> tuple[list[str], list[str]]:
+                  settle_s: float | None = None, skip=default_excluded) -> tuple[list[str], list[str]]:
     """(new, known): the files written less than settle_s (SETTLE_S) ago,
     those not in the last listing and those in it. Only the files new or
     changed since the listing are looked at closely: their own last write
@@ -142,10 +143,10 @@ def being_written(root: str, previous: list[listings.Entry], now: float,
                 if item.is_symlink() or item.is_junction():
                     continue
                 if item.is_dir():
-                    if not default_excluded(rel + "/"):
+                    if not skip(rel + "/"):
                         stack.append((item.path, rel + "/"))
                     continue
-                if default_excluded(rel):
+                if skip(rel):
                     continue
                 st = item.stat()
             except OSError:
@@ -176,6 +177,48 @@ def read_filters(paths: Paths, pair: Pair) -> str:
     return path.read_text(encoding="utf-8") if path.exists() else DEFAULT_FILTERS
 
 
+_filters_read: dict[str, tuple[tuple, Filters]] = {}        # pair id -> (the file as it was, its rules)
+
+
+def filters_stamp(paths: Paths, pair: Pair) -> tuple:
+    """What tells one state of the pair's filter file from another."""
+    try:
+        st = paths.filters_file(pair.id).stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return ()
+
+
+def pair_filters(paths: Paths, pair: Pair) -> Filters:
+    """The pair's exclusions as rclone reads them (core/filters.py): the
+    file rclone is given, the default exclusions and what was added to them,
+    by hand too. Read again when the file changes; a file that cannot be
+    read counts as the default exclusions (rclone would not run with it)."""
+    stamp = filters_stamp(paths, pair)
+    known = _filters_read.get(pair.id)
+    if known is None or known[0] != stamp:
+        try:
+            text = read_filters(paths, pair)
+        except (OSError, UnicodeError) as e:
+            complain(f"reading the exclusions of {pair.name}", e)
+            text = DEFAULT_FILTERS
+        known = _filters_read[pair.id] = (stamp, Filters(text))
+    return known[1]
+
+
+def excluded_for(paths: Paths, pair: Pair):
+    """The one answer to "is this path left out of this pair's sync?":
+    excluded(rel), with `rel` relative to the pair's folder (a folder may
+    end with "/"; the system's separator is accepted). For the names Koofr
+    refuses, the folder monitor, the files being written, the states of the
+    file managers: none of them looks into what rclone leaves out."""
+    def excluded(rel: str) -> bool:
+        if os.sep != "/":
+            rel = rel.replace(os.sep, "/")
+        return pair_filters(paths, pair).excluded(rel)
+    return excluded
+
+
 def write_filters(paths: Paths, pair: Pair, text: str) -> bool:
     """Store the pair's exclusions; True if they changed (bisync then asks
     for a new first alignment, which the app shows as a repair preview).
@@ -203,18 +246,18 @@ def write_filters(paths: Paths, pair: Pair, text: str) -> bool:
     return True
 
 
-def local_files(root: str) -> set[str]:
-    """Every file below root a run would sync (the default exclusions left
-    out), as relative paths with "/"."""
+def local_files(root: str, skip=default_excluded) -> set[str]:
+    """Every file below root a run would sync (what `skip` leaves out is
+    not: the pair's exclusions), as relative paths with "/"."""
     found = set()
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir + "/"
         # os.walk goes into an NTFS junction (it is no symlink to it); rclone
         # (--skip-links) does not
-        dirnames[:] = [d for d in dirnames if not default_excluded(f"{rel_dir}{d}/")
+        dirnames[:] = [d for d in dirnames if not skip(f"{rel_dir}{d}/")
                        and not os.path.isjunction(os.path.join(dirpath, d))]
-        found.update(f"{rel_dir}{f}" for f in filenames if not default_excluded(f"{rel_dir}{f}"))
+        found.update(f"{rel_dir}{f}" for f in filenames if not skip(f"{rel_dir}{f}"))
     return found
 
 
@@ -298,7 +341,8 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
         # no file is on both sides: a resync settles one by date, the older
         # copy lost and no preview asked; that stays a repair, with its preview.
         on_koofr = koofr_files() if koofr_files else None
-        if on_koofr is not None and not (_folded(local_files(pair.local)) & _folded(on_koofr)):
+        if on_koofr is not None and not (_folded(local_files(pair.local, excluded_for(paths, pair)))
+                                         & _folded(on_koofr)):
             mode = Mode.RESYNC
     # One backup folder per run: a file replaced twice keeps both old copies.
     # rclone creates it only if something is actually backed up.
@@ -307,10 +351,14 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
 
     previous = _load(workdir, 1) if listings.find(workdir, 1) else None
     known = frozenset(e.path for e in previous or [])
-    refused = refused_paths(pair.local, pair.remote, known, skip=default_excluded)
+    # what the pair's filters leave out is not looked into: a name Koofr
+    # would refuse in a folder that is not synced is none of its business
+    skip = excluded_for(paths, pair)
+    refused = refused_paths(pair.local, pair.remote, known, skip=skip)
     busy: list[str] = []
     if mode is Mode.SYNC and wait_for_writes:
-        busy, known_busy = being_written(pair.local, previous or [], time.time() if now is None else now)
+        busy, known_busy = being_written(pair.local, previous or [], time.time() if now is None else now,
+                                         skip=skip)
         if known_busy:
             raise Busy(known_busy)
     changed_count = 0
@@ -328,6 +376,11 @@ def prepare(cfg: Config, pair: Pair, paths: Paths, mode: Mode = Mode.SYNC,
     lines = exclude_lines(refused) + exclude_lines([Refused(path, False, "busy") for path in busy])
     if windows_reserved_names_matter():
         lines += reserved_exclude_lines()       # Windows 10's device names, on both sides
+    if not lines:
+        try:        # the list of an earlier run is nobody's now
+            paths.exclude_file(pair.id).unlink()
+        except OSError:
+            pass
     if lines:
         exclude_file = paths.exclude_file(pair.id)
         exclude_file.parent.mkdir(parents=True, exist_ok=True)
@@ -399,7 +452,7 @@ def renames_here(paths: Paths, pair: Pair) -> tuple[list[CaseRename], News | Non
         return [], None
     if not before or not koofr:
         return [], None
-    found = preflight_news(pair.local, before, default_excluded)
+    found = preflight_news(pair.local, before, excluded_for(paths, pair))
     found.koofr_hash = {e.path.casefold(): e.hash for e in koofr if not e.is_dir}
     on_koofr = [e.path for e in koofr]
     renames = find_case_renames(pair.local, (e.path for e in before), on_koofr)
@@ -551,17 +604,6 @@ def rename_on_koofr(rclone: str, env: dict, cfg: Config, pair: Pair, paths: Path
     return ""
 
 
-def exclusion_patterns(filters_text: str) -> list[str]:
-    """The "- pattern" rules of a filters file, for excluded_by: what the
-    folder monitor need not watch."""
-    found = []
-    for line in filters_text.splitlines():
-        line = line.strip()
-        if line.startswith("- ") and len(line) > 2:
-            found.append(line[2:].strip())
-    return found
-
-
 def backups_older_than(paths: Paths, pair_id: str, days: int, now: float | None = None) -> tuple[int, int]:
     """(runs, bytes) of this pair's backups that `days` of retention would
     delete: what to say before a shorter retention is applied."""
@@ -593,19 +635,19 @@ RCLONE_PARTIAL = re.compile(r"\.[0-9a-f]{8}\.partial$")
 PARTIAL_MAX_AGE_S = 86400
 
 
-def remove_stale_partials(root: str, excluded=(), now: float | None = None) -> int:
+def remove_stale_partials(root: str, skip=default_excluded, now: float | None = None) -> int:
     """rclone's fragments under the pair's folder older than a day (one of a
     download in progress is younger), removed; returns how many. Only that
     exact form of name, only plain files, only in the folders rclone writes
-    to: not in the excluded ones (`excluded`: the pair's exclusion
-    patterns, exclusion_patterns), links or junctions."""
+    to: not in the excluded ones (`skip`: the pair's exclusions,
+    excluded_for), links or junctions."""
     now = time.time() if now is None else now
     removed = 0
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir + "/"
         dirnames[:] = [d for d in dirnames
-                       if not default_excluded(f"{rel_dir}{d}/") and not excluded_by(f"{rel_dir}{d}/", excluded)
+                       if not skip(f"{rel_dir}{d}/")
                        and not os.path.islink(os.path.join(dirpath, d))
                        and not os.path.isjunction(os.path.join(dirpath, d))]
         for name in filenames:

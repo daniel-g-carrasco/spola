@@ -17,7 +17,7 @@ other apps get them as arguments, from app/services.py.
 import sys
 from pathlib import Path
 
-__version__ = "0.3.48"
+__version__ = "0.3.49"
 
 WINDOWS = sys.platform == "win32"
 # the package's folder: a module one or two folders down finds the checkout

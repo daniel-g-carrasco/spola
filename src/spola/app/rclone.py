@@ -15,7 +15,6 @@ Safety rules enforced here, and checked by tests/test_rclone.py:
 from __future__ import annotations
 
 import enum
-import fnmatch
 import json
 import math
 import os
@@ -26,6 +25,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from spola.core.filters import Filters
 from spola.i18n import _, count, ngettext
 from spola.data.listings import go_unquote
 
@@ -87,31 +87,15 @@ DEFAULT_FILTERS = (
 )
 
 
+_DEFAULTS = Filters(DEFAULT_FILTERS)
+
+
 def default_excluded(rel: str) -> bool:
     """Would the default filters leave out this path (relative to the pair's
-    root; folders may end with "/")? Used to skip scans and change events."""
-    return excluded_by(rel, DEFAULT_EXCLUDES)
-
-
-def excluded_by(rel: str, patterns) -> bool:
-    """Would these exclusion patterns (rclone's, as in DEFAULT_EXCLUDES or a
-    pair's own filters) leave out this path?"""
-    parts = [p for p in rel.split("/") if p]
-    if not parts:
-        return False
-    is_dir = rel.endswith("/")
-    for pattern in patterns:
-        if pattern.endswith("/**"):
-            name = pattern[:-3]
-            if name.startswith("/"):
-                # anchored: only the first component, and only as a folder
-                if fnmatch.fnmatchcase(parts[0], name[1:]) and (len(parts) > 1 or is_dir):
-                    return True
-            elif any(fnmatch.fnmatchcase(part, name) for part in (parts if is_dir else parts[:-1])):
-                return True
-        elif fnmatch.fnmatchcase(parts[-1], pattern):
-            return True
-    return False
+    root; folders may end with "/")? For a folder that is no pair yet (Add
+    Folder, the import from Koofr Desktop): a pair has its own filters,
+    which may say more or less (jobs.excluded_for)."""
+    return _DEFAULTS.excluded(rel)
 
 
 def conflict_suffix(local_word: str, remote_word: str) -> str:

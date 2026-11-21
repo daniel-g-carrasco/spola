@@ -7,7 +7,9 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 from spola.app import jobs
+from spola.app.rclone import DEFAULT_FILTERS
 from spola.app.storage import Paths
+from spola.core.filters import Filters
 
 
 class KeptListingsTest(unittest.TestCase):
@@ -73,6 +75,7 @@ class PartialsTest(unittest.TestCase):
             for rel, when in files.items():
                 (root / rel).write_text("x")
                 os.utime(root / rel, (when, when))
-            self.assertEqual(jobs.remove_stale_partials(str(root), ["mine/**"]), 1)
+            own = Filters(DEFAULT_FILTERS + "- mine/**\n").excluded        # as jobs.excluded_for gives it
+            self.assertEqual(jobs.remove_stale_partials(str(root), own), 1)
             left = sorted(p.relative_to(root).as_posix() for p in root.rglob("*") if p.is_file())
             self.assertEqual(left, sorted(set(files) - {"d/f05.bin.af1b584d.partial"}))

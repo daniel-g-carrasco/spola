@@ -43,7 +43,7 @@ class ServiceTest(unittest.TestCase):
         engine = SimpleNamespace(
             cfg=SimpleNamespace(pairs=[pair], mount_id="m-1", pair=lambda pid: pair if pid == "p1" else None),
             runtime={}, creds=None, rclone=None, paths=None,
-            request_sync=lambda pid, reason: self.synced.append((pid, reason)),
+            sync_now=lambda pid: self.synced.append((pid, "manual")),
             connect=lambda *args: 0)
         self.service = SyncService(engine, lambda what: None, open_url=self.opened.append,
                                    tell=self.told.append,
@@ -73,6 +73,11 @@ class ServiceTest(unittest.TestCase):
         self.assertEqual(len(self.synced), 1)
         self.assertEqual(len(self.told), 1)                 # outside: a notification, not silence
         self.assertIn("else.txt", self.told[0])
+
+    def test_sync_now_that_cannot_run_says_why(self):
+        self.service.engine.sync_now = lambda pid: "“work” is paused: turn on Keep in Sync first."
+        self.call("SyncNow", str(self.root / "sub" / "doc.odt"))
+        self.assertEqual(self.told, ["“work” is paused: turn on Keep in Sync first."])
 
     def test_open_on_koofr(self):
         self.call("OpenOnKoofr", str(self.root / "sub"))
