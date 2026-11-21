@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.50" date="2026-11-21" type="development">
+      <description>
+        <p>The icon sits on the round disc with its thickness that my other apps use, and is drawn a little larger on Windows, out to the edge of the taskbar as the other apps' icons. The drawing is the same.</p>
+      </description>
+    </release>
     <release version="0.3.49" date="2026-11-21" type="development">
       <description>
         <p>A folder left out with a line of your own in a folder's exclusions is left out for all of Spola: a name Koofr refuses in it is no longer reported, and what it holds is shown as not synced. The list of the files Koofr refuses follows what is on the disk, and is checked again when Review is opened. Sync Now always answers: what the sync did, why it cannot start, or which folder it waits for; it is there also when a folder is in sync but for a few files.</p>

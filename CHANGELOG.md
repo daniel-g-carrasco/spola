@@ -6,7 +6,7 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
-## [Unreleased]
+## [0.3.50] - 2026-11-21
 
 ### Changed
 - The icon sits on the round disc with its thickness that my other apps use, and is drawn a little larger on Windows (the taskbar, the title bar), out to the edge as the other apps' icons. The drawing is the same.
@@ -801,7 +801,8 @@ anything was published.
 - First development version: one or more folder pairs, two-way sync with
   previews and safety stops, tray icon.
 
-[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.49...main
+[Unreleased]: https://github.com/daniel-g-carrasco/spola/compare/v0.3.50...main
+[0.3.50]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.50
 [0.3.49]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.49
 [0.3.48]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.48
 [0.3.47]: https://github.com/daniel-g-carrasco/spola/releases/tag/v0.3.47
