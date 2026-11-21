@@ -77,6 +77,21 @@ class WinWatchTest(unittest.TestCase):
         self.assertNotIn("d007/inner/~$lock.docx", self.told)
         self.assertFalse(any("\\" in rel for rel in self.told))
 
+    def test_a_folder_left_out_is_left_out_with_its_own_changes(self):
+        """Windows tells "music" when something in it changes, without
+        saying it is a folder: "- /music/**" leaves out "music/", not a
+        file named "music", and the folder's own change started a sync."""
+        from spola.app.rclone import DEFAULT_FILTERS
+        from spola.core.filters import Filters
+        (self.root / "music" / "album").mkdir(parents=True)
+        self.watch(ignore=Filters(DEFAULT_FILTERS + "- /music/**\n").excluded)
+        (self.root / "music" / "album" / "new.flac").write_text("x")
+        (self.root / "music" / "top.txt").write_text("x")
+        (self.root / "music" / "album").rename(self.root / "music" / "album 2")
+        (self.root / "d001" / "seen.txt").write_text("x")             # told after the others
+        self.assertTrue(spin_until(lambda: "d001/seen.txt" in self.told))
+        self.assertEqual([rel for rel in self.told if rel.split("/")[0] == "music"], [])
+
     def test_more_than_the_buffer_holds_tells_the_root(self):
         w = winwatch.WinTreeWatcher(str(self.root), self.told.append)
         w.BUFFER_BYTES = 16                                  # not even one name

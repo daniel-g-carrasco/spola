@@ -1532,8 +1532,9 @@ class EngineTest(unittest.TestCase):
         kept, got = self.preview_of("p1", Mode.SYNC, True)
         self.assertTrue(spin_until(lambda: got and self.engine.runtime["p1"].preview is kept, 60))
         self.assertTrue(self.engine.confirm("p1", Mode.SYNC, True))
-        self.assertTrue(spin_until(lambda: (self.remote / "f03.txt").read_text() == "rewritten 3"
-                                   and self.status() is Status.OK, 60))
+        # (on Windows the file cannot be read while rclone writes it)
+        self.assertTrue(spin_until(lambda: self.status() is Status.OK and self.engine.active is None, 60))
+        self.assertEqual((self.remote / "f03.txt").read_text(), "rewritten 3")
 
     def test_a_preview_is_kept_until_something_changes(self):
         kept, got = self.preview_of("p1")

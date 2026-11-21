@@ -20,6 +20,7 @@ everything.
 from __future__ import annotations
 
 import ctypes
+import os
 import struct
 import threading
 from collections.abc import Callable
@@ -190,6 +191,14 @@ class WinTreeWatcher:
         for rel in sorted(names):
             if self._stopped:
                 break
-            if not rel or not self.ignore(rel):
+            if not rel or not self._ignored(rel):
                 self.on_change(rel)
         return False
+
+    def _ignored(self, rel: str) -> bool:
+        """Windows tells a name, not whether it is a folder: a folder is
+        asked about as one ("cache/"), so that a rule for a folder and what
+        it holds ("- /cache/**") leaves out the folder's own changes too."""
+        if self.ignore(rel):
+            return True
+        return os.path.isdir(os.path.join(self.root, *rel.split("/"))) and self.ignore(rel + "/")
