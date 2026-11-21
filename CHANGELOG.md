@@ -6,6 +6,11 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [Unreleased]
+
+### Changed
+- The icon sits on the round disc with its thickness that my other apps use, and is drawn a little larger on Windows (the taskbar, the title bar), out to the edge as the other apps' icons. The drawing is the same.
+
 ## [0.3.49] - 2026-11-21
 
 ### Fixed

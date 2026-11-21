@@ -1,14 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Spola's icon for 16 to 32 pixels (title bar, small icons in Explorer):
-     the same ivory disc and two arcs ending in a dot as the app icon, with
-     arcs two pixels thick at 16 px and larger dots, which the full icon's
-     thin arcs are not. make_ico.py uses it for the small sizes. -->
-<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 512 512">
-  <circle cx="256" cy="256" r="232" fill="#ebe8e0" stroke="#aaa598" stroke-width="16" />
-  <g fill="none" stroke="#262626" stroke-width="60">
-    <path d="M 149 166 A 140 140 0 0 1 396 256" />
-    <path d="M 363 346 A 140 140 0 0 1 116 256" />
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="16 16 480 480">
+  <!-- Spola's icon for 16 to 24 pixels (title bar, small icons in Explorer,
+       the taskbar): the same disc with its thickness and two arcs ending in a
+       dot as the app icon, with arcs two pixels thick at 16 px and larger dots,
+       which the full icon's thin arcs are not. The view is closed on the disc
+       (16 16 480 480), as make_ico.py shows the full icon on Windows.
+       make_ico.py uses it for 16, 20 and 24. -->
+  <defs>
+    <linearGradient id="sfumatura-cerchio-avorio" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#f3f1ea;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#e0ddd4;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-corpo-scuro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="sfumatura-spessore-avorio" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" style="stop-color:#d5d1c6;stop-opacity:1" />
+      <stop offset="0.0625" style="stop-color:#d4cfc4;stop-opacity:1" />
+      <stop offset="0.125" style="stop-color:#d1cdc1;stop-opacity:1" />
+      <stop offset="0.1875" style="stop-color:#cec9bd;stop-opacity:1" />
+      <stop offset="0.25" style="stop-color:#cac5b8;stop-opacity:1" />
+      <stop offset="0.3125" style="stop-color:#c6c1b3;stop-opacity:1" />
+      <stop offset="0.375" style="stop-color:#c3bdaf;stop-opacity:1" />
+      <stop offset="0.4375" style="stop-color:#c0baab;stop-opacity:1" />
+      <stop offset="0.5" style="stop-color:#bfb9aa;stop-opacity:1" />
+      <stop offset="0.5625" style="stop-color:#c0baab;stop-opacity:1" />
+      <stop offset="0.625" style="stop-color:#c3bdaf;stop-opacity:1" />
+      <stop offset="0.6875" style="stop-color:#c6c1b3;stop-opacity:1" />
+      <stop offset="0.75" style="stop-color:#cac5b8;stop-opacity:1" />
+      <stop offset="0.8125" style="stop-color:#cec9bd;stop-opacity:1" />
+      <stop offset="0.875" style="stop-color:#d1cdc1;stop-opacity:1" />
+      <stop offset="0.9375" style="stop-color:#d4cfc4;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#d5d1c6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="264" r="232" style="fill:url(#sfumatura-spessore-avorio)" />
+  <circle cx="256" cy="248" r="232" style="fill:url(#sfumatura-cerchio-avorio)" />
+  <g fill="none" stroke="#262626" stroke-width="58">
+    <path d="M 152.57 161 A 135.33 135.33 0 0 1 391.33 248" />
+    <path d="M 359.43 335 A 135.33 135.33 0 0 1 120.67 248" />
   </g>
-  <circle cx="396" cy="256" r="62" fill="#262626" />
-  <circle cx="116" cy="256" r="62" fill="#262626" />
+  <circle cx="391.33" cy="248" r="59.93" fill="#262626" />
+  <circle cx="120.67" cy="248" r="59.93" fill="#262626" />
 </svg>
