@@ -17,14 +17,16 @@
 
 The masters of the app icon are the Inkscape files in data/icons/source/
 (spola-darkbg.svg for dark backgrounds, spola-lightbg.svg for light ones):
-edit those, never the generated copy. They follow the common style of my
-logos (the Lucciola one): a 512 px canvas, a disk of r=240 with no outline
-and a vertical two-stop gradient lit from above (ivory #f3f1ea -> #e0ddd4
-for dark backgrounds, dark #333333 -> #1a1a1a for light ones), the subject
-in the complementary gradient at fill-opacity 0.9 (the stops stay opaque),
-gradients named sfumatura-* in bounding-box units, layers "Sfondo" and
-"Soggetto", every shape filled (the trails are filled outlines joined to the
-balls, no strokes). The installed icon is the dark background version,
+edit those, never the generated copy. They follow the family's round
+template with its thickness (as Scriba's icon): a 512 px canvas, the face a
+disk of r=232 centred at y 248 with no outline and a vertical two-stop
+gradient lit from above (ivory #f3f1ea -> #e0ddd4 for dark backgrounds, dark
+#333333 -> #1a1a1a for light ones), under it its copy 16 px lower, the
+thickness, in a horizontal gradient lighter towards the ends (face and
+thickness 480 of 512, as every icon of the family), the subject centred on
+the face in the complementary gradient, opaque, gradients named sfumatura-*
+in bounding-box units, layers "Sfondo" and "Soggetto", every shape filled
+(the trails are filled outlines joined to the balls, no strokes). The installed icon is the dark background version,
 because the hicolor theme has no light/dark variants and docks, the GNOME
 overview and Noctalia are dark.
 

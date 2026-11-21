@@ -9,8 +9,28 @@
       <stop offset="0" style="stop-color:#333333;stop-opacity:1" />
       <stop offset="1" style="stop-color:#1a1a1a;stop-opacity:1" />
     </linearGradient>
+    <linearGradient id="sfumatura-spessore-avorio" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" style="stop-color:#d5d1c6;stop-opacity:1" />
+      <stop offset="0.0625" style="stop-color:#d4cfc4;stop-opacity:1" />
+      <stop offset="0.125" style="stop-color:#d1cdc1;stop-opacity:1" />
+      <stop offset="0.1875" style="stop-color:#cec9bd;stop-opacity:1" />
+      <stop offset="0.25" style="stop-color:#cac5b8;stop-opacity:1" />
+      <stop offset="0.3125" style="stop-color:#c6c1b3;stop-opacity:1" />
+      <stop offset="0.375" style="stop-color:#c3bdaf;stop-opacity:1" />
+      <stop offset="0.4375" style="stop-color:#c0baab;stop-opacity:1" />
+      <stop offset="0.5" style="stop-color:#bfb9aa;stop-opacity:1" />
+      <stop offset="0.5625" style="stop-color:#c0baab;stop-opacity:1" />
+      <stop offset="0.625" style="stop-color:#c3bdaf;stop-opacity:1" />
+      <stop offset="0.6875" style="stop-color:#c6c1b3;stop-opacity:1" />
+      <stop offset="0.75" style="stop-color:#cac5b8;stop-opacity:1" />
+      <stop offset="0.8125" style="stop-color:#cec9bd;stop-opacity:1" />
+      <stop offset="0.875" style="stop-color:#d1cdc1;stop-opacity:1" />
+      <stop offset="0.9375" style="stop-color:#d4cfc4;stop-opacity:1" />
+      <stop offset="1" style="stop-color:#d5d1c6;stop-opacity:1" />
+    </linearGradient>
   </defs>
-  <circle cx="256" cy="256" r="240" style="fill:url(#sfumatura-cerchio-avorio)" />
-  <path style="fill:url(#sfumatura-corpo-scuro);fill-opacity:0.9" d="M 108 208 A 48 48 0 0 0 60 256 A 48 48 0 0 0 100.02539 303.33203 C 114.67731 351.53957 151.24676 391.3342 200.25 409.16992 C 264.59393 432.5892 336.8514 413.22709 380.86523 360.77344 L 357.88477 341.49023 C 321.91145 384.36156 263.10119 400.11952 210.51172 380.97852 C 171.82713 366.89847 142.7029 336.18879 130.00586 298.6582 A 48 48 0 0 0 156 256 A 48 48 0 0 0 108 208 z " />
-  <path style="fill:url(#sfumatura-corpo-scuro);fill-opacity:0.9" d="M 250.21289 93.111328 C 205.00385 94.742354 161.39428 115.16468 131.13477 151.22656 L 154.11523 170.50977 C 190.08855 127.63844 248.89881 111.88049 301.48828 131.02148 C 340.17287 145.10153 369.2971 175.81121 381.99414 213.3418 A 48 48 0 0 0 356 256 A 48 48 0 0 0 404 304 A 48 48 0 0 0 452 256 A 48 48 0 0 0 411.97461 208.66797 C 397.32269 160.46043 360.75324 120.6658 311.75 102.83008 C 291.64252 95.511554 270.76246 92.369953 250.21289 93.111328 z " />
+  <circle cx="256" cy="264" r="232" style="fill:url(#sfumatura-spessore-avorio)" />
+  <circle cx="256" cy="248" r="232" style="fill:url(#sfumatura-cerchio-avorio)" />
+  <path style="fill:url(#sfumatura-corpo-scuro)" d="M 112.933 201.6 A 46.4 46.4 0 0 0 66.533 248 A 46.4 46.4 0 0 0 105.225 293.754 C 119.388 340.355 154.739 378.823 202.108 396.064 C 264.307 418.703 334.156 399.986 376.703 349.281 L 354.489 330.641 C 319.714 372.083 262.864 387.316 212.028 368.813 C 174.633 355.202 146.479 325.516 134.206 289.236 A 46.4 46.4 0 0 0 159.333 248 A 46.4 46.4 0 0 0 112.933 201.6 z" />
+  <path style="fill:url(#sfumatura-corpo-scuro)" d="M 250.406 90.541 C 206.704 92.118 164.548 111.859 135.297 146.719 L 157.511 165.359 C 192.286 123.917 249.136 108.684 299.972 127.187 C 337.367 140.798 365.521 170.484 377.794 206.764 A 46.4 46.4 0 0 0 352.667 248 A 46.4 46.4 0 0 0 399.067 294.4 A 46.4 46.4 0 0 0 445.467 248 A 46.4 46.4 0 0 0 406.775 202.246 C 392.612 155.645 357.261 117.177 309.892 99.936 C 290.454 92.861 270.27 89.824 250.406 90.541 z" />
 </svg>
