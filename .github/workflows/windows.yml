@@ -12,11 +12,12 @@ on:
     # a release: the installer and the portable zip join the Flatpak that
     # build.yml publishes (Spola's update check downloads the installer)
     tags: ["v*"]
+  pull_request:
   workflow_dispatch:
 
 env:
   SPOLA_RCLONE_RELEASE: "1.75.2"
-  # the release's own SHA256SUMS, for the probe too (the package job checks the file itself)
+  # The SHA-256 pinned for both the probe and the packaged copy.
   SPOLA_RCLONE_SHA256: "8a9db2bad1dc79a65b3348fd857069598e2aab7cf4d118b77b1df23055aff818"
   # Inno Setup, the official release checked by its SHA-256 (GitHub's digest)
   INNO_VERSION: "6.7.3"
@@ -103,6 +104,7 @@ jobs:
 
   package:
     needs: probe        # nothing packaged from a build whose tests failed
+    if: github.event_name != 'pull_request'
     runs-on: windows-latest
     defaults:
       run:
@@ -126,13 +128,12 @@ jobs:
             mingw-w64-ucrt-x86_64-python-gobject
             mingw-w64-ucrt-x86_64-pyinstaller
             mingw-w64-ucrt-x86_64-ca-certificates
-      - name: rclone for Windows, checked against the release's SHA256SUMS
+      - name: rclone for Windows
         run: |
           base="https://github.com/rclone/rclone/releases/download/v${SPOLA_RCLONE_RELEASE}"
           zip="rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64.zip"
           curl -fsSL -o "$zip" "$base/$zip"
-          curl -fsSL -o SHA256SUMS "$base/SHA256SUMS"
-          grep " $zip\$" SHA256SUMS | sha256sum -c -
+          echo "${SPOLA_RCLONE_SHA256}  $zip" | sha256sum -c -
           unzip -q "$zip"
           echo "SPOLA_RCLONE=$(cygpath -w "$PWD/rclone-v${SPOLA_RCLONE_RELEASE}-windows-amd64/rclone.exe")" >> "$GITHUB_ENV"
       - name: Build with PyInstaller
