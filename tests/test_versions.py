@@ -14,7 +14,7 @@ from pathlib import Path
 
 import _setup  # noqa: F401
 from _setup import rclone_binary
-from spola.app import jobs, versions
+from spola.app import jobs, preflight, versions
 from spola.app.config import Config, Pair
 from spola.i18n import translation_for
 from spola.app.storage import Paths
@@ -202,6 +202,79 @@ class RealRunTest(unittest.TestCase):
                          {"cancellami.pdf": "deleted", "docs/nota.txt": "replaced", "relazione.odt": "replaced"})
         v = idx.of("relazione.odt")[0]
         self.assertEqual(versions.copy_path(paths, v).read_text(), "v1")
+
+
+class RootCheckedBeforeWritingTest(unittest.TestCase):
+    """A restore writes only into the very folder that was paired: replaced,
+    unmounted or moved between the list and the click, nothing is written."""
+
+    def setUp(self):
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.paths = Paths(self.tmp / "config", self.tmp / "state", self.tmp / "data")
+        self.local = self.tmp / "local"
+        (self.local / "docs").mkdir(parents=True)
+        (self.local / "relazione.odt").write_text("today")
+        st = os.stat(self.local)
+        self.pair = Pair("p1", str(self.local), "/d", root_dev=st.st_dev, root_ino=st.st_ino)
+        preflight.claim_root(self.pair)
+        run = self.paths.backup_dir("p1") / RUN2
+        (run / "docs").mkdir(parents=True)
+        (run / "relazione.odt").write_text("yesterday")
+        (run / "docs" / "nota.txt").write_text("nota yesterday")
+
+    def version(self, rel):
+        return versions.Index(self.pair, versions.scan(self.paths, self.pair)).of(rel)[0]
+
+    def tree(self, root):
+        return sorted(str(p.relative_to(root)) for p in Path(root).rglob("*"))
+
+    def test_the_paired_folder_is_restored_into_as_before(self):
+        v = self.version("relazione.odt")
+        self.assertEqual(versions.restore(self.paths, self.pair, v, "replace", now=1_900_000_000), "relazione.odt")
+        self.assertEqual((self.local / "relazione.odt").read_text(), "yesterday")
+
+    def test_a_replaced_folder_is_not_written(self):
+        v = self.version("relazione.odt")
+        os.rename(self.local, self.tmp / "local-moved")
+        (self.local / "docs").mkdir(parents=True)             # another folder in the same place
+        (self.local / "relazione.odt").write_text("someone else's")
+        before = self.tree(self.local)
+        for mode in ("replace", "copy"):
+            with self.assertRaises(preflight.RootChanged) as caught:
+                versions.restore(self.paths, self.pair, v, mode)
+            self.assertIn("replaced", str(caught.exception))
+        self.assertEqual(self.tree(self.local), before)
+        self.assertEqual((self.local / "relazione.odt").read_text(), "someone else's")
+        self.assertEqual((self.tmp / "local-moved" / "relazione.odt").read_text(), "today")
+
+    def test_an_unmounted_or_moved_folder_is_not_recreated(self):
+        v = self.version("docs/nota.txt")
+        os.rename(self.local, self.tmp / "elsewhere")
+        with self.assertRaises(preflight.RootChanged) as caught:
+            versions.restore(self.paths, self.pair, v, "copy")
+        self.assertIn("missing", str(caught.exception))
+        self.assertFalse(os.path.lexists(self.local))
+
+    def test_a_folder_on_the_way_turned_into_a_link_is_not_followed(self):
+        v = self.version("docs/nota.txt")
+        outside = self.tmp / "outside"
+        outside.mkdir()
+        os.rmdir(self.local / "docs")
+        try:
+            os.symlink(outside, self.local / "docs", target_is_directory=True)
+        except (OSError, NotImplementedError) as e:
+            self.skipTest(f"no symbolic links here: {e}")
+        with self.assertRaises(preflight.RootChanged):
+            versions.restore(self.paths, self.pair, v, "copy")
+        self.assertEqual(list(outside.iterdir()), [])
+
+    def test_keep_aside_checks_the_folder_too(self):
+        os.rename(self.local, self.tmp / "local-moved")
+        self.local.mkdir()
+        (self.local / "relazione.odt").write_text("someone else's")
+        with self.assertRaises(preflight.RootChanged):
+            versions.keep_aside(self.paths, self.pair, "relazione.odt", "conflict")
+        self.assertEqual((self.local / "relazione.odt").read_text(), "someone else's")
 
 
 if __name__ == "__main__":

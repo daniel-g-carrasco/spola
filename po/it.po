@@ -677,6 +677,10 @@ msgstr ""
 msgid "The local folder is missing. If it is on a drive, connect it."
 msgstr "La cartella locale non c'è. Se è su un disco, collegalo."
 
+#: src/spola/app/preflight.py
+msgid "“{name}” in the synced folder is no longer a plain folder: nothing was written."
+msgstr "“{name}” nella cartella sincronizzata non è più una cartella normale: non è stato scritto nulla."
+
 #: src/spola/app/preflight.py:348 src/spola/app/preflight.py:358
 #, python-brace-format
 msgid "The local folder cannot be read: {error}"

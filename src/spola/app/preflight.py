@@ -370,6 +370,39 @@ def check_root_identity(pair: Pair, known_entries: Iterable[str] = ()) -> list[P
     return []
 
 
+class RootChanged(OSError):
+    """A write inside a synced folder refused: the folder (or a folder on
+    the way to the file) is no longer the one paired. str() is the message."""
+
+
+def check_write_target(pair: Pair, rel: str) -> list[Problem]:
+    """Just before Spola itself writes, moves or renames `rel` in the pair
+    (restoring a version, resolving a conflict), not only before a run: the
+    root is still the paired one (check_root_identity: marker, device and
+    inode), and every folder on the way to `rel` that exists is a plain
+    folder of it, not a link or a junction that leads elsewhere."""
+    problems = check_root_identity(pair)
+    if problems:
+        return problems
+    here = pair.local
+    for part in rel.replace("\\", "/").split("/")[:-1]:
+        here = os.path.join(here, part)
+        if not os.path.lexists(here):
+            break
+        if os.path.islink(here) or os.path.isjunction(here) or not os.path.isdir(here):
+            return [Problem("parent-not-folder",
+                            _("“{name}” in the synced folder is no longer a plain folder: nothing was written.")
+                            .format(name=part), here)]
+    return []
+
+
+def ensure_write_target(pair: Pair, rel: str) -> None:
+    """check_write_target, as an error: RootChanged with the first problem."""
+    problems = check_write_target(pair, rel)
+    if problems:
+        raise RootChanged(problems[0].message)
+
+
 @dataclass(frozen=True)
 class CaseRename:
     """A name changed here in its case alone: "Screencasts" to "screencasts"."""

@@ -1613,7 +1613,8 @@ class Engine(GObject.Object):
         if pair is None or rt is None:
             return
         self._check_not_syncing(rt)
-        conflicts_mod.resolve(pair.local, conflict, choice, trash=self._keep_discarded(pair, conflict.original))
+        conflicts_mod.resolve(pair.local, conflict, choice, trash=self._keep_discarded(pair, conflict.original),
+                              pair=pair)
         self._forget_conflicts(pair, rt, {c.path for c in conflict.copies})
         self.refresh_versions(pair.id)
         self.request_sync(pair_id, "conflict-resolved")
@@ -1681,7 +1682,7 @@ class Engine(GObject.Object):
                 continue
             try:
                 conflicts_mod.resolve(pair.local, decision.conflict, decision.choice,
-                                      trash=self._keep_discarded(pair, decision.conflict.original))
+                                      trash=self._keep_discarded(pair, decision.conflict.original), pair=pair)
             except (conflicts_mod.ResolveError, OSError) as e:
                 errors.append(f"{decision.conflict.original}: {e}")
                 continue
