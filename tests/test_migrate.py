@@ -2,6 +2,7 @@
 """Taking over Koofr Desktop's folder pairs from its config.json."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,15 +35,17 @@ class ImportTest(unittest.TestCase):
                 import_koofr_desktop(cfg, conf, active=True)
             report = import_koofr_desktop(cfg, conf, active=False, home=tmp)
             added = {i.pair.local: i for i in report.added}
-            self.assertEqual(sorted(added), [f"{tmp}/data/imports", f"{tmp}/data/photos", f"{tmp}/data/work"])
-            self.assertTrue(added[f"{tmp}/data/imports"].pair.paused)
-            self.assertFalse(added[f"{tmp}/data/work"].pair.paused)
-            self.assertEqual(added[f"{tmp}/data/work"].pair.remote, "/data/work")
-            self.assertFalse(added[f"{tmp}/data/work"].pair.initialized)
-            self.assertIsNotNone(added[f"{tmp}/data/work"].pair.root_ino)
-            self.assertEqual([w.code for w in added[f"{tmp}/data/photos"].warnings], ["emoji"])
+            self.assertEqual(sorted(added), sorted(os.path.normpath(f"{tmp}/data/{name}")      # the system's own path
+                                                   for name in ("imports", "photos", "work")))
+            self.assertTrue(added[os.path.normpath(f"{tmp}/data/imports")].pair.paused)
+            self.assertFalse(added[os.path.normpath(f"{tmp}/data/work")].pair.paused)
+            self.assertEqual(added[os.path.normpath(f"{tmp}/data/work")].pair.remote, "/data/work")
+            self.assertFalse(added[os.path.normpath(f"{tmp}/data/work")].pair.initialized)
+            self.assertIsNotNone(added[os.path.normpath(f"{tmp}/data/work")].pair.root_ino)
+            self.assertEqual([w.code for w in added[os.path.normpath(f"{tmp}/data/photos")].warnings], ["emoji"])
             self.assertEqual(sorted(local for local, _why in report.skipped),
-                             sorted([f"{tmp}/already", f"{tmp}/nested/inside", f"{tmp}/missing", f"{tmp}/data/work"]))
+                             sorted(os.path.normpath(f"{tmp}/{rel}")
+                                    for rel in ("already", "nested/inside", "missing", "data/work")))
             self.assertEqual(len(cfg.pairs), 4)
 
     def test_other_mounts_are_left_out(self):

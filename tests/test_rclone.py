@@ -30,7 +30,7 @@ class ArgsTest(unittest.TestCase):
                      "--skip-links", "--slow-hash-sync-only"):
             self.assertIn(flag, args)
         self.assertEqual(args[args.index("--conflict-resolve") + 1], "none")
-        self.assertEqual(args[args.index("--config") + 1], "/s/no.conf")
+        self.assertEqual(args[args.index("--config") + 1], str(Path("/s/no.conf")))     # the system's own path
         for flag in ("--resync", "--force", "--dry-run", "--check-sync"):
             self.assertNotIn(flag, args)
         self.assertIn("--track-renames", args)

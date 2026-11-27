@@ -78,11 +78,11 @@ class BisyncScenarios(unittest.TestCase):
 
     def files(self, side: Path):
         # the root marker Spola writes is excluded from the sync, like any .spola-* file
-        return sorted(str(p.relative_to(side)) for p in side.rglob("*") if p.is_file() and p.name != ".spola-root")
+        return sorted(p.relative_to(side).as_posix() for p in side.rglob("*") if p.is_file() and p.name != ".spola-root")
 
     def backups(self):
         root = self.paths.backup_dir(self.pair.id)
-        return sorted(str(p.relative_to(root)).split("/", 1)[1] for p in root.rglob("*") if p.is_file()) if root.exists() else []
+        return sorted(p.relative_to(root).as_posix().split("/", 1)[1] for p in root.rglob("*") if p.is_file()) if root.exists() else []
 
     # -- scenarios ---------------------------------------------------------------
 
