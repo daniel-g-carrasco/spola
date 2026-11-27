@@ -81,7 +81,9 @@ def group(paths: list[str], root: str) -> list[Conflict]:
         if not m:
             continue
         ext = m.group("ext") or ""
-        original = os.path.join(directory, m.group("stem") + ext)
+        # with "/", as rclone names the conflicts of a run (engine compares
+        # the two): os.path.join would put "\\" on Windows
+        original = f"{directory}/{m.group('stem')}{ext}" if directory else m.group("stem") + ext
         if m.group("legacy"):
             side, key, date = ("local" if m.group("legacy") == "conflict1" else "koofr"), (original, "legacy"), ""
         else:

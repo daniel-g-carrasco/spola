@@ -30,11 +30,12 @@ class ConflictsTest(unittest.TestCase):
         return rel
 
     def trash(self, path):
-        self.trashed.append(os.path.relpath(path, self.root))
+        self.trashed.append(Path(os.path.relpath(path, self.root)).as_posix())
         os.unlink(path)
 
     def listing(self):
-        return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*") if p.is_file())
+        # with "/", as rclone's listings name the files on every system
+        return sorted(p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file())
 
     def test_grouping(self):
         paths = [

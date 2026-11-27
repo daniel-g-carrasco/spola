@@ -773,7 +773,7 @@ def rename_plan(root: str, refused: list[Refused], remote_root: str = "/") -> li
             continue
         new = _without_emoji(name, item.is_dir) if item.code == "emoji" else name
         new = _unique(new, item.is_dir, taken[directory])
-        rel = os.path.join(directory, new)
+        rel = _rel(directory, new)
         fits = len(new) <= KOOFR_MAX_NAME and prefix + 1 + len(rel) <= KOOFR_MAX_PATH
         plan.append((item, rel if fits else None))
     return plan
