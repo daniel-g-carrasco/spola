@@ -62,17 +62,20 @@ jobs:
           python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); from gi.repository import Gtk, Adw; print('GTK', Gtk.MAJOR_VERSION, Gtk.MINOR_VERSION, 'Adw', Adw.MAJOR_VERSION, Adw.MINOR_VERSION)"
           "$SPOLA_RCLONE" version | head -1
           # MSYS2's Python takes "/" as the separator when MSYSTEM is set; the
-          # installed app never has it, so the tests and the window run without
+          # installed app never has it, so the tests and the window run without.
+          # "env -u MSYSTEM" is not enough: the MSYS2 runtime sets it again for
+          # a Windows program it starts (seen in run 45973095741: "/" both
+          # ways). Set empty, it stays empty: the check below fails otherwise.
           python -c "import os, tempfile; print('with MSYSTEM:', os.name, repr(os.sep), tempfile.gettempdir())"
-          env -u MSYSTEM python -c "import os, tempfile; print('without:', os.name, repr(os.sep), tempfile.gettempdir())"
+          env MSYSTEM= python -c "import os, sys, tempfile; print('without:', os.name, repr(os.sep), tempfile.gettempdir()); sys.exit(os.sep != chr(92))"
       - run: python tools/compile_po.py
       - name: rclone's logs on Windows (fixtures)
         continue-on-error: true
         run: |
-          env -u MSYSTEM python tools/windows_log_sample.py logs
+          env MSYSTEM= python tools/windows_log_sample.py logs
           # as the window runs it: no console (Stop must still be graceful)
           mkdir -p logs-detached
-          env -u MSYSTEM python -c "import subprocess, sys; out = open('logs-detached/run.txt', 'w'); subprocess.run([sys.executable, 'tools/windows_log_sample.py', 'logs-detached'], creationflags=subprocess.DETACHED_PROCESS, stdout=out, stderr=out, timeout=300)"
+          env MSYSTEM= python -c "import subprocess, sys; out = open('logs-detached/run.txt', 'w'); subprocess.run([sys.executable, 'tools/windows_log_sample.py', 'logs-detached'], creationflags=subprocess.DETACHED_PROCESS, stdout=out, stderr=out, timeout=300)"
           cat logs/interrupted.txt logs-detached/interrupted.txt logs-detached/run.txt || true
       - name: Tests
         # blocking: nothing is packaged, let alone released, from a build
@@ -81,7 +84,7 @@ jobs:
         # loop: thousands of lines)
         run: |
           set -o pipefail
-          env -u MSYSTEM python -W default -W "ignore::DeprecationWarning:gi.events" \
+          env MSYSTEM= python -W default -W "ignore::DeprecationWarning:gi.events" \
             -m unittest discover -s tests -v 2>&1 | tee tests.log
       - name: The window
         continue-on-error: true
@@ -90,7 +93,7 @@ jobs:
           mkdir -p gui/config gui/state gui/data gui/remote
           export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
           export SPOLA_DEV_REMOTE="$OUT\\remote" SPOLA_SCREENSHOT="$OUT\\window.png" SPOLA_SCREENSHOT_DELAY=8
-          timeout 120 env -u MSYSTEM python bin/spola 2>&1 | tee gui/run.log
+          timeout 120 env MSYSTEM= python bin/spola 2>&1 | tee gui/run.log
           ls -la gui
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         if: always()
@@ -163,7 +166,7 @@ jobs:
           OUT="$(cygpath -w "$PWD/smoke")"
           export XDG_CONFIG_HOME="$OUT\\config" XDG_STATE_HOME="$OUT\\state" XDG_DATA_HOME="$OUT\\data"
           export SPOLA_DEV_REMOTE="$OUT\\remote" SPOLA_SCREENSHOT="$OUT\\window.png" SPOLA_SCREENSHOT_DELAY=8
-          env -u MSYSTEM -u SPOLA_RCLONE timeout 120 ./dist/Spola/Spola.exe || true
+          env -u SPOLA_RCLONE MSYSTEM= timeout 120 ./dist/Spola/Spola.exe || true
           test -f smoke/window.png
       - name: Package
         run: |

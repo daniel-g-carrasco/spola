@@ -81,7 +81,9 @@ def group(paths: list[str], root: str) -> list[Conflict]:
         if not m:
             continue
         ext = m.group("ext") or ""
-        original = os.path.join(directory, m.group("stem") + ext)
+        # with "/", as rclone names the conflicts of a run (engine compares
+        # the two): os.path.join would put "\\" on Windows
+        original = f"{directory}/{m.group('stem')}{ext}" if directory else m.group("stem") + ext
         if m.group("legacy"):
             side, key, date = ("local" if m.group("legacy") == "conflict1" else "koofr"), (original, "legacy"), ""
         else:
@@ -175,15 +177,28 @@ def move_to_trash(path: str) -> None:
 
 
 def resolve(root: str, conflict: Conflict, choice: str,
-            trash: Callable[[str], None] = move_to_trash) -> list[tuple[str, str]]:
+            trash: Callable[[str], None] = move_to_trash, pair=None) -> list[tuple[str, str]]:
     """Apply the user's choice: "local" or "koofr" keeps that copy under the
     original name and sends the other to the wastebasket; "both" keeps both
-    under readable names. Returns the renames done as (old, new)."""
+    under readable names. Returns the renames done as (old, new).
+    `pair` (the app always gives it): before each change, the folder is
+    still the paired one (preflight.check_write_target), else ResolveError
+    and nothing more is changed."""
     if choice not in ("local", "koofr", "both"):
         raise ValueError(choice)
     renames: list[tuple[str, str]] = []
 
+    def check(*rels: str) -> None:
+        if pair is None:
+            return
+        from .preflight import check_write_target
+        for rel in rels:
+            problems = check_write_target(pair, rel)
+            if problems:
+                raise ResolveError(problems[0].message)
+
     def rename(copy: Copy, new_rel: str) -> None:
+        check(copy.path, new_rel)
         src, dst = os.path.join(root, copy.path), os.path.join(root, new_rel)
         if not os.path.lexists(src):
             raise ResolveError(_("That version is no longer there."))
@@ -208,5 +223,6 @@ def resolve(root: str, conflict: Conflict, choice: str,
         raise ResolveError(_("That version is no longer there."))
     rename(keep, conflict.original)
     if drop is not None and os.path.lexists(os.path.join(root, drop.path)):
+        check(drop.path)
         trash(os.path.join(root, drop.path))
     return renames

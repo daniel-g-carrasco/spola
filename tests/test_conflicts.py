@@ -10,6 +10,8 @@ from pathlib import Path
 import _setup  # noqa: F401
 
 from spola.app.conflicts import ResolveError, decide, difference, group, resolve
+from spola.app.config import Pair
+from spola.app.preflight import claim_root
 
 
 class ConflictsTest(unittest.TestCase):
@@ -28,11 +30,12 @@ class ConflictsTest(unittest.TestCase):
         return rel
 
     def trash(self, path):
-        self.trashed.append(os.path.relpath(path, self.root))
+        self.trashed.append(Path(os.path.relpath(path, self.root)).as_posix())
         os.unlink(path)
 
     def listing(self):
-        return sorted(str(p.relative_to(self.root)) for p in self.root.rglob("*") if p.is_file())
+        # with "/", as rclone's listings name the files on every system
+        return sorted(p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file())
 
     def test_grouping(self):
         paths = [
@@ -130,6 +133,43 @@ class ConflictsTest(unittest.TestCase):
             resolve(str(self.root), conflict, "koofr", trash=self.trash)
         resolve(str(self.root), conflict, "local", trash=self.trash)
         self.assertEqual(self.listing(), ["a/doc.odt"])
+
+
+class ResolveChecksTheFolderTest(unittest.TestCase):
+    """Given the pair (as the app does), a resolution changes nothing in a
+    folder that is no longer the paired one."""
+
+    def setUp(self):
+        self.tmp = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.root = self.tmp / "local"
+        self.root.mkdir()
+        st = os.stat(self.root)
+        self.pair = Pair("p1", str(self.root), "/d", root_dev=st.st_dev, root_ino=st.st_ino)
+        claim_root(self.pair)
+        self.trashed = []
+
+    def fill(self, root):
+        for rel, text in (("a.conflict-local-2026-10-10-1.odt", "mine"),
+                          ("a.conflict-koofr-2026-10-10-1.odt", "theirs")):
+            (root / rel).write_text(text)
+        return group(["a.conflict-local-2026-10-10-1.odt", "a.conflict-koofr-2026-10-10-1.odt"], str(root))[0]
+
+    def test_the_paired_folder_is_resolved_as_before(self):
+        conflict = self.fill(self.root)
+        resolve(str(self.root), conflict, "local", trash=self.trashed.append, pair=self.pair)
+        self.assertEqual((self.root / "a.odt").read_text(), "mine")
+
+    def test_a_replaced_folder_is_left_as_it_is(self):
+        conflict = self.fill(self.root)
+        os.rename(self.root, self.tmp / "moved")
+        self.root.mkdir()
+        self.fill(self.root)
+        before = sorted(p.name for p in self.root.iterdir())
+        for choice in ("local", "koofr", "both"):
+            with self.assertRaises(ResolveError):
+                resolve(str(self.root), conflict, choice, trash=self.trashed.append, pair=self.pair)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), before)
+        self.assertEqual(self.trashed, [])
 
 
 if __name__ == "__main__":

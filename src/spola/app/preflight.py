@@ -370,6 +370,39 @@ def check_root_identity(pair: Pair, known_entries: Iterable[str] = ()) -> list[P
     return []
 
 
+class RootChanged(OSError):
+    """A write inside a synced folder refused: the folder (or a folder on
+    the way to the file) is no longer the one paired. str() is the message."""
+
+
+def check_write_target(pair: Pair, rel: str) -> list[Problem]:
+    """Just before Spola itself writes, moves or renames `rel` in the pair
+    (restoring a version, resolving a conflict), not only before a run: the
+    root is still the paired one (check_root_identity: marker, device and
+    inode), and every folder on the way to `rel` that exists is a plain
+    folder of it, not a link or a junction that leads elsewhere."""
+    problems = check_root_identity(pair)
+    if problems:
+        return problems
+    here = pair.local
+    for part in rel.replace("\\", "/").split("/")[:-1]:
+        here = os.path.join(here, part)
+        if not os.path.lexists(here):
+            break
+        if os.path.islink(here) or os.path.isjunction(here) or not os.path.isdir(here):
+            return [Problem("parent-not-folder",
+                            _("“{name}” in the synced folder is no longer a plain folder: nothing was written.")
+                            .format(name=part), here)]
+    return []
+
+
+def ensure_write_target(pair: Pair, rel: str) -> None:
+    """check_write_target, as an error: RootChanged with the first problem."""
+    problems = check_write_target(pair, rel)
+    if problems:
+        raise RootChanged(problems[0].message)
+
+
 @dataclass(frozen=True)
 class CaseRename:
     """A name changed here in its case alone: "Screencasts" to "screencasts"."""
@@ -593,6 +626,13 @@ def root_identity(path: str) -> tuple[int, int]:
     return st.st_dev, st.st_ino
 
 
+def _rel(rel_dir: str, name: str) -> str:
+    """A path relative to the pair's root, always with "/" as in rclone's
+    listings and filters: os.path.join would put "\\" on Windows, and a
+    refused name in a subfolder would then be left out by no rule."""
+    return f"{rel_dir}/{name}" if rel_dir else name
+
+
 def _non_bmp(name: str) -> bool:
     return any(ord(ch) > 0xFFFF for ch in name)
 
@@ -605,14 +645,14 @@ def scan_names(root: str, remote_root: str = "/", limit: int = 200,
     problems: list[Problem] = []
     remote_prefix = len(normalize_remote(remote_root).rstrip("/"))
     for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir
         # an NTFS junction is never synced (rclone --skip-links): not looked into either
         dirnames[:] = [d for d in dirnames if not os.path.isjunction(os.path.join(dirpath, d))]
-        dirnames[:] = [d for d in dirnames if not skip(os.path.join(rel_dir, d) + "/")]
+        dirnames[:] = [d for d in dirnames if not skip(_rel(rel_dir, d) + "/")]
         seen: dict[str, str] = {}
         for name in dirnames + filenames:
-            rel = os.path.join(rel_dir, name)
+            rel = _rel(rel_dir, name)
             if skip(rel):
                 continue
             if _non_bmp(name):
@@ -649,14 +689,14 @@ def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = fro
     refused: list[Refused] = []
     remote_prefix = len(normalize_remote(remote_root).rstrip("/"))
     for dirpath, dirnames, filenames in os.walk(root):
-        rel_dir = os.path.relpath(dirpath, root)
+        rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         rel_dir = "" if rel_dir == "." else rel_dir
         # an NTFS junction is never synced (rclone --skip-links): its names are none of Koofr's business
         dirnames[:] = [d for d in dirnames if not os.path.isjunction(os.path.join(dirpath, d))]
         keep_dirs = []
         groups: dict[str, list[tuple[str, bool]]] = {}
         for name, is_dir in [(d, True) for d in dirnames] + [(f, False) for f in filenames]:
-            rel = os.path.join(rel_dir, name)
+            rel = _rel(rel_dir, name)
             if skip(rel + ("/" if is_dir else "")):
                 continue
             if _non_bmp(name):
@@ -670,10 +710,10 @@ def refused_paths(root: str, remote_root: str = "/", known: frozenset[str] = fro
                 return refused
         for members in groups.values():
             members.sort()
-            kept = next((m for m in members if os.path.join(rel_dir, m[0]) in known), members[0])
+            kept = next((m for m in members if _rel(rel_dir, m[0]) in known), members[0])
             for name, is_dir in members:
                 if (name, is_dir) != kept:
-                    refused.append(Refused(os.path.join(rel_dir, name), is_dir, "case-collision", kept[0]))
+                    refused.append(Refused(_rel(rel_dir, name), is_dir, "case-collision", kept[0]))
                 elif is_dir:
                     keep_dirs.append(name)
         dirnames[:] = [d for d in dirnames if d in keep_dirs]
@@ -733,7 +773,7 @@ def rename_plan(root: str, refused: list[Refused], remote_root: str = "/") -> li
             continue
         new = _without_emoji(name, item.is_dir) if item.code == "emoji" else name
         new = _unique(new, item.is_dir, taken[directory])
-        rel = os.path.join(directory, new)
+        rel = _rel(directory, new)
         fits = len(new) <= KOOFR_MAX_NAME and prefix + 1 + len(rel) <= KOOFR_MAX_PATH
         plan.append((item, rel if fits else None))
     return plan

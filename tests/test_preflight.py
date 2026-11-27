@@ -391,6 +391,22 @@ class RefusedPathsTest(unittest.TestCase):
             self.assertEqual(left.other, "Report.pdf")
             self.assertIn("Report.pdf", refused_reason(left.code, left.other))
 
+    def test_refused_names_in_subfolders_are_written_with_slashes(self):
+        # rclone's listings and filters use "/" on every system: a refused
+        # name in a subfolder written with "\" (os.path.join on Windows,
+        # outside MSYS2) would be excluded by no rule and fail the whole run
+        from spola.app.rclone import exclude_lines
+        name = "08 - \U0001F534.flac"
+        with tempfile.TemporaryDirectory() as tmp:
+            t = Path(tmp)
+            (t / "album" / "disco").mkdir(parents=True)
+            (t / "album" / "disco" / name).write_text("x")
+            (t / "album" / "ok.flac").write_text("y")
+            refused = refused_paths(tmp, "/x")
+            self.assertEqual([r.path for r in refused], [f"album/disco/{name}"])
+            self.assertEqual(exclude_lines(refused), f"/album/disco/{name}\n")
+            self.assertEqual([p.path for p in scan_names(tmp, "/x")], [f"album/disco/{name}"])
+
     def test_names_koofr_accepts_are_suggested(self):
         with tempfile.TemporaryDirectory() as tmp:
             t = Path(tmp)

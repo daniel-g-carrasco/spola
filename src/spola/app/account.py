@@ -33,7 +33,7 @@ class Credentials:
     """In memory only. `obscured` is for rclone's environment, `password` for
     Spola's own read-only API calls."""
     user: str
-    obscured: str
+    obscured: str = field(repr=False)
     password: str = field(default="", repr=False)
 
     @classmethod

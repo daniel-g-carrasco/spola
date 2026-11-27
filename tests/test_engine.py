@@ -394,6 +394,31 @@ class EngineTest(unittest.TestCase):
         self.assertNotIn("conflicts", told)
         self.assertEqual(self.engine.conflicts("p1"), [])
 
+    def test_the_folder_rule_resolves_a_conflict_in_a_subfolder(self):
+        # rclone names the conflict "cartella/g.txt" whatever the system: the
+        # rule must find it there too (on Windows a "\\" once hid it)
+        self.align()
+        (self.local / "cartella").mkdir()
+        (self.local / "cartella" / "g.txt").write_text("g")
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: (self.remote / "cartella" / "g.txt").exists()
+                                   and self.engine.runtime["p1"].run is None, 60))
+        trash = self.trash_here()
+        self.engine.set_conflict_rule("p1", "newer")
+        told = []
+        self.engine.connect("attention", lambda _e, pid, kind, msg: told.append(kind))
+        self.changed_on_both_sides("cartella/g.txt", "new here", "old on Koofr", here_newer=True)
+        self.engine.request_sync("p1", "manual")
+        self.assertTrue(spin_until(lambda: "resolved" in told or "conflicts" in told, 60))
+        self.assertIn("resolved", told)
+        self.assertNotIn("conflicts", told)
+        self.assertTrue(spin_until(lambda: sorted(os.listdir(self.remote / "cartella")) == ["g.txt"]
+                                   and (self.remote / "cartella" / "g.txt").read_text() == "new here", 60))
+        self.assertEqual(sorted(os.listdir(self.local / "cartella")), ["g.txt"])
+        (gone,) = os.listdir(trash)
+        self.assertEqual((trash / gone).read_text(), "old on Koofr")
+        self.assertEqual(self.engine.conflicts("p1"), [])
+
     def test_conflicts_wait_for_the_user_then_resolve_all(self):
         self.align()
         self.trash_here()

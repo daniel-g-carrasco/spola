@@ -231,6 +231,8 @@ def keep_aside(paths: Paths, pair: Pair, rel: str, reason: str, source: str | No
     pair, kept under `rel`) into a new run with its reason: a copy among
     the others, kept until the retention, never lost."""
     rel = safe_rel(rel)
+    from .preflight import ensure_write_target
+    ensure_write_target(pair, rel)
     src = source or os.path.join(pair.local, rel)
     if not os.path.lexists(src):
         raise FileNotFoundError(src)
@@ -295,6 +297,10 @@ def restore(paths: Paths, pair: Pair, version: Version, mode: str, language: str
     src = copy_path(paths, version)
     if not src.is_file() or src.is_symlink():
         raise FileNotFoundError(str(src))
+    # the folder may have been replaced, unmounted or moved since the list
+    # was shown: nothing is written then (preflight.RootChanged)
+    from .preflight import ensure_write_target
+    ensure_write_target(pair, rel)
     here = os.path.join(pair.local, rel)
     if mode == "copy" and os.path.lexists(here):
         target = places.free_name(pair.local, version_name(rel, version.time, language))
