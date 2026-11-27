@@ -6,6 +6,17 @@ are still `0.x`, development releases, published as Flatpak updates from
 Spola's repository and, since 0.3.11, as Windows installers. The same notes,
 shorter, are in the app's metainfo, which software centres show.
 
+## [0.3.51] - 2026-11-27
+
+### Fixed
+- Windows: a file whose name Koofr refuses (an emoji in it, a path too long), inside a subfolder of a synced folder, is left out of the sync as it should be. It used to be listed but not left out, so the sync could fail on it.
+- Windows: a folder's rule for conflicts (keep the newer version, this computer's, Koofr's, or both) resolves conflicts in subfolders too. It used to resolve only those at the top of the folder and leave the others to you.
+- Restoring a previous version or resolving a conflict first checks that the synced folder is still the one you paired. If it has been replaced by another one, its drive is no longer connected, or a folder on the way to the file has become a link, nothing is written and Spola says why.
+
+### Changed
+- The rclone password, in the form rclone reads it, no longer appears in the error log or in an error's details.
+- Windows: the rclone that comes with Spola is checked against its fixed checksum also when the installer is built.
+
 ## [0.3.50] - 2026-11-21
 
 ### Changed

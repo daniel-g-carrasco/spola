@@ -114,6 +114,11 @@
   </screenshots>
 
   <releases>
+    <release version="0.3.51" date="2026-11-27" type="development">
+      <description>
+        <p>Windows: a name Koofr refuses inside a subfolder is left out of the sync, and a folder's rule for conflicts resolves conflicts in subfolders too. Restoring a version or resolving a conflict writes nothing if the synced folder has been replaced, disconnected or redirected by a link, and says why. The rclone password no longer appears in the error log.</p>
+      </description>
+    </release>
     <release version="0.3.50" date="2026-11-21" type="development">
       <description>
         <p>The icon sits on the round disc with its thickness that my other apps use, and is drawn a little larger on Windows, out to the edge of the taskbar as the other apps' icons. The drawing is the same.</p>
